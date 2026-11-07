@@ -115,7 +115,8 @@ transcribe:
 # Nothing is sent until enabled is true, requester is set, and the mailbox secrets exist
 # (ORR_SMTP_HOST, ORR_SMTP_PORT, ORR_USER, ORR_PASSWORD, ORR_FROM, optional ORR_IMAP_HOST).
 openrecords:
-  enabled: true                # sending on (2026-11-06)
+  enabled: false               # sending off (2026-11-07): the owner downloads ordinances and council records by hand now; replies
+                               # already received are still read by `records check` (records-send.yml, by hand)
   # requester (the name requests are signed with) and organization (second signature line) are set in
   # config/private/settings.yaml, which stays in the private repository
   daily_limit: 25              # new requests per night (Gmail allows far more; this keeps the account out of spam checks)
