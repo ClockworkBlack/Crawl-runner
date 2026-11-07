@@ -58,3 +58,21 @@ def test_every_command_line_in_the_workflows_parses():
             assert ns.cmd == argv[0], line
             seen += 1
     assert seen >= 25
+
+
+def test_workflows_have_no_duplicate_keys():
+    """GitHub refuses a workflow with a key given twice (PyYAML would quietly keep the last)."""
+    import yaml
+
+    class Strict(yaml.SafeLoader):
+        pass
+
+    def mapping(loader, node, deep=False):
+        keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+        dup = {k for k in keys if keys.count(k) > 1}
+        assert not dup, f"duplicate keys {dup} at line {node.start_mark.line + 1}"
+        return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+    Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+    for p in (Path(__file__).resolve().parents[1] / ".github" / "workflows").glob("*.yml"):
+        yaml.load(p.read_text(), Loader=Strict)

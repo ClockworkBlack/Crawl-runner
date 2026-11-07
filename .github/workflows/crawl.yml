@@ -363,7 +363,6 @@ jobs:
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
-          VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
         run: |
           M=${{ vars.BILL_VIDEO_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
           [ "$PUBLIC_RUNNER" = "true" ] && M=$(( M * 4 ))
