@@ -154,7 +154,9 @@ def active(cfg, st, now=None) -> tuple[bool, str]:
         return False, "backfill is switched off (config/backfill.json)"
     if cfg.get("until") and _now(cfg, now) >= _parse_until(cfg):
         return False, f"backfill ended at {cfg['until']} (config/backfill.json until)"
-    if st.get("done"):
+    if st.get("done") and not (os.environ.get("PUBLIC_RUNNER") == "true" and cfg.get("continuous")):
+        # (the public runner's minutes are free and it gathers far more than candidate profiles: with `continuous`
+        # it keeps chaining runs; the old stop rule, which counts only candidate research, ended it on Nov 7)
         return False, "backfill finished: " + (st.get("done_reason") or "profiles stopped filling")
     used, cap = month_minutes(st, now, cfg), int(cfg["month_minutes_cap"])
     if os.environ.get("PUBLIC_RUNNER") == "true":
