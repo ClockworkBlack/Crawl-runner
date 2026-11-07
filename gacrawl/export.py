@@ -321,6 +321,10 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     from .bill_reasons import export_reasons
 
     reasons_counts = export_reasons(store, root, out / "bill_reasons.json")
+    from .newsdigest import export_news
+
+    news_counts = export_news(store, out / "news.json")
+    log(f"  news digest: {news_counts['items']} stories ({news_counts['window']})")
     from .donors import export_donors
 
     donors_counts = export_donors(store, root, cands, out / "donors.json", log=log)

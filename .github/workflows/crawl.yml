@@ -368,6 +368,12 @@ jobs:
           M=${{ vars.BILL_REASONS_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           timeout -s INT -k 2m "$((M + 4))m" gacrawl legis reasons --max-minutes "$M" || echo "bill reasons stopped after $((M + 4)) minutes"
+      - name: Political news for the News tab (outlets' news APIs and feeds)
+        run: |
+          # every run: the last ten days of Georgia government and politics stories from the outlets in
+          # config/outlets.yaml (their WordPress news APIs, else the feeds their home pages link to)
+          M=${{ vars.NEWS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
+          timeout -s INT -k 1m "$((M + 2))m" gacrawl news --max-minutes "$M" || echo "news stopped after $((M + 2)) minutes"
       - name: Committee hearing video (each bill's committee steps, then the official recordings of those days)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
@@ -507,7 +513,7 @@ jobs:
           bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
             state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
-            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/veto_statements.json \
+            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/veto_statements.json \
             state/coverage.json data/coverage.md \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
       - name: Electo is fed from what Crawl holds

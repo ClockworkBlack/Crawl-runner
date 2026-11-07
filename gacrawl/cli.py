@@ -709,6 +709,19 @@ def cmd_codeacts(cfg, args):
         store.close()
 
 
+def cmd_news(cfg, args):
+    """Georgia political news for Electo's News tab: outlets' news APIs and feeds, the last ten days."""
+    from .newsdigest import Digest
+
+    store = config.make_store(cfg)
+    try:
+        deadline = time.monotonic() + float(args.max_minutes or 6) * 60
+        stats = Digest(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"]).run(deadline)
+    finally:
+        store.close()
+    print(json.dumps({"news": stats}))
+
+
 def cmd_coverage(cfg, args):
     """What the data holds per Electo feature, against the last run: state/coverage.json and data/coverage.md."""
     import os
@@ -873,6 +886,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--workers", type=int); s.add_argument("--max-age-days", type=float); s.add_argument("--max-minutes", type=float)
     s.add_argument("--districts", action="store_true", help="school districts only (each runner run: a changed district seed is worked off at once)")
     sub.add_parser("status")
+    nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
+    nw.add_argument("--max-minutes", type=float, default=6)
     sub.add_parser("coverage", help="what the data holds per Electo feature, against the last run (data/coverage.md)")
     pg = sub.add_parser("purge", help="delete the records of the sources listed in config/purge.yaml")
     pg.add_argument("--dry-run", action="store_true")
@@ -961,7 +976,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
