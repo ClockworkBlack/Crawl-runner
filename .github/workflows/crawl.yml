@@ -244,8 +244,50 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: "shard-${{ matrix.shard }}", path: upload/, retention-days: 1}
 
+  hearings:
+    # what was said about each bill in its committee hearing: Vimeo caption files, else (when the House allows
+    # downloads) the recording transcribed with faster-whisper. Long CPU work, so only on the public runner (free
+    # minutes), beside the crawl jobs; its new records reach the merge like a crawl shard's.
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: ${{ github.event.repository.private }}
+      - name: Runner mode and state (config/runner.json)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - name: Install (with the speech model)
+        if: env.VIMEO_TOKEN != ''
+        run: pip install -q -e . faster-whisper
+      - uses: actions/download-artifact@v4
+        if: env.VIMEO_TOKEN != ''
+        with: {name: state-base, path: upload}
+      - name: Transcribe hearings
+        if: env.VIMEO_TOKEN != ''
+        run: |
+          bash scripts/ci_runner.sh unpack upload/state-base.* && rm -rf upload
+          bash scripts/ci_db.sh pull
+          M=${{ vars.HEARING_MINUTES || '150' }}; [ "$IS_MAIN" != "true" ] && M=5
+          timeout -s INT -k 3m "$((M + 8))m" gacrawl legis hearings --max-minutes "$M" > /tmp/h.json || echo "stopped after $((M + 8)) minutes"
+          python3 -c "import json;print(json.load(open('/tmp/h.json')).get('hearings'))" 2>/dev/null || true
+          mkdir -p out/deltas out/state
+          gacrawl delta --since "${{ needs.prepare.outputs.started }}" --out out/deltas/shard-hearings.db
+          bash scripts/ci_runner.sh pack shard out
+      - uses: actions/upload-artifact@v4
+        if: env.VIMEO_TOKEN != ''
+        with: {name: shard-hearings, path: upload/, retention-days: 1}
+
   merge:
-    needs: [prepare, crawl]
+    needs: [prepare, crawl, hearings]
     if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true'
     runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 350    # a backfill run: research 100 + Code changes 45 + finance 20 + the rest, with room to spare
@@ -266,10 +308,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: state-base, path: state}
       - uses: actions/download-artifact@v4
-        if: needs.crawl.result != 'skipped'
+        if: needs.crawl.result != 'skipped' || needs.hearings.result == 'success'
         with: {pattern: "shard-*", path: shards}
       - name: Unpack shards
-        if: needs.crawl.result != 'skipped'
+        if: needs.crawl.result != 'skipped' || needs.hearings.result == 'success'
         run: |
           shopt -s nullglob
           for d in shards/shard-*; do
@@ -358,6 +400,7 @@ jobs:
       - name: Committee hearing video (each bill's committee steps, then the official recordings of those days)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
         run: |
           M=${{ vars.BILL_VIDEO_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
           [ "$PUBLIC_RUNNER" = "true" ] && M=$(( M * 2 ))

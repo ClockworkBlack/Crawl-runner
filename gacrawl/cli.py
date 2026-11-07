@@ -615,12 +615,17 @@ def cmd_legis(cfg, args):
                 out["vetoes"] = vetoes(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], deadline)
             else:
                 out["vetoes"] = "outside the off-peak window: the Governor's pages are read at night"
-        if args.action in ("video", "histories"):
+        if args.action in ("video", "histories", "hearings"):
             # committee hearing video: each bill's dated committee steps (the data service, any time), then the official
             # recordings of that committee on those days (channel pages: inside the off-peak window)
             from .legis_video import histories, link_videos
 
-            out["histories"] = histories(_fetcher(cfg, deadline), store, deadline)
+            if args.action != "hearings":
+                out["histories"] = histories(_fetcher(cfg, deadline), store, deadline)
+            if args.action == "hearings":
+                from .legis_video import hearings
+
+                out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline)
             if args.action == "video":
                 out["video"] = link_videos(_fetcher(cfg, deadline), store, config.ROOT, deadline)
         if args.action == "reasons":
@@ -871,7 +876,7 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--candidate"); fi.add_argument("--since"); fi.add_argument("--max-minutes", type=float); fi.add_argument("--org-limit", type=int)
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
-    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "all"])
+    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "all"])
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
     sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "people", "all"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")

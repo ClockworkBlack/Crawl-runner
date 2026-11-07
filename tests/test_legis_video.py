@@ -44,3 +44,28 @@ def test_links_the_hearing_on_that_day(tmp_path):
     assert out["links"] == 1
     v = list(store.iter_query("kind='bill_video'"))
     assert v[0]["url"] == "https://vimeo.com/111111111" and v[0]["meta"]["step_date"] == "2026-02-19"
+
+
+def test_hearing_captions_become_time_coded_reasons(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIMEO_TOKEN", "t")
+    vtt = ("WEBVTT\n\n00:10:00.000 --> 00:10:05.000\nNext is House Bill 9 by Representative Smith.\n\n"
+           "00:10:05.000 --> 00:10:10.000\nThis bill would cost counties two million dollars.\n\n"
+           "00:10:10.000 --> 00:10:15.000\nOpponents say it is an unfunded mandate.\n")
+    pages = {"https://api.vimeo.com/videos/111111111/texttracks": json.dumps({"data": [{"link": "https://captions.example/1.vtt", "language": "en", "active": True}]}).encode(),
+             "https://captions.example/1.vtt": vtt.encode()}
+
+    class F:
+        def get(self, url, **kw):
+            body = pages.get(url)
+            return FetchResult(url, 200 if body else 404, {"content-type": "text/plain"}, body or b"", 0.0)
+
+    store = Store(tmp_path / "db")
+    store.add(Record(lv.SOURCE, "bill_video", "https://vimeo.com/111111111", title="2.19.26 Governmental Affairs",
+                     meta={"legislation_id": 1, "number": "HB 9", "session": 1033, "committee": "Governmental Affairs",
+                           "video_date": "2026-02-19", "platform": "vimeo", "video_id": "111111111"}))
+    store.flush()
+    out = lv.hearings(F(), store, {}, log=lambda *a: None)
+    assert out["captions"] == 1 and out["moments"] == 1
+    r = list(store.iter_query("kind='bill_reason' AND source_id=?", (lv.HEARING_SOURCE,)))[0]
+    assert r["meta"]["at"] == "0:10:00" and "unfunded" in r["text"] and r["url"].endswith("#t=600s")
+    assert lv.hearings(F(), store, {}, log=lambda *a: None)["waiting"] == 0

@@ -101,6 +101,8 @@ transcribe:
   per_run: 2                   # recordings per run
   max_mb: 300
   budget_seconds: 900          # stop a single recording after this long
+  hearing_max_mb: 1500         # legislative committee hearings (gacrawl legis hearings, public runner only)
+  hearing_budget_seconds: 5400
 
 # Georgia Open Records Act requests for codes of ordinances (`gacrawl records ...`).
 # Nothing is sent until enabled is true, requester is set, and the mailbox secrets exist

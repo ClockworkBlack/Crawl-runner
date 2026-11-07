@@ -432,13 +432,14 @@ def export_reasons(store, root: Path, out_path: Path) -> dict:
     for v in store.iter_query("kind='vote' AND source_id=?", (LEGIS,)):
         votes_by[v["meta"].get("legislation_id")].append(v["meta"])
     reasons_by = defaultdict(list)
-    for src in (VETO_SOURCE, SOURCE):
+    for src in (VETO_SOURCE, "ga:legis-hearing", SOURCE):
         for r in store.iter_query("kind='bill_reason' AND source_id=?", (src,)):
             m = r["meta"]
             reasons_by[m.get("legislation_id")].append({"t": r.get("title") or "", "u": r["url"], "d": r.get("published") or "",
                                                         "outlet": m.get("outlet", ""), "excerpts": m.get("excerpts") or [],
                                                         **({"official": True} if m.get("official") else {}),
-                                                        **({"press_release": True} if m.get("press_release") else {})})
+                                                        **({"press_release": True} if m.get("press_release") else {}),
+                                                        **({"hearing": True, "at": m.get("at")} if m.get("hearing") else {})})
     videos_by = defaultdict(list)
     for r in store.iter_query("kind='bill_video' AND source_id=?", ("ga:legis-video",)):
         m = r["meta"]
@@ -491,7 +492,7 @@ def export_reasons(store, root: Path, out_path: Path) -> dict:
                       "act": m.get("act") or "", "origin": origin, "committees": [c for c in (m.get("house_committee"), m.get("senate_committee")) if c],
                       "lead_sponsor": {"name": lead.get("name"), "party": lead_party} if lead else None,
                       "sponsor_parties": dict(sp_parties), "bipartisan_sponsors": bip, "majority_party": majority,
-                      "votes": vlist, "features": f, "reasons": rs[:8],
+                      "votes": vlist, "features": f, "reasons": rs[:10],
                       "videos": sorted(videos_by.get(lid, []), key=lambda v: v["d"])[:6]})
     pats = {}
     labels = {"passed_first_chamber": "passed the chamber it started in", "lead_majority": "had a lead sponsor from the majority party",
