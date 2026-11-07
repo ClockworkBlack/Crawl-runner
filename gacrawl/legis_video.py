@@ -284,12 +284,13 @@ def discover_channels(fetcher, pages: list[str], log=print) -> list[dict]:
     return out
 
 
-def link_videos(fetcher, store, root: Path, deadline=None, log=print) -> dict:
+def link_videos(fetcher, store, root: Path, deadline=None, log=print, pages: bool = True) -> dict:
     from .registry import load_yaml
 
     cfg = (load_yaml(root / "config" / "legislature.yaml").get("video") or {})
     chans = [dict(c) for c in cfg.get("channels") or []]
-    for c in discover_channels(fetcher, cfg.get("official_pages") or [], log):
+    # the legislature's own pages are read only when asked (inside the off-peak window); the channels' APIs any time
+    for c in (discover_channels(fetcher, cfg.get("official_pages") or [], log) if pages else []):
         if c["url"] not in {x.get("url") for x in chans}:
             chans.append({"name": c["url"], **c})
     since = str(cfg.get("since") or "2019-01-01")

@@ -621,13 +621,20 @@ def cmd_legis(cfg, args):
             from .legis_video import histories, link_videos
 
             if args.action != "hearings":
-                out["histories"] = histories(_fetcher(cfg, deadline), store, deadline)
+                # at most half the time on bill histories, so linking and the hearings get the rest
+                half = (time.monotonic() + (deadline - time.monotonic()) / 2) if (deadline and args.action == "video") else deadline
+                out["histories"] = histories(_fetcher(cfg, half), store, half)
             if args.action == "hearings":
                 from .legis_video import hearings
 
                 out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline)
             if args.action == "video":
-                out["video"] = link_videos(_fetcher(cfg, deadline), store, config.ROOT, deadline)
+                out["video"] = link_videos(_fetcher(cfg, deadline), store, config.ROOT, deadline,
+                                           pages=not getattr(args, "no_pages", False))
+                if getattr(args, "with_hearings", False):
+                    from .legis_video import hearings
+
+                    out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline)
         if args.action == "reasons":
             # why decided bills passed, were vetoed or died: what trusted outlets reported, through their own news APIs
             from .bill_reasons import research
@@ -878,6 +885,8 @@ def build_parser() -> argparse.ArgumentParser:
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
     lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "all"])
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
+    lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
+    lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
     sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "people", "all"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")
