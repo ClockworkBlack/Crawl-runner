@@ -1,0 +1,551 @@
+name: crawl
+
+# Nightly crawl + weekly discovery and candidate research.
+#
+# Cost: private repos get a monthly allowance of Actions minutes (2,000 on GitHub Free, 3,000 on Pro). Every
+# step below has a time cap, not a fixed cost: once a backfill is done a step finishes early. Nightly: two crawl runners
+# side by side, 18 minutes each (about the minutes of one 35-minute runner, done in half the time), plus small caps for derive (5), transcripts (4), Legistar sponsors (3) and, while the General Assembly
+# is in session or signing (January-May), the legislature (6). Weekly: seed (20), campaign
+# finance (15), legislature (6). Candidate research runs every night (13 minutes) instead of one weekly block. About 1,700-1,900 minutes a month while backfills run, less after; the browser comes
+# from the runner's own Chrome and the database moves as zstd, so setup stays short.
+# Raise throughput with repository variables (Settings > Secrets and variables > Actions > Variables):
+#   CRAWL_SHARDS   parallel crawl runners (default 2)    CRAWL_MINUTES      crawl budget per runner (default 18)
+#   SEED_MINUTES   weekly discovery budget (default 20)   RESEARCH_NIGHTLY_MINUTES research per night (13); RESEARCH_MINUTES on demand (90)
+#   DERIVE_MINUTES, TRANSCRIPT_MINUTES, SPONSOR_MINUTES, LEGIS_MINUTES, FINANCE_MINUTES, SCHOOLS_MINUTES (defaults 5, 4, 3, 6, 15, 12)
+# A self-hosted runner costs no minutes at all, and a runner on an ordinary home or office connection reaches the
+# 69 official sites whose firewalls refuse data-center address ranges (README: Coverage). Set the repository
+# variable CRAWL_RUNNER to its label (self-hosted) to run the crawl shards there, MERGE_RUNNER for the merge job
+# (research, finance, Code changes); scripts/selfhosted.sh sets one up.
+#
+# Data: the database (data/crawl.db) and the Electo bundle live as assets of the "crawl-data" release;
+# small state files are committed back to this repo. With an ELECTO_TOKEN secret (fine-grained token with
+# contents read/write on ClockworkBlack/Electo) people are imported from Electo before each run and the
+# research packets are pushed to Electo's data/crawl/ afterwards.
+
+on:
+  schedule:
+    - cron: "7 4 * * *"      # nightly 04:07 UTC = 11:07 PM EST / 12:07 AM EDT, inside the off-peak window
+    - cron: "41 9 * * 0"     # Sundays 09:41 UTC: seed (re-discover sites/portals) + candidate research
+    - cron: "17 11 * * *"    # 11:17 UTC (6:17 AM EST): starts the day's backfill chain while config/backfill.json has it on
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "What to run"
+        type: choice
+        default: crawl
+        options: [crawl, seed, candidates, all, export-only, backfill]
+      source:
+        description: "crawl: only this source or jurisdiction id (blank = everything due)"
+        required: false
+      tier:
+        description: "crawl: only this tier (a, b, c)"
+        required: false
+      force:
+        description: "crawl: ignore the off-peak window and cadence"
+        type: boolean
+        default: false
+      full:
+        description: "crawl: full re-crawl from 2016 instead of a delta"
+        type: boolean
+        default: false
+      reseed:
+        description: "seed: re-inspect every jurisdiction now, not only entries older than 30 days"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write         # open records: a reply that mentions a cost opens an issue (GitHub notifies you)
+  actions: write        # a backfill run dispatches the next one
+
+concurrency:
+  group: crawl-${{ github.ref_name }}     # a dev-branch test never queues behind (or displaces) the live crawl
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"      # log lines as they happen, not in bursts (and none lost when a step is stopped)
+  GH_TOKEN: ${{ github.token }}
+  RUN_TOKEN: ${{ github.token }}       # this repository's own runs (chaining, minute counts), whichever repo holds the data
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}  # public runner only (config/runner.json): reads and writes the private data repository
+  ORR_FROM: ${{ secrets.ORR_FROM }}
+  # Runs from any branch but main are tests: they read the live database (if they have none of their own yet) but
+  # write only to the crawl-data-dev release, never commit state, never push to Electo, never chain backfill runs,
+  # and use short budgets. Merge to main to make a change live.
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+  DATA_TAG: ${{ github.ref_name == github.event.repository.default_branch && 'crawl-data' || 'crawl-data-dev' }}
+  LIVE_TAG: crawl-data
+  WEEKLY: ${{ github.event.schedule == '41 9 * * 0' }}
+  OPTIMIZE_FTS: ${{ github.event.schedule == '41 9 * * 0' }}
+  NIGHTLY: ${{ github.event.schedule == '7 4 * * *' }}
+  BACKFILL: ${{ inputs.job == 'backfill' || github.event.schedule == '17 11 * * *' }}
+  HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
+  GACRAWL_BROWSER_CHANNEL: chrome      # GitHub's runners ship Google Chrome: no Playwright browser download per run
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      n: ${{ steps.plan.outputs.n }}
+      started: ${{ steps.plan.outputs.started }}
+      crawl: ${{ steps.plan.outputs.crawl }}
+      research: ${{ steps.plan.outputs.research }}
+      skip: ${{ steps.plan.outputs.skip }}
+      minutes: ${{ steps.plan.outputs.minutes }}
+      research_minutes: ${{ steps.plan.outputs.research_minutes }}
+      free: ${{ steps.plan.outputs.free }}
+      police_news_minutes: ${{ steps.plan.outputs.police_news }}
+      finance_minutes: ${{ steps.plan.outputs.finance_minutes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the public runner keeps no credential in a checkout that processes crawled pages (it writes to the private
+          # repository with DATA_TOKEN); the private repository commits its own state with it
+          persist-credentials: ${{ github.event.repository.private }}
+      - name: Runner mode and state (config/runner.json)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - name: Install (only when this job runs the crawler, for seeding or the Electo import)
+        if: env.WEEKLY == 'true' || inputs.job == 'seed' || inputs.job == 'all' || env.HAS_ELECTO_TOKEN == 'true'
+        run: pip install -q -e .
+      - id: plan
+        run: |
+          N="${{ vars.CRAWL_SHARDS || '3' }}"; MIN="${{ vars.CRAWL_MINUTES || '18' }}"
+          # daytime backfill (config/backfill.json, state/backfill.json); stdlib only, nothing installed yet
+          eval "$(python -m gacrawl.backfill plan | sed 's/^/BF_/')"
+          echo "backfill: active=$BF_active go=$BF_go ($BF_why)"
+          [ -n "$BF_crawl_shards" ] && N=$BF_crawl_shards     # public runner: more parallel crawl jobs
+          echo "police_news=$BF_police_news_minutes" >> "$GITHUB_OUTPUT"
+          JOB="${{ inputs.job || '' }}"
+          CRAWL=false; RESEARCH=false; SKIP=false
+          if [ "$JOB" = "" ] || [ "$JOB" = "crawl" ] || [ "$JOB" = "all" ]; then CRAWL=true; fi
+          if [ "$WEEKLY" = "true" ] || [ "$JOB" = "candidates" ] || [ "$JOB" = "all" ]; then RESEARCH=true; fi
+          if [ "$BACKFILL" = "true" ]; then
+            if [ "$BF_go" = "true" ]; then CRAWL=true; RESEARCH=true; N=$BF_backfill_shards; MIN=$BF_crawl_minutes; else CRAWL=false; SKIP=true; fi
+          elif [ "$NIGHTLY" = "true" ] && [ "$BF_active" = "true" ]; then
+            N=$BF_night_shards; MIN=$BF_night_minutes    # more council minutes and roll calls inside the off-peak window
+          fi
+          if [ "$BF_free" = "True" ] && [ "$BACKFILL" != "true" ]; then
+            N=$BF_free_shards; MIN=$BF_free_minutes      # free mode: inside GitHub's included minutes
+            echo "free mode: $N x $MIN minutes"
+            if [ "$NIGHTLY" = "true" ] && [ "$BF_free_today" != "True" ]; then CRAWL=false; RESEARCH=false; SKIP=true; echo "free mode: not a crawl night"; fi
+          fi
+          echo "free=$BF_free" >> "$GITHUB_OUTPUT"
+          if [ "$IS_MAIN" != "true" ]; then
+            N=1; MIN=${{ vars.DEV_CRAWL_MINUTES || '8' }}; BF_research_minutes=10; BF_finance_minutes=5
+            echo "test run from ${{ github.ref_name }}: 1 shard x $MIN minutes, writes to $DATA_TAG only"
+          fi
+          echo "n=$N" >> "$GITHUB_OUTPUT"; echo "minutes=$MIN" >> "$GITHUB_OUTPUT"
+          echo "shards=$(python -c "import json;print(json.dumps(list(range($N))))")" >> "$GITHUB_OUTPUT"
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+          if [ "$STAND_DOWN" = "true" ]; then CRAWL=false; RESEARCH=false; SKIP=true; echo "the public runner runs the schedule (config/runner.json)"; fi
+          echo "crawl=$CRAWL" >> "$GITHUB_OUTPUT"; echo "research=$RESEARCH" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "research_minutes=$BF_research_minutes" >> "$GITHUB_OUTPUT"; echo "finance_minutes=$BF_finance_minutes" >> "$GITHUB_OUTPUT"
+      - name: Seed (re-discover websites, portals, feeds; entries older than 30 days, failures weekly, all after a seed change)
+        if: env.WEEKLY == 'true' || inputs.job == 'seed' || inputs.job == 'all'
+        run: |
+          # a changed seed (SEED_VERSION) or a new override makes an entry due at once; `job: seed` on its own
+          # gets the long cap, so a seed change is worked off in one or two runs instead of a 20-minute slice a week
+          if [ "${{ inputs.reseed }}" = "true" ]; then
+            gacrawl seed --refresh --max-minutes 55 --workers 16
+          elif [ "${{ inputs.job }}" = "seed" ]; then
+            gacrawl seed --max-age-days 30 --max-minutes 55 --workers 16
+          else
+            gacrawl seed --max-age-days 30 --max-minutes ${{ vars.SEED_MINUTES || '20' }} --workers 16
+          fi
+          gacrawl seed --report    # data/seed_gaps.md: what still has no working site, by cause, with override stanzas
+      - name: Check out Electo (people, councils, profile links, code links)
+        id: electo
+        if: env.HAS_ELECTO_TOKEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          token: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          path: electo
+          sparse-checkout: |
+            ga/pipeline_archive/people.json
+            ga/pipeline_archive/aliases.json
+            ga/pipeline_archive/splits.json
+            ga/pipeline_archive/profiles.json
+            ga/councils.json
+            ga/localcodes.json
+          sparse-checkout-cone-mode: false
+      - name: Import Electo
+        if: steps.electo.outcome == 'success'
+        run: gacrawl electo import --path electo
+      - run: mkdir -p state && touch state/.keep && bash scripts/ci_runner.sh pack state-base state imports/screens data/openrecords data/verified data/rumor_mill
+      - uses: actions/upload-artifact@v4
+        with: {name: state-base, path: upload/, retention-days: 1, include-hidden-files: true}
+
+  crawl:
+    needs: prepare
+    if: needs.prepare.outputs.crawl == 'true'
+    runs-on: ${{ vars.CRAWL_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 340   # the crawl stops itself at CRAWL_MINUTES (at the next request of any source still running)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the public runner keeps no credential in a checkout that processes crawled pages (it writes to the private
+          # repository with DATA_TOKEN); the private repository commits its own state with it
+          persist-credentials: ${{ github.event.repository.private }}
+      - name: Runner mode and state (config/runner.json)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - name: Install
+        run: |
+          # no OCR engine here: scanned pages are left to the merge job's `gacrawl ocr pending` (GACRAWL_OCR_PAGES=0),
+          # which saves the apt install on every crawl runner
+          pip install -q -e .
+          # script-rendered pages use the runner's Chrome; download Playwright's browser only if there isn't one
+          # (a self-hosted runner without passwordless sudo gets the browser without its system packages)
+          if ! command -v google-chrome >/dev/null; then
+            if sudo -n true 2>/dev/null; then python -m playwright install --with-deps chromium; else python -m playwright install chromium; fi
+          fi
+      - uses: actions/download-artifact@v4
+        with: {name: state-base, path: upload}
+      - run: bash scripts/ci_runner.sh unpack upload/state-base.* && rm -rf upload
+      - name: Fetch database
+        run: bash scripts/ci_db.sh pull
+      - name: Crawl
+        timeout-minutes: 120
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}   # council meeting channels (listing uses 1-unit calls)
+          GACRAWL_OCR_PAGES: "0"
+        run: |
+          ARGS="--shard ${{ matrix.shard }}/${{ needs.prepare.outputs.n }} --max-minutes ${{ needs.prepare.outputs.minutes }}"
+          [ -n "${{ inputs.source }}" ] && ARGS="$ARGS --source ${{ inputs.source }}"
+          [ -n "${{ inputs.tier }}" ] && ARGS="$ARGS --tier ${{ inputs.tier }}"
+          [ "${{ inputs.force }}" = "true" ] && ARGS="$ARGS --force"
+          [ "${{ inputs.full }}" = "true" ] && ARGS="$ARGS --full"
+          # watchdog: the crawler checks its budget between requests, but one long OCR or page render can outlast it.
+          # SIGINT lets it flush what it has (the delta below still runs); a hard kill only if it ignores that.
+          MIN=${{ needs.prepare.outputs.minutes }}
+          timeout -s INT -k 2m "$((MIN + 6))m" gacrawl run $ARGS || echo "crawl stopped by the watchdog after $((MIN + 6)) minutes"
+      - name: Delta
+        run: |
+          mkdir -p out/deltas out/state
+          gacrawl delta --since "${{ needs.prepare.outputs.started }}" --out out/deltas/shard-${{ matrix.shard }}.db
+          cp state/progress.json state/channels.json state/blocked.json out/state/ 2>/dev/null || true
+      - run: bash scripts/ci_runner.sh pack shard out
+      - uses: actions/upload-artifact@v4
+        with: {name: "shard-${{ matrix.shard }}", path: upload/, retention-days: 1}
+
+  merge:
+    needs: [prepare, crawl]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true'
+    runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 350    # a backfill run: research 100 + Code changes 45 + finance 20 + the rest, with room to spare
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the public runner keeps no credential in a checkout that processes crawled pages (it writes to the private
+          # repository with DATA_TOKEN); the private repository commits its own state with it
+          persist-credentials: ${{ github.event.repository.private }}
+      - name: Runner mode and state (config/runner.json)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - uses: actions/download-artifact@v4
+        with: {name: state-base, path: state}
+      - uses: actions/download-artifact@v4
+        if: needs.crawl.result != 'skipped'
+        with: {pattern: "shard-*", path: shards}
+      - name: Unpack shards
+        if: needs.crawl.result != 'skipped'
+        run: |
+          shopt -s nullglob
+          for d in shards/shard-*; do
+            (cd "$d" && for f in shard.*; do bash "$GITHUB_WORKSPACE/scripts/ci_runner.sh" unpack "$f" && rm -f "$f"; done
+             if [ -d out ]; then cp -r out/. . && rm -rf out; fi)
+          done
+      - name: Fetch database
+        run: bash scripts/ci_db.sh pull
+      - name: Merge shards
+        run: |
+          shopt -s nullglob
+          DELTAS=(shards/*/deltas/*.db); STATES=(shards/*/state)
+          if [ ${#DELTAS[@]} -gt 0 ]; then gacrawl merge "${DELTAS[@]}" --state "${STATES[@]}"; fi
+      # Every step below has a time cap; a test run from a branch uses a short one (a few minutes) so the whole run
+      # is a smoke test of about 45 billable minutes, not a night's work.
+      - name: Purge sources removed for cause (config/purge.yaml)
+        run: gacrawl purge
+      - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
+        run: |
+          M=${{ vars.DERIVE_MINUTES || '5' }}; [ "$IS_MAIN" != "true" ] && M=2
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl derive --max-minutes "$M"       # out of time: keeps its place and carries on next run
+      - name: Finish scanned documents the crawl left unread (night runs)
+        if: env.NIGHTLY == 'true' || env.WEEKLY == 'true' || env.IS_MAIN != 'true'
+        run: |
+          M=${{ vars.OCR_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          if [ "$(gacrawl ocr pending --count)" = "0" ]; then echo "nothing pending"; exit 0; fi
+          command -v tesseract >/dev/null || sudo -n apt-get install -y -qq tesseract-ocr || (sudo -n apt-get update -qq && sudo -n apt-get install -y -qq tesseract-ocr) \
+            || echo "no OCR engine on this runner (install tesseract-ocr on it)"
+          command -v tesseract >/dev/null && gacrawl ocr pending --max-minutes "$M" || true
+      - name: Transcripts and Legistar sponsors
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          T=${{ vars.TRANSCRIPT_MINUTES || '4' }}; S=${{ vars.SPONSOR_MINUTES || '3' }}; [ "$IS_MAIN" != "true" ] && T=2 && S=1
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl transcripts --max-minutes "$T" || true
+          gacrawl sponsors --max-minutes "$S" || true
+      - name: YouTube channels (Data API, any time of day)
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          # council and county meeting channels due tonight (the shards list them too); the first run with a key lists all
+          M=${{ vars.YOUTUBE_MINUTES || '10' }}; T=3; [ "$IS_MAIN" != "true" ] && M=3 && T=1
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          [ -n "$YOUTUBE_API_KEY" ] && gacrawl run --kind video --max-minutes "$M" || echo "no YOUTUBE_API_KEY"
+          gacrawl transcripts --max-minutes "$T" || true
+      - name: Candidate research (every night, a share of the weekly budget; a full block when asked for)
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+        run: |
+          for k in FEC_API_KEY YOUTUBE_API_KEY X_BEARER_TOKEN; do [ -n "${!k}" ] && echo "$k: set" || echo "$k: missing (README: Secrets and API keys)"; done
+          gacrawl posts verify || true
+          if [ "$IS_MAIN" != "true" ]; then
+            M=10                                              # test run from a branch
+          elif [ "$BACKFILL" = "true" ]; then
+            M=${{ needs.prepare.outputs.research_minutes }}  # daytime backfill block
+          elif [ "${{ needs.prepare.outputs.research }}" = "true" ] && [ "$WEEKLY" != "true" ]; then
+            M=${{ vars.RESEARCH_MINUTES || '90' }}          # asked for (job candidates / all)
+            if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          else
+            M=${{ vars.RESEARCH_NIGHTLY_MINUTES || '13' }}  # nightly: about the same minutes a week as one 90-minute block
+            if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          fi
+          # watchdog as on the crawl: SIGINT after the budget lets research finish the candidates in hand and save
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" || echo "research stopped by the watchdog after $((M + 5)) minutes"
+      - name: General Assembly (members, bills, roll calls; per-candidate records)
+        run: |
+          # legis.ga.gov changes daily in session and signing season (January-May), rarely otherwise
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$(date -u +%m)" -le 5 ]; then
+            M=${{ vars.LEGIS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
+            if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+            gacrawl legis update --max-minutes "$M" || true
+          fi
+          gacrawl legis people || true      # local: per-candidate records for tonight's export
+      - name: Why bills passed, were vetoed or died (outlets' own news APIs)
+        run: |
+          # decided bills, signed and vetoed first, then the ones that died; each outlet's WordPress news API (found on
+          # its home page) searched for the bill's number within the session's dates; a closed session's bill once
+          M=${{ vars.BILL_REASONS_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=2
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl legis reasons --max-minutes "$M" || echo "bill reasons stopped after $((M + 4)) minutes"
+      - name: Committee hearing video (each bill's committee steps, then the official recordings of those days)
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          M=${{ vars.BILL_VIDEO_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
+          [ "$PUBLIC_RUNNER" = "true" ] && M=$(( M * 2 ))
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          # the data service any time; the channel pages only inside the off-peak window
+          if gacrawl window | grep -q '"good_time": true'; then
+            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
+          else
+            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis histories --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/lv.json'));print({k:d.get(k) for k in ('histories','video')})" 2>/dev/null || true
+      - name: Schools (registry, statistics, school sites, board members, superintendents, principals)
+        run: |
+          # the registry and the statistics change a few times a year (weekly, NCES EDGE and GOSA/GaDOE data
+          # services); school websites and the people pages are read a bounded batch at a time, every night
+          M=${{ vars.SCHOOLS_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
+            gacrawl schools seed --max-minutes "$M" || true
+            gacrawl schools stats --max-minutes "$M" || true
+          fi
+          gacrawl schools sites --max-minutes "$M" || true
+          gacrawl schools people || true    # local: from pages already in the database; feeds tonight's research and export
+      - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
+        run: |
+          # each enacted act is read once (about 1,440 for 2023-2026, ~2 requests and ~3 s each: two to three nights
+          # for the backlog), then only new acts as they are signed
+          M=${{ vars.CODEACTS_MINUTES || '45' }}; [ "$IS_MAIN" != "true" ] && M=3
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl codeacts --max-minutes "$M" || true   # exits early once every act is read
+      - name: Campaign finance and organizations
+        if: needs.prepare.outputs.research == 'true'
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          OPENCORPORATES_API_KEY: ${{ secrets.OPENCORPORATES_API_KEY }}
+        run: |
+          M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl finance --max-minutes "$M" || true
+      - name: Open records requests (replies, follow-ups, new batch)
+        env:
+          ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}
+          ORR_SMTP_PORT: ${{ secrets.ORR_SMTP_PORT }}
+          ORR_USER: ${{ secrets.ORR_USER }}
+          ORR_PASSWORD: ${{ secrets.ORR_PASSWORD }}
+          ORR_FROM: ${{ secrets.ORR_FROM }}
+          ORR_IMAP_HOST: ${{ secrets.ORR_IMAP_HOST }}
+        run: |
+          M=10; [ "$IS_MAIN" != "true" ] && M=2
+          # on the public runner the details (addresses, replies) go only to the tracker kept in the private repository
+          Q=/dev/stdout; [ "$PUBLIC_RUNNER" = "true" ] && Q=/dev/null
+          gacrawl records contacts --max-minutes "$M" > "$Q" || true
+          gacrawl records check > "$Q" || true
+          gacrawl records follow-up > "$Q" || true
+          gacrawl records send > "$Q" || true
+          gacrawl records deadlines > "$Q" || true   # late replies -> one GitHub issue (you're notified)
+          if [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl records status | python3 -c "import sys,json;d=json.load(sys.stdin);print('records requests:',d.get('by_status'),'overdue:',len(d.get('overdue') or []))" || true; else gacrawl records status; fi
+      - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
+        run: |
+          # department contacts and media tip lines are read by police.yml (its own job, inside the off-peak
+          # window, several runs a night); take its latest results so tonight's export and news search use them
+          B="${{ github.event.repository.default_branch }}"
+          if git fetch -q origin "$B"; then
+            for f in state/police.json state/media.json; do git show "origin/$B:$f" > "$f.new" 2>/dev/null && mv "$f.new" "$f" || rm -f "$f.new"; done
+          fi
+          # GDELT is an API (any time of day); each department is searched once a week, so this exits early once the
+          # week's searches are done. Stops at the first rate-limit and carries on next run.
+          M=${{ needs.prepare.outputs.police_news_minutes || vars.POLICE_NEWS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl police news --max-minutes "$M" || true
+      - name: Screenshot inbox (imports/screens/)
+        run: |
+          shopt -s nullglob nocaseglob
+          F=(imports/screens/*.{png,jpg,jpeg,webp,pdf} imports/screens/{ordinances,posts,text}/*.{png,jpg,jpeg,webp,pdf})
+          if [ ${#F[@]} -gt 0 ]; then
+            command -v tesseract >/dev/null || (sudo -n apt-get update -qq && sudo -n apt-get install -y -qq tesseract-ocr) || echo "no OCR engine on this runner"
+            gacrawl screens ingest
+          else
+            echo "inbox empty"
+          fi
+      - name: Task list, status, Electo bundle
+        run: |
+          gacrawl tasks
+          gacrawl status
+          gacrawl export --out dist/electo
+      - name: Store database and bundle (release assets)
+        run: |
+          bash scripts/ci_db.sh push
+          tar -cf - -C dist electo | gzip -1 > electo-bundle.tar.gz   # fast level: built every night
+          gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber
+      - name: Run summary (the job's Summary tab)
+        if: always()
+        run: |
+          T="Crawl run"; [ "$BACKFILL" = "true" ] && T="Daytime backfill run"; [ "$IS_MAIN" != "true" ] && T="Test run from ${{ github.ref_name }} (writes to $DATA_TAG only)"
+          if [ "$PUBLIC_RUNNER" = "true" ]; then echo "### $T: finished (details are kept in the private repository)" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          gacrawl summary --since "${{ needs.prepare.outputs.started }}" --title "$T" --out "$GITHUB_STEP_SUMMARY" > /dev/null || true
+      - name: Backfill (this run's minutes, and the next daytime run)
+        if: always()
+        run: |
+          # billable minutes of this run so far: each job rounded up to the minute, as GitHub bills them
+          M=$(GH_TOKEN="$RUN_TOKEN" gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" --jq '.jobs[] | [.started_at, .completed_at] | @tsv' |
+              python -c "import sys,datetime as d,math
+          n=d.datetime.now(d.timezone.utc); t=0
+          for l in sys.stdin:
+              a,b=(l.rstrip('\n').split('\t')+[''])[:2]
+              if not a or a=='null': continue
+              s=d.datetime.fromisoformat(a.replace('Z','+00:00')); e=d.datetime.fromisoformat(b.replace('Z','+00:00')) if b and b!='null' else n
+              t+=max(1,math.ceil((e-s).total_seconds()/60))
+          print(t)" || echo 0)
+          FLAG=""; [ "$BACKFILL" = "true" ] && FLAG="--backfill"
+          # --repo: also counts the month's minutes of every run in this repository (tests, probes, cancelled runs)
+          GH_TOKEN="$RUN_TOKEN" GH_REPO="${{ github.repository }}" gacrawl backfill next --minutes "$M" --run-id "${{ github.run_id }}" $FLAG --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT.bf" || true
+          if [ "$IS_MAIN" = "true" ] && [ "$BACKFILL" = "true" ] && grep -q "go=true" "$GITHUB_OUTPUT.bf" 2>/dev/null; then
+            GH_TOKEN="$RUN_TOKEN" gh workflow run -R "${{ github.repository }}" crawl.yml --ref "${{ github.ref_name }}" -f job=backfill && echo "next backfill run queued"
+          fi
+      - name: Commit state
+        if: always() && env.IS_MAIN == 'true'
+        run: |
+          # kept between runs (in the private data repository when the public runner runs this; config/runner.json).
+          # Entity ids, organization lookups and profile input counts live in the database; legis_people is rebuilt
+          # nightly. schools.json / school_bounds.json (the weekly registry) and school_people.json are kept too.
+          bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
+            state/progress.json state/channels.json state/blocked.json state/discovered.json \
+            state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
+            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/veto_statements.json \
+            imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
+      - name: Electo is fed from what Crawl holds
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true'
+        run: |
+          # the runner -> Crawl -> Electo: the bundle stored in the private Crawl repository's release a moment ago
+          # (not the runner's own copy) is what Electo imports
+          rm -rf dist/electo crawl-bundle && mkdir -p crawl-bundle
+          gh release download "$DATA_TAG" -R "$DATA_REPO" -p electo-bundle.tar.gz -D crawl-bundle --clobber
+          tar -xzf crawl-bundle/electo-bundle.tar.gz -C dist && rm -rf crawl-bundle
+          echo "Electo bundle from $DATA_REPO: $(ls dist/electo | wc -l) entries"
+      - name: Push research packets to Electo
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          ELECTO_PATH: ${{ vars.ELECTO_PATH || 'data/crawl' }}
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
+          cd /tmp/electo && git sparse-checkout set "$ELECTO_PATH" && cd -
+          rm -rf "/tmp/electo/${ELECTO_PATH}" && mkdir -p "/tmp/electo/${ELECTO_PATH}"
+          for f in manifest.json schema.md jurisdictions.json rumor_mill.json rumor_mill_video.json screenshots.json connections.json \
+                   organizations.json elections.json ballot_questions.json police.json media.json records_contacts.json \
+                   police_incidents.json bill_reasons.json donors.json packets profiles councils; do
+            [ -e "dist/electo/$f" ] && cp -r "dist/electo/$f" "/tmp/electo/${ELECTO_PATH}/"
+          done
+          cd /tmp/electo
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add "${ELECTO_PATH}"
+          git diff --cached --quiet || (git commit -m "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)" && git pull --rebase --autostash -q && git push)
+      - name: Import into Electo (profiles, councils, schools, places, records review) from the full bundle
+        # Electo's own importer, run here because only this job holds the complete bundle (the data pushed above is a
+        # subset). Everything it writes is committed to Electo's main with the same token; a failure here never fails the crawl.
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        continue-on-error: true
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          set -e
+          BUNDLE="$PWD/dist/electo"
+          git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full
+          cd /tmp/electo-full
+          export CRAWL_BUNDLE="$BUNDLE"
+          # the order ga/build_all.sh uses, minus the steps that need the live web
+          python3 -I ga/merge_profiles.py | tail -1
+          python3 -I research/build_aliases.py | head -1
+          python3 -I ga/merge_prim.py | tail -1
+          python3 -I ga/places.py | tail -1
+          python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
+          (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)
+          python3 -I ga/crawl_import.py --policing-only --force | tail -1 | cut -c1-300   # police, media, records, bill reasons, donors
+          # only what the import writes
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add -A ga/crawl ga/councils.json ga/places.json ga/pipeline_archive/profiles.json ga/profiles_local.json research/crawl_quarantine.json research/crawl_review.json 2>/dev/null || true
+          git diff --cached --quiet && { echo "Electo already up to date"; exit 0; }
+          git diff --cached --stat | tail -1
+          git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
+          exit 1
+      - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
+        if: always() && env.PUBLIC_RUNNER == 'true'
+        run: |
+          for id in $(GH_TOKEN="$RUN_TOKEN" gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            GH_TOKEN="$RUN_TOKEN" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done

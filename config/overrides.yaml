@@ -1,0 +1,37 @@
+# Hand edits that win over jurisdictions.yaml and state/discovered.json.
+# Keyed by registry id (see config/jurisdictions.yaml). Any field is allowed;
+# the useful ones: website, portals (legistar, agenda_center, granicus,
+# civicclerk, ecode360, amlegal), tier (a|b|c), enabled (false to skip), notes.
+jurisdictions:
+  canton:
+    portals: {legistar: https://canton.legistar.com/}
+  powder-springs:
+    portals: {legistar: https://powd.legistar.com/}
+  columbus-muscogee:
+    # columbus.legistar.com is Columbus, OHIO's council system (its records name Franklin County, Ohio, and
+    # the Ohio Revised Code). Left empty so the crawler does not read it as Columbus, Georgia. Electo's importer
+    # also quarantines any jurisdiction whose records name another state far more often than Georgia.
+    portals: {legistar: ""}
+  albany:
+    portals: {ecode360: https://ecode360.com/AL7106}
+  south-fulton:
+    # the city's site links youtube.com/cityofsouthfulton in its header social icons (seed's pattern missed the bare form)
+    portals: {youtube: "https://www.youtube.com/channel/UCeBB7zv0OQ7utCdcDzx4MAw"}
+    youtube_checked: >-
+      2026-11-06: cityofsouthfultonga.gov links youtube.com/cityofsouthfulton in its header social icons; the channel
+      "City of South Fulton" (@CityofSouthFulton, UCeBB7zv0OQ7utCdcDzx4MAw) streams City Council meetings
+      (City Council Meeting 10/27/2026)
+  # school districts the seed found no site for (2026-11-06; each site opened and checked)
+  sd-barrow:
+    website: https://barrow.k12.ga.us/
+    notes: board agendas and minutes on the district's eBoard page (barrow.k12.ga.us/334204_2)
+  sd-newton:
+    website: https://www.newtoncountyschools.org/
+    notes: pages are served from newton.ss14.sharpschool.com; agendas, minutes and videos on Simbli
+  sd-city-carrollton:
+    website: https://www.carrolltoncityschools.net/
+  sd-city-dalton:
+    website: https://www.daltonpublicschools.com/
+  sd-city-decatur:
+    website: https://www.csdecatur.net/
+    notes: board agendas on Simbli (simbli.eboardsolutions.com, s=4052)

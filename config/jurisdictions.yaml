@@ -1,0 +1,6108 @@
+_about: Every Georgia county and municipality. Generated from Census 2020 place codes + Wikipedia; hand edits go in overrides.yaml, machine discoveries in state/discovered.json. Municode links are kept
+  only where the link was seen in search results (never pattern-built).
+counties:
+- id: co-appling
+  name: Appling County
+  kind: county
+  fips: '13001'
+  seat: Baxley
+  population: 18444
+  wikipedia: https://en.wikipedia.org/wiki/Appling_County,_Georgia
+- id: co-atkinson
+  name: Atkinson County
+  kind: county
+  fips: '13003'
+  seat: Pearson
+  population: 8286
+  wikipedia: https://en.wikipedia.org/wiki/Atkinson_County,_Georgia
+- id: co-bacon
+  name: Bacon County
+  kind: county
+  fips: '13005'
+  seat: Alma
+  population: 11140
+  wikipedia: https://en.wikipedia.org/wiki/Bacon_County,_Georgia
+- id: co-baker
+  name: Baker County
+  kind: county
+  fips: '13007'
+  seat: Newton
+  population: 2876
+  wikipedia: https://en.wikipedia.org/wiki/Baker_County,_Georgia
+- id: co-baldwin
+  name: Baldwin County
+  kind: county
+  fips: '13009'
+  seat: Milledgeville
+  population: 43799
+  wikipedia: https://en.wikipedia.org/wiki/Baldwin_County,_Georgia
+- id: co-banks
+  name: Banks County
+  kind: county
+  fips: '13011'
+  seat: Homer
+  population: 18035
+  wikipedia: https://en.wikipedia.org/wiki/Banks_County,_Georgia
+- id: co-barrow
+  name: Barrow County
+  kind: county
+  fips: '13013'
+  seat: Winder
+  population: 83505
+  wikipedia: https://en.wikipedia.org/wiki/Barrow_County,_Georgia
+- id: co-bartow
+  name: Bartow County
+  kind: county
+  fips: '13015'
+  seat: Cartersville
+  population: 108901
+  wikipedia: https://en.wikipedia.org/wiki/Bartow_County,_Georgia
+  municode: https://library.municode.com/ga/bartow_county
+- id: co-ben-hill
+  name: Ben Hill County
+  kind: county
+  fips: '13017'
+  seat: Fitzgerald
+  population: 17194
+  wikipedia: https://en.wikipedia.org/wiki/Ben_Hill_County,_Georgia
+- id: co-berrien
+  name: Berrien County
+  kind: county
+  fips: '13019'
+  seat: Nashville
+  population: 18160
+  wikipedia: https://en.wikipedia.org/wiki/Berrien_County,_Georgia
+- id: co-bibb
+  name: Bibb County
+  kind: county
+  fips: '13021'
+  seat: Macon
+  population: 157346
+  wikipedia: https://en.wikipedia.org/wiki/Bibb_County,_Georgia
+  consolidated_with: Macon
+- id: co-bleckley
+  name: Bleckley County
+  kind: county
+  fips: '13023'
+  seat: Cochran
+  population: 12583
+  wikipedia: https://en.wikipedia.org/wiki/Bleckley_County,_Georgia
+- id: co-brantley
+  name: Brantley County
+  kind: county
+  fips: '13025'
+  seat: Nahunta
+  population: 18021
+  wikipedia: https://en.wikipedia.org/wiki/Brantley_County,_Georgia
+- id: co-brooks
+  name: Brooks County
+  kind: county
+  fips: '13027'
+  seat: Quitman
+  population: 16301
+  wikipedia: https://en.wikipedia.org/wiki/Brooks_County,_Georgia
+- id: co-bryan
+  name: Bryan County
+  kind: county
+  fips: '13029'
+  seat: Pembroke
+  population: 44738
+  wikipedia: https://en.wikipedia.org/wiki/Bryan_County,_Georgia
+  municode: https://library.municode.com/ga/bryan_county
+- id: co-bulloch
+  name: Bulloch County
+  kind: county
+  fips: '13031'
+  seat: Statesboro
+  population: 81099
+  wikipedia: https://en.wikipedia.org/wiki/Bulloch_County,_Georgia
+- id: co-burke
+  name: Burke County
+  kind: county
+  fips: '13033'
+  seat: Waynesboro
+  population: 24596
+  wikipedia: https://en.wikipedia.org/wiki/Burke_County,_Georgia
+  municode: https://library.municode.com/ga/burke_county
+- id: co-butts
+  name: Butts County
+  kind: county
+  fips: '13035'
+  seat: Jackson
+  population: 25434
+  wikipedia: https://en.wikipedia.org/wiki/Butts_County,_Georgia
+- id: co-calhoun
+  name: Calhoun County
+  kind: county
+  fips: '13037'
+  seat: Morgan
+  population: 5573
+  wikipedia: https://en.wikipedia.org/wiki/Calhoun_County,_Georgia
+- id: co-camden
+  name: Camden County
+  kind: county
+  fips: '13039'
+  seat: Woodbine
+  population: 54768
+  wikipedia: https://en.wikipedia.org/wiki/Camden_County,_Georgia
+- id: co-candler
+  name: Candler County
+  kind: county
+  fips: '13043'
+  seat: Metter
+  population: 10981
+  wikipedia: https://en.wikipedia.org/wiki/Candler_County,_Georgia
+- id: co-carroll
+  name: Carroll County
+  kind: county
+  fips: '13045'
+  seat: Carrollton
+  population: 119148
+  wikipedia: https://en.wikipedia.org/wiki/Carroll_County,_Georgia
+  municode: https://library.municode.com/ga/carroll_county
+- id: co-catoosa
+  name: Catoosa County
+  kind: county
+  fips: '13047'
+  seat: Ringgold
+  population: 67872
+  wikipedia: https://en.wikipedia.org/wiki/Catoosa_County,_Georgia
+- id: co-charlton
+  name: Charlton County
+  kind: county
+  fips: '13049'
+  seat: Folkston
+  population: 12518
+  wikipedia: https://en.wikipedia.org/wiki/Charlton_County,_Georgia
+- id: co-chatham
+  name: Chatham County
+  kind: county
+  fips: '13051'
+  seat: Savannah
+  population: 295291
+  wikipedia: https://en.wikipedia.org/wiki/Chatham_County,_Georgia
+- id: co-chattahoochee
+  name: Chattahoochee County
+  kind: county
+  fips: '13053'
+  seat: Cusseta
+  population: 9565
+  wikipedia: https://en.wikipedia.org/wiki/Chattahoochee_County,_Georgia
+  consolidated_with: Cusseta
+- id: co-chattooga
+  name: Chattooga County
+  kind: county
+  fips: '13055'
+  seat: Summerville
+  population: 24965
+  wikipedia: https://en.wikipedia.org/wiki/Chattooga_County,_Georgia
+- id: co-cherokee
+  name: Cherokee County
+  kind: county
+  fips: '13057'
+  seat: Canton
+  population: 266620
+  wikipedia: https://en.wikipedia.org/wiki/Cherokee_County,_Georgia
+- id: co-clarke
+  name: Clarke County
+  kind: county
+  fips: '13059'
+  seat: Athens
+  population: 128671
+  wikipedia: https://en.wikipedia.org/wiki/Clarke_County,_Georgia
+  consolidated_with: Athens
+- id: co-clay
+  name: Clay County
+  kind: county
+  fips: '13061'
+  seat: Fort Gaines
+  population: 2848
+  wikipedia: https://en.wikipedia.org/wiki/Clay_County,_Georgia
+- id: co-clayton
+  name: Clayton County
+  kind: county
+  fips: '13063'
+  seat: Jonesboro
+  population: 297595
+  wikipedia: https://en.wikipedia.org/wiki/Clayton_County,_Georgia
+  municode: https://library.municode.com/ga/clayton_county
+- id: co-clinch
+  name: Clinch County
+  kind: county
+  fips: '13065'
+  seat: Homerville
+  population: 6749
+  wikipedia: https://en.wikipedia.org/wiki/Clinch_County,_Georgia
+- id: co-cobb
+  name: Cobb County
+  kind: county
+  fips: '13067'
+  seat: Marietta
+  population: 766149
+  wikipedia: https://en.wikipedia.org/wiki/Cobb_County,_Georgia
+  municode: https://library.municode.com/ga/cobb_county
+- id: co-coffee
+  name: Coffee County
+  kind: county
+  fips: '13069'
+  seat: Douglas
+  population: 43092
+  wikipedia: https://en.wikipedia.org/wiki/Coffee_County,_Georgia
+- id: co-colquitt
+  name: Colquitt County
+  kind: county
+  fips: '13071'
+  seat: Moultrie
+  population: 45898
+  wikipedia: https://en.wikipedia.org/wiki/Colquitt_County,_Georgia
+- id: co-columbia
+  name: Columbia County
+  kind: county
+  fips: '13073'
+  seat: Appling (de jure) and Evans (de facto)
+  population: 156010
+  wikipedia: https://en.wikipedia.org/wiki/Columbia_County,_Georgia
+  municode: https://library.municode.com/ga/columbia_county
+- id: co-cook
+  name: Cook County
+  kind: county
+  fips: '13075'
+  seat: Adel
+  population: 17229
+  wikipedia: https://en.wikipedia.org/wiki/Cook_County,_Georgia
+- id: co-coweta
+  name: Coweta County
+  kind: county
+  fips: '13077'
+  seat: Newnan
+  population: 146158
+  wikipedia: https://en.wikipedia.org/wiki/Coweta_County,_Georgia
+- id: co-crawford
+  name: Crawford County
+  kind: county
+  fips: '13079'
+  seat: Knoxville
+  population: 12130
+  wikipedia: https://en.wikipedia.org/wiki/Crawford_County,_Georgia
+- id: co-crisp
+  name: Crisp County
+  kind: county
+  fips: '13081'
+  seat: Cordele
+  population: 20128
+  wikipedia: https://en.wikipedia.org/wiki/Crisp_County,_Georgia
+- id: co-dade
+  name: Dade County
+  kind: county
+  fips: '13083'
+  seat: Trenton
+  population: 16251
+  wikipedia: https://en.wikipedia.org/wiki/Dade_County,_Georgia
+- id: co-dawson
+  name: Dawson County
+  kind: county
+  fips: '13085'
+  seat: Dawsonville
+  population: 26798
+  wikipedia: https://en.wikipedia.org/wiki/Dawson_County,_Georgia
+- id: co-dekalb
+  name: DeKalb County
+  kind: county
+  fips: '13089'
+  seat: Decatur
+  population: 764382
+  wikipedia: https://en.wikipedia.org/wiki/DeKalb_County,_Georgia
+- id: co-decatur
+  name: Decatur County
+  kind: county
+  fips: '13087'
+  seat: Bainbridge
+  population: 29367
+  wikipedia: https://en.wikipedia.org/wiki/Decatur_County,_Georgia
+- id: co-dodge
+  name: Dodge County
+  kind: county
+  fips: '13091'
+  seat: Eastman
+  population: 19925
+  wikipedia: https://en.wikipedia.org/wiki/Dodge_County,_Georgia
+- id: co-dooly
+  name: Dooly County
+  kind: county
+  fips: '13093'
+  seat: Vienna
+  population: 11208
+  wikipedia: https://en.wikipedia.org/wiki/Dooly_County,_Georgia
+- id: co-dougherty
+  name: Dougherty County
+  kind: county
+  fips: '13095'
+  seat: Albany
+  population: 85790
+  wikipedia: https://en.wikipedia.org/wiki/Dougherty_County,_Georgia
+- id: co-douglas
+  name: Douglas County
+  kind: county
+  fips: '13097'
+  seat: Douglasville
+  population: 144237
+  wikipedia: https://en.wikipedia.org/wiki/Douglas_County,_Georgia
+- id: co-early
+  name: Early County
+  kind: county
+  fips: '13099'
+  seat: Blakely
+  population: 10854
+  wikipedia: https://en.wikipedia.org/wiki/Early_County,_Georgia
+- id: co-echols
+  name: Echols County
+  kind: county
+  fips: '13101'
+  seat: Statenville
+  population: 3697
+  wikipedia: https://en.wikipedia.org/wiki/Echols_County,_Georgia
+  unified_government: true
+- id: co-effingham
+  name: Effingham County
+  kind: county
+  fips: '13103'
+  seat: Springfield
+  population: 64769
+  wikipedia: https://en.wikipedia.org/wiki/Effingham_County,_Georgia
+- id: co-elbert
+  name: Elbert County
+  kind: county
+  fips: '13105'
+  seat: Elberton
+  population: 19637
+  wikipedia: https://en.wikipedia.org/wiki/Elbert_County,_Georgia
+- id: co-emanuel
+  name: Emanuel County
+  kind: county
+  fips: '13107'
+  seat: Swainsboro
+  population: 22768
+  wikipedia: https://en.wikipedia.org/wiki/Emanuel_County,_Georgia
+- id: co-evans
+  name: Evans County
+  kind: county
+  fips: '13109'
+  seat: Claxton
+  population: 10774
+  wikipedia: https://en.wikipedia.org/wiki/Evans_County,_Georgia
+- id: co-fannin
+  name: Fannin County
+  kind: county
+  fips: '13111'
+  seat: Blue Ridge
+  population: 25319
+  wikipedia: https://en.wikipedia.org/wiki/Fannin_County,_Georgia
+- id: co-fayette
+  name: Fayette County
+  kind: county
+  fips: '13113'
+  seat: Fayetteville
+  population: 119194
+  wikipedia: https://en.wikipedia.org/wiki/Fayette_County,_Georgia
+  municode: https://library.municode.com/ga/fayette_county
+- id: co-floyd
+  name: Floyd County
+  kind: county
+  fips: '13115'
+  seat: Rome
+  population: 98584
+  wikipedia: https://en.wikipedia.org/wiki/Floyd_County,_Georgia
+- id: co-forsyth
+  name: Forsyth County
+  kind: county
+  fips: '13117'
+  seat: Cumming
+  population: 251283
+  wikipedia: https://en.wikipedia.org/wiki/Forsyth_County,_Georgia
+- id: co-franklin
+  name: Franklin County
+  kind: county
+  fips: '13119'
+  seat: Carnesville
+  population: 23424
+  wikipedia: https://en.wikipedia.org/wiki/Franklin_County,_Georgia
+- id: co-fulton
+  name: Fulton County
+  kind: county
+  fips: '13121'
+  seat: Atlanta
+  population: 1066710
+  wikipedia: https://en.wikipedia.org/wiki/Fulton_County,_Georgia
+- id: co-gilmer
+  name: Gilmer County
+  kind: county
+  fips: '13123'
+  seat: Ellijay
+  population: 31353
+  wikipedia: https://en.wikipedia.org/wiki/Gilmer_County,_Georgia
+- id: co-glascock
+  name: Glascock County
+  kind: county
+  fips: '13125'
+  seat: Gibson
+  population: 2884
+  wikipedia: https://en.wikipedia.org/wiki/Glascock_County,_Georgia
+- id: co-glynn
+  name: Glynn County
+  kind: county
+  fips: '13127'
+  seat: Brunswick
+  population: 84499
+  wikipedia: https://en.wikipedia.org/wiki/Glynn_County,_Georgia
+- id: co-gordon
+  name: Gordon County
+  kind: county
+  fips: '13129'
+  seat: Calhoun
+  population: 57544
+  wikipedia: https://en.wikipedia.org/wiki/Gordon_County,_Georgia
+  municode: https://library.municode.com/ga/gordon_county
+- id: co-grady
+  name: Grady County
+  kind: county
+  fips: '13131'
+  seat: Cairo
+  population: 26236
+  wikipedia: https://en.wikipedia.org/wiki/Grady_County,_Georgia
+- id: co-greene
+  name: Greene County
+  kind: county
+  fips: '13133'
+  seat: Greensboro
+  population: 18915
+  wikipedia: https://en.wikipedia.org/wiki/Greene_County,_Georgia
+- id: co-gwinnett
+  name: Gwinnett County
+  kind: county
+  fips: '13135'
+  seat: Lawrenceville
+  population: 957062
+  wikipedia: https://en.wikipedia.org/wiki/Gwinnett_County,_Georgia
+  municode: https://library.municode.com/ga/gwinnett_county
+- id: co-habersham
+  name: Habersham County
+  kind: county
+  fips: '13137'
+  seat: Clarkesville
+  population: 46031
+  wikipedia: https://en.wikipedia.org/wiki/Habersham_County,_Georgia
+- id: co-hall
+  name: Hall County
+  kind: county
+  fips: '13139'
+  seat: Gainesville
+  population: 203136
+  wikipedia: https://en.wikipedia.org/wiki/Hall_County,_Georgia
+- id: co-hancock
+  name: Hancock County
+  kind: county
+  fips: '13141'
+  seat: Sparta
+  population: 8735
+  wikipedia: https://en.wikipedia.org/wiki/Hancock_County,_Georgia
+- id: co-haralson
+  name: Haralson County
+  kind: county
+  fips: '13143'
+  seat: Buchanan
+  population: 29919
+  wikipedia: https://en.wikipedia.org/wiki/Haralson_County,_Georgia
+  municode: https://library.municode.com/ga/haralson_county
+- id: co-harris
+  name: Harris County
+  kind: county
+  fips: '13145'
+  seat: Hamilton
+  population: 34668
+  wikipedia: https://en.wikipedia.org/wiki/Harris_County,_Georgia
+- id: co-hart
+  name: Hart County
+  kind: county
+  fips: '13147'
+  seat: Hartwell
+  population: 25828
+  wikipedia: https://en.wikipedia.org/wiki/Hart_County,_Georgia
+  municode: https://library.municode.com/ga/hart_county
+- id: co-heard
+  name: Heard County
+  kind: county
+  fips: '13149'
+  seat: Franklin
+  population: 11412
+  wikipedia: https://en.wikipedia.org/wiki/Heard_County,_Georgia
+  municode: https://library.municode.com/ga/heard_county
+- id: co-henry
+  name: Henry County
+  kind: county
+  fips: '13151'
+  seat: McDonough
+  population: 240712
+  wikipedia: https://en.wikipedia.org/wiki/Henry_County,_Georgia
+  municode: https://library.municode.com/ga/henry_county
+- id: co-houston
+  name: Houston County
+  kind: county
+  fips: '13153'
+  seat: Perry
+  population: 163633
+  wikipedia: https://en.wikipedia.org/wiki/Houston_County,_Georgia
+- id: co-irwin
+  name: Irwin County
+  kind: county
+  fips: '13155'
+  seat: Ocilla
+  population: 9666
+  wikipedia: https://en.wikipedia.org/wiki/Irwin_County,_Georgia
+- id: co-jackson
+  name: Jackson County
+  kind: county
+  fips: '13157'
+  seat: Jefferson
+  population: 75907
+  wikipedia: https://en.wikipedia.org/wiki/Jackson_County,_Georgia
+- id: co-jasper
+  name: Jasper County
+  kind: county
+  fips: '13159'
+  seat: Monticello
+  population: 14588
+  wikipedia: https://en.wikipedia.org/wiki/Jasper_County,_Georgia
+  municode: https://library.municode.com/ga/jasper_county
+- id: co-jeff-davis
+  name: Jeff Davis County
+  kind: county
+  fips: '13161'
+  seat: Hazlehurst
+  population: 14779
+  wikipedia: https://en.wikipedia.org/wiki/Jeff_Davis_County,_Georgia
+- id: co-jefferson
+  name: Jefferson County
+  kind: county
+  fips: '13163'
+  seat: Louisville
+  population: 15709
+  wikipedia: https://en.wikipedia.org/wiki/Jefferson_County,_Georgia
+- id: co-jenkins
+  name: Jenkins County
+  kind: county
+  fips: '13165'
+  seat: Millen
+  population: 8674
+  wikipedia: https://en.wikipedia.org/wiki/Jenkins_County,_Georgia
+- id: co-johnson
+  name: Johnson County
+  kind: county
+  fips: '13167'
+  seat: Wrightsville
+  population: 9189
+  wikipedia: https://en.wikipedia.org/wiki/Johnson_County,_Georgia
+  municode: https://library.municode.com/ga/johnson_county
+- id: co-jones
+  name: Jones County
+  kind: county
+  fips: '13169'
+  seat: Gray
+  population: 28347
+  wikipedia: https://en.wikipedia.org/wiki/Jones_County,_Georgia
+- id: co-lamar
+  name: Lamar County
+  kind: county
+  fips: '13171'
+  seat: Barnesville
+  population: 18500
+  wikipedia: https://en.wikipedia.org/wiki/Lamar_County,_Georgia
+- id: co-lanier
+  name: Lanier County
+  kind: county
+  fips: '13173'
+  seat: Lakeland
+  population: 9877
+  wikipedia: https://en.wikipedia.org/wiki/Lanier_County,_Georgia
+- id: co-laurens
+  name: Laurens County
+  kind: county
+  fips: '13175'
+  seat: Dublin
+  population: 49570
+  wikipedia: https://en.wikipedia.org/wiki/Laurens_County,_Georgia
+- id: co-lee
+  name: Lee County
+  kind: county
+  fips: '13177'
+  seat: Leesburg
+  population: 33163
+  wikipedia: https://en.wikipedia.org/wiki/Lee_County,_Georgia
+- id: co-liberty
+  name: Liberty County
+  kind: county
+  fips: '13179'
+  seat: Hinesville
+  population: 65256
+  wikipedia: https://en.wikipedia.org/wiki/Liberty_County,_Georgia
+  municode: https://library.municode.com/ga/liberty_county
+- id: co-lincoln
+  name: Lincoln County
+  kind: county
+  fips: '13181'
+  seat: Lincolnton
+  population: 7690
+  wikipedia: https://en.wikipedia.org/wiki/Lincoln_County,_Georgia
+- id: co-long
+  name: Long County
+  kind: county
+  fips: '13183'
+  seat: Ludowici
+  population: 16168
+  wikipedia: https://en.wikipedia.org/wiki/Long_County,_Georgia
+- id: co-lowndes
+  name: Lowndes County
+  kind: county
+  fips: '13185'
+  seat: Valdosta
+  population: 118251
+  wikipedia: https://en.wikipedia.org/wiki/Lowndes_County,_Georgia
+- id: co-lumpkin
+  name: Lumpkin County
+  kind: county
+  fips: '13187'
+  seat: Dahlonega
+  population: 33488
+  wikipedia: https://en.wikipedia.org/wiki/Lumpkin_County,_Georgia
+- id: co-macon
+  name: Macon County
+  kind: county
+  fips: '13193'
+  seat: Oglethorpe
+  population: 12082
+  wikipedia: https://en.wikipedia.org/wiki/Macon_County,_Georgia
+- id: co-madison
+  name: Madison County
+  kind: county
+  fips: '13195'
+  seat: Danielsville
+  population: 30120
+  wikipedia: https://en.wikipedia.org/wiki/Madison_County,_Georgia
+- id: co-marion
+  name: Marion County
+  kind: county
+  fips: '13197'
+  seat: Buena Vista
+  population: 7498
+  wikipedia: https://en.wikipedia.org/wiki/Marion_County,_Georgia
+- id: co-mcduffie
+  name: McDuffie County
+  kind: county
+  fips: '13189'
+  seat: Thomson
+  population: 21632
+  wikipedia: https://en.wikipedia.org/wiki/McDuffie_County,_Georgia
+- id: co-mcintosh
+  name: McIntosh County
+  kind: county
+  fips: '13191'
+  seat: Darien
+  population: 10975
+  wikipedia: https://en.wikipedia.org/wiki/McIntosh_County,_Georgia
+- id: co-meriwether
+  name: Meriwether County
+  kind: county
+  fips: '13199'
+  seat: Greenville
+  population: 20613
+  wikipedia: https://en.wikipedia.org/wiki/Meriwether_County,_Georgia
+- id: co-miller
+  name: Miller County
+  kind: county
+  fips: '13201'
+  seat: Colquitt
+  population: 6000
+  wikipedia: https://en.wikipedia.org/wiki/Miller_County,_Georgia
+- id: co-mitchell
+  name: Mitchell County
+  kind: county
+  fips: '13205'
+  seat: Camilla
+  population: 21755
+  wikipedia: https://en.wikipedia.org/wiki/Mitchell_County,_Georgia
+  municode: https://library.municode.com/ga/mitchell_county
+- id: co-monroe
+  name: Monroe County
+  kind: county
+  fips: '13207'
+  seat: Forsyth
+  population: 27957
+  wikipedia: https://en.wikipedia.org/wiki/Monroe_County,_Georgia
+- id: co-montgomery
+  name: Montgomery County
+  kind: county
+  fips: '13209'
+  seat: Mount Vernon
+  population: 8610
+  wikipedia: https://en.wikipedia.org/wiki/Montgomery_County,_Georgia
+- id: co-morgan
+  name: Morgan County
+  kind: county
+  fips: '13211'
+  seat: Madison
+  population: 20097
+  wikipedia: https://en.wikipedia.org/wiki/Morgan_County,_Georgia
+- id: co-murray
+  name: Murray County
+  kind: county
+  fips: '13213'
+  seat: Chatsworth
+  population: 39973
+  wikipedia: https://en.wikipedia.org/wiki/Murray_County,_Georgia
+- id: co-muscogee
+  name: Muscogee County
+  kind: county
+  fips: '13215'
+  seat: Columbus
+  population: 206922
+  wikipedia: https://en.wikipedia.org/wiki/Muscogee_County,_Georgia
+  consolidated_with: Columbus
+- id: co-newton
+  name: Newton County
+  kind: county
+  fips: '13217'
+  seat: Covington
+  population: 112483
+  wikipedia: https://en.wikipedia.org/wiki/Newton_County,_Georgia
+- id: co-oconee
+  name: Oconee County
+  kind: county
+  fips: '13219'
+  seat: Watkinsville
+  population: 41799
+  wikipedia: https://en.wikipedia.org/wiki/Oconee_County,_Georgia
+- id: co-oglethorpe
+  name: Oglethorpe County
+  kind: county
+  fips: '13221'
+  seat: Lexington
+  population: 14825
+  wikipedia: https://en.wikipedia.org/wiki/Oglethorpe_County,_Georgia
+  municode: https://library.municode.com/ga/oglethorpe_county
+- id: co-paulding
+  name: Paulding County
+  kind: county
+  fips: '13223'
+  seat: Dallas
+  population: 168661
+  wikipedia: https://en.wikipedia.org/wiki/Paulding_County,_Georgia
+- id: co-peach
+  name: Peach County
+  kind: county
+  fips: '13225'
+  seat: Fort Valley
+  population: 27981
+  wikipedia: https://en.wikipedia.org/wiki/Peach_County,_Georgia
+- id: co-pickens
+  name: Pickens County
+  kind: county
+  fips: '13227'
+  seat: Jasper
+  population: 33216
+  wikipedia: https://en.wikipedia.org/wiki/Pickens_County,_Georgia
+- id: co-pierce
+  name: Pierce County
+  kind: county
+  fips: '13229'
+  seat: Blackshear
+  population: 19716
+  wikipedia: https://en.wikipedia.org/wiki/Pierce_County,_Georgia
+- id: co-pike
+  name: Pike County
+  kind: county
+  fips: '13231'
+  seat: Zebulon
+  population: 18889
+  wikipedia: https://en.wikipedia.org/wiki/Pike_County,_Georgia
+- id: co-polk
+  name: Polk County
+  kind: county
+  fips: '13233'
+  seat: Cedartown
+  population: 42853
+  wikipedia: https://en.wikipedia.org/wiki/Polk_County,_Georgia
+- id: co-pulaski
+  name: Pulaski County
+  kind: county
+  fips: '13235'
+  seat: Hawkinsville
+  population: 9855
+  wikipedia: https://en.wikipedia.org/wiki/Pulaski_County,_Georgia
+- id: co-putnam
+  name: Putnam County
+  kind: county
+  fips: '13237'
+  seat: Eatonton
+  population: 22047
+  wikipedia: https://en.wikipedia.org/wiki/Putnam_County,_Georgia
+  municode: https://library.municode.com/ga/putnam_county
+- id: co-quitman
+  name: Quitman County
+  kind: county
+  fips: '13239'
+  seat: Georgetown
+  population: 2235
+  wikipedia: https://en.wikipedia.org/wiki/Quitman_County,_Georgia
+  consolidated_with: Georgetown
+- id: co-rabun
+  name: Rabun County
+  kind: county
+  fips: '13241'
+  seat: Clayton
+  population: 16883
+  wikipedia: https://en.wikipedia.org/wiki/Rabun_County,_Georgia
+- id: co-randolph
+  name: Randolph County
+  kind: county
+  fips: '13243'
+  seat: Cuthbert
+  population: 6425
+  wikipedia: https://en.wikipedia.org/wiki/Randolph_County,_Georgia
+- id: co-richmond
+  name: Richmond County
+  kind: county
+  fips: '13245'
+  seat: Augusta
+  population: 206607
+  wikipedia: https://en.wikipedia.org/wiki/Richmond_County,_Georgia
+  consolidated_with: Augusta
+- id: co-rockdale
+  name: Rockdale County
+  kind: county
+  fips: '13247'
+  seat: Conyers
+  population: 93570
+  wikipedia: https://en.wikipedia.org/wiki/Rockdale_County,_Georgia
+- id: co-schley
+  name: Schley County
+  kind: county
+  fips: '13249'
+  seat: Ellaville
+  population: 4547
+  wikipedia: https://en.wikipedia.org/wiki/Schley_County,_Georgia
+- id: co-screven
+  name: Screven County
+  kind: county
+  fips: '13251'
+  seat: Sylvania
+  population: 14067
+  wikipedia: https://en.wikipedia.org/wiki/Screven_County,_Georgia
+- id: co-seminole
+  name: Seminole County
+  kind: county
+  fips: '13253'
+  seat: Donalsonville
+  population: 9147
+  wikipedia: https://en.wikipedia.org/wiki/Seminole_County,_Georgia
+  municode: https://library.municode.com/ga/seminole_county
+- id: co-spalding
+  name: Spalding County
+  kind: county
+  fips: '13255'
+  seat: Griffin
+  population: 67306
+  wikipedia: https://en.wikipedia.org/wiki/Spalding_County,_Georgia
+- id: co-stephens
+  name: Stephens County
+  kind: county
+  fips: '13257'
+  seat: Toccoa
+  population: 26784
+  wikipedia: https://en.wikipedia.org/wiki/Stephens_County,_Georgia
+- id: co-stewart
+  name: Stewart County
+  kind: county
+  fips: '13259'
+  seat: Lumpkin
+  population: 5314
+  wikipedia: https://en.wikipedia.org/wiki/Stewart_County,_Georgia
+- id: co-sumter
+  name: Sumter County
+  kind: county
+  fips: '13261'
+  seat: Americus
+  population: 29616
+  wikipedia: https://en.wikipedia.org/wiki/Sumter_County,_Georgia
+- id: co-talbot
+  name: Talbot County
+  kind: county
+  fips: '13263'
+  seat: Talbotton
+  population: 5733
+  wikipedia: https://en.wikipedia.org/wiki/Talbot_County,_Georgia
+- id: co-taliaferro
+  name: Taliaferro County
+  kind: county
+  fips: '13265'
+  seat: Crawfordville
+  population: 1559
+  wikipedia: https://en.wikipedia.org/wiki/Taliaferro_County,_Georgia
+- id: co-tattnall
+  name: Tattnall County
+  kind: county
+  fips: '13267'
+  seat: Reidsville
+  population: 22842
+  wikipedia: https://en.wikipedia.org/wiki/Tattnall_County,_Georgia
+- id: co-taylor
+  name: Taylor County
+  kind: county
+  fips: '13269'
+  seat: Butler
+  population: 7816
+  wikipedia: https://en.wikipedia.org/wiki/Taylor_County,_Georgia
+- id: co-telfair
+  name: Telfair County
+  kind: county
+  fips: '13271'
+  seat: McRae-Helena
+  population: 12477
+  wikipedia: https://en.wikipedia.org/wiki/Telfair_County,_Georgia
+- id: co-terrell
+  name: Terrell County
+  kind: county
+  fips: '13273'
+  seat: Dawson
+  population: 9185
+  wikipedia: https://en.wikipedia.org/wiki/Terrell_County,_Georgia
+- id: co-thomas
+  name: Thomas County
+  kind: county
+  fips: '13275'
+  seat: Thomasville
+  population: 45798
+  wikipedia: https://en.wikipedia.org/wiki/Thomas_County,_Georgia
+- id: co-tift
+  name: Tift County
+  kind: county
+  fips: '13277'
+  seat: Tifton
+  population: 41344
+  wikipedia: https://en.wikipedia.org/wiki/Tift_County,_Georgia
+- id: co-toombs
+  name: Toombs County
+  kind: county
+  fips: '13279'
+  seat: Lyons
+  population: 27030
+  wikipedia: https://en.wikipedia.org/wiki/Toombs_County,_Georgia
+- id: co-towns
+  name: Towns County
+  kind: county
+  fips: '13281'
+  seat: Hiawassee
+  population: 12493
+  wikipedia: https://en.wikipedia.org/wiki/Towns_County,_Georgia
+- id: co-treutlen
+  name: Treutlen County
+  kind: county
+  fips: '13283'
+  seat: Soperton
+  population: 6406
+  wikipedia: https://en.wikipedia.org/wiki/Treutlen_County,_Georgia
+- id: co-troup
+  name: Troup County
+  kind: county
+  fips: '13285'
+  seat: LaGrange
+  population: 69426
+  wikipedia: https://en.wikipedia.org/wiki/Troup_County,_Georgia
+  municode: https://library.municode.com/ga/troup_county
+- id: co-turner
+  name: Turner County
+  kind: county
+  fips: '13287'
+  seat: Ashburn
+  population: 9006
+  wikipedia: https://en.wikipedia.org/wiki/Turner_County,_Georgia
+- id: co-twiggs
+  name: Twiggs County
+  kind: county
+  fips: '13289'
+  seat: Jeffersonville
+  population: 8022
+  wikipedia: https://en.wikipedia.org/wiki/Twiggs_County,_Georgia
+- id: co-union
+  name: Union County
+  kind: county
+  fips: '13291'
+  seat: Blairsville
+  population: 24632
+  wikipedia: https://en.wikipedia.org/wiki/Union_County,_Georgia
+- id: co-upson
+  name: Upson County
+  kind: county
+  fips: '13293'
+  seat: Thomaston
+  population: 27700
+  wikipedia: https://en.wikipedia.org/wiki/Upson_County,_Georgia
+- id: co-walker
+  name: Walker County
+  kind: county
+  fips: '13295'
+  seat: LaFayette
+  population: 67654
+  wikipedia: https://en.wikipedia.org/wiki/Walker_County,_Georgia
+- id: co-walton
+  name: Walton County
+  kind: county
+  fips: '13297'
+  seat: Monroe
+  population: 96673
+  wikipedia: https://en.wikipedia.org/wiki/Walton_County,_Georgia
+- id: co-ware
+  name: Ware County
+  kind: county
+  fips: '13299'
+  seat: Waycross
+  population: 36251
+  wikipedia: https://en.wikipedia.org/wiki/Ware_County,_Georgia
+  municode: https://library.municode.com/ga/ware_county
+- id: co-warren
+  name: Warren County
+  kind: county
+  fips: '13301'
+  seat: Warrenton
+  population: 5215
+  wikipedia: https://en.wikipedia.org/wiki/Warren_County,_Georgia
+- id: co-washington
+  name: Washington County
+  kind: county
+  fips: '13303'
+  seat: Sandersville
+  population: 19988
+  wikipedia: https://en.wikipedia.org/wiki/Washington_County,_Georgia
+  municode: https://library.municode.com/ga/washington_county
+- id: co-wayne
+  name: Wayne County
+  kind: county
+  fips: '13305'
+  seat: Jesup
+  population: 30144
+  wikipedia: https://en.wikipedia.org/wiki/Wayne_County,_Georgia
+- id: co-webster
+  name: Webster County
+  kind: county
+  fips: '13307'
+  seat: Preston
+  population: 2348
+  wikipedia: https://en.wikipedia.org/wiki/Webster_County,_Georgia
+  unified_government: true
+- id: co-wheeler
+  name: Wheeler County
+  kind: county
+  fips: '13309'
+  seat: Alamo
+  population: 7471
+  wikipedia: https://en.wikipedia.org/wiki/Wheeler_County,_Georgia
+- id: co-white
+  name: White County
+  kind: county
+  fips: '13311'
+  seat: Cleveland
+  population: 28003
+  wikipedia: https://en.wikipedia.org/wiki/White_County,_Georgia
+- id: co-whitfield
+  name: Whitfield County
+  kind: county
+  fips: '13313'
+  seat: Dalton
+  population: 102864
+  wikipedia: https://en.wikipedia.org/wiki/Whitfield_County,_Georgia
+- id: co-wilcox
+  name: Wilcox County
+  kind: county
+  fips: '13315'
+  seat: Abbeville
+  population: 8766
+  wikipedia: https://en.wikipedia.org/wiki/Wilcox_County,_Georgia
+- id: co-wilkes
+  name: Wilkes County
+  kind: county
+  fips: '13317'
+  seat: Washington
+  population: 9565
+  wikipedia: https://en.wikipedia.org/wiki/Wilkes_County,_Georgia
+- id: co-wilkinson
+  name: Wilkinson County
+  kind: county
+  fips: '13319'
+  seat: Irwinton
+  population: 8877
+  wikipedia: https://en.wikipedia.org/wiki/Wilkinson_County,_Georgia
+- id: co-worth
+  name: Worth County
+  kind: county
+  fips: '13321'
+  seat: Sylvester
+  population: 20784
+  wikipedia: https://en.wikipedia.org/wiki/Worth_County,_Georgia
+municipalities:
+- id: abbeville
+  name: Abbeville
+  kind: city
+  fips: '1300184'
+  counties:
+  - Wilcox
+  county_seat: true
+  population: 2685
+  wikipedia: https://en.wikipedia.org/wiki/Abbeville,_Georgia
+- id: acworth
+  name: Acworth
+  kind: city
+  fips: '1300408'
+  counties:
+  - Cobb
+  county_seat: false
+  population: 22440
+  wikipedia: https://en.wikipedia.org/wiki/Acworth,_Georgia
+- id: adairsville
+  name: Adairsville
+  kind: city
+  fips: '1300436'
+  counties:
+  - Bartow
+  county_seat: false
+  population: 4878
+  wikipedia: https://en.wikipedia.org/wiki/Adairsville,_Georgia
+- id: adel
+  name: Adel
+  kind: city
+  fips: '1300576'
+  counties:
+  - Cook
+  county_seat: true
+  population: 5571
+  wikipedia: https://en.wikipedia.org/wiki/Adel,_Georgia
+- id: adrian
+  name: Adrian
+  kind: city
+  fips: '1300660'
+  counties:
+  - Emanuel
+  - Johnson
+  county_seat: false
+  population: 552
+  wikipedia: https://en.wikipedia.org/wiki/Adrian,_Georgia
+- id: ailey
+  name: Ailey
+  kind: city
+  fips: '1300828'
+  counties:
+  - Montgomery
+  county_seat: false
+  population: 519
+  wikipedia: https://en.wikipedia.org/wiki/Ailey,_Georgia
+- id: alamo
+  name: Alamo
+  kind: city
+  fips: '1300996'
+  counties:
+  - Wheeler
+  county_seat: true
+  population: 771
+  wikipedia: https://en.wikipedia.org/wiki/Alamo,_Georgia
+- id: alapaha
+  name: Alapaha
+  kind: town
+  fips: '1301024'
+  counties:
+  - Berrien
+  county_seat: false
+  population: 481
+  wikipedia: https://en.wikipedia.org/wiki/Alapaha,_Georgia
+- id: albany
+  name: Albany
+  kind: city
+  fips: '1301052'
+  counties:
+  - Dougherty
+  county_seat: true
+  population: 69647
+  wikipedia: https://en.wikipedia.org/wiki/Albany,_Georgia
+  municode: https://library.municode.com/ga/albany
+- id: aldora
+  name: Aldora
+  kind: town
+  fips: '1301248'
+  counties:
+  - Lamar
+  county_seat: false
+  population: 0
+  wikipedia: https://en.wikipedia.org/wiki/Aldora,_Georgia
+- id: allenhurst
+  name: Allenhurst
+  kind: city
+  fips: '1301472'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 816
+  wikipedia: https://en.wikipedia.org/wiki/Allenhurst,_Georgia
+- id: allentown
+  name: Allentown
+  kind: town
+  fips: '1301500'
+  counties:
+  - Bleckley
+  - Laurens
+  - Twiggs
+  - Wilkinson
+  county_seat: false
+  population: 195
+  wikipedia: https://en.wikipedia.org/wiki/Allentown,_Georgia
+- id: alma
+  name: Alma
+  kind: city
+  fips: '1301612'
+  counties:
+  - Bacon
+  county_seat: true
+  population: 3433
+  wikipedia: https://en.wikipedia.org/wiki/Alma,_Georgia
+- id: alpharetta
+  name: Alpharetta
+  kind: city
+  fips: '1301696'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 65818
+  wikipedia: https://en.wikipedia.org/wiki/Alpharetta,_Georgia
+  municode: https://library.municode.com/ga/alpharetta
+- id: alston
+  name: Alston
+  kind: town
+  fips: '1301808'
+  counties:
+  - Montgomery
+  county_seat: false
+  population: 178
+  wikipedia: https://en.wikipedia.org/wiki/Alston,_Georgia
+- id: alto
+  name: Alto
+  kind: town
+  fips: '1301948'
+  counties:
+  - Banks
+  - Habersham
+  county_seat: false
+  population: 970
+  wikipedia: https://en.wikipedia.org/wiki/Alto,_Georgia
+- id: ambrose
+  name: Ambrose
+  kind: city
+  fips: '1302060'
+  counties:
+  - Coffee
+  county_seat: false
+  population: 327
+  wikipedia: https://en.wikipedia.org/wiki/Ambrose,_Georgia
+- id: americus
+  name: Americus
+  kind: city
+  fips: '1302116'
+  counties:
+  - Sumter
+  county_seat: true
+  population: 16230
+  wikipedia: https://en.wikipedia.org/wiki/Americus,_Georgia
+- id: andersonville
+  name: Andersonville
+  kind: city
+  fips: '1302256'
+  counties:
+  - Sumter
+  county_seat: false
+  population: 237
+  wikipedia: https://en.wikipedia.org/wiki/Andersonville,_Georgia
+- id: arabi
+  name: Arabi
+  kind: town
+  fips: '1302564'
+  counties:
+  - Crisp
+  county_seat: false
+  population: 447
+  wikipedia: https://en.wikipedia.org/wiki/Arabi,_Georgia
+- id: aragon
+  name: Aragon
+  kind: city
+  fips: '1302592'
+  counties:
+  - Polk
+  county_seat: false
+  population: 1440
+  wikipedia: https://en.wikipedia.org/wiki/Aragon,_Georgia
+- id: arcade
+  name: Arcade
+  kind: city
+  fips: '1302648'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 1884
+  wikipedia: https://en.wikipedia.org/wiki/Arcade,_Georgia
+- id: argyle
+  name: Argyle
+  kind: town
+  fips: '1302844'
+  counties:
+  - Clinch
+  county_seat: false
+  population: 190
+  wikipedia: https://en.wikipedia.org/wiki/Argyle,_Georgia
+- id: arlington
+  name: Arlington
+  kind: city
+  fips: '1302928'
+  counties:
+  - Calhoun
+  - Early
+  county_seat: false
+  population: 1209
+  wikipedia: https://en.wikipedia.org/wiki/Arlington,_Georgia
+- id: arnoldsville
+  name: Arnoldsville
+  kind: city
+  fips: '1303124'
+  counties:
+  - Oglethorpe
+  county_seat: false
+  population: 431
+  wikipedia: https://en.wikipedia.org/wiki/Arnoldsville,_Georgia
+- id: ashburn
+  name: Ashburn
+  kind: city
+  fips: '1303236'
+  counties:
+  - Turner
+  county_seat: true
+  population: 4291
+  wikipedia: https://en.wikipedia.org/wiki/Ashburn,_Georgia
+- id: athens-clarke
+  name: Athens
+  kind: consolidated
+  fips: '1303440'
+  counties:
+  - Clarke
+  county_seat: true
+  population: 127315
+  wikipedia: https://en.wikipedia.org/wiki/Athens,_Georgia
+  consolidated_with: Clarke County
+- id: atlanta
+  name: Atlanta
+  kind: city
+  fips: '1304000'
+  counties:
+  - DeKalb
+  - Fulton
+  county_seat: false
+  population: 498715
+  wikipedia: https://en.wikipedia.org/wiki/Atlanta
+  municode: https://library.municode.com/ga/atlanta
+- id: attapulgus
+  name: Attapulgus
+  kind: city
+  fips: '1304084'
+  counties:
+  - Decatur
+  county_seat: false
+  population: 454
+  wikipedia: https://en.wikipedia.org/wiki/Attapulgus,_Georgia
+- id: auburn
+  name: Auburn
+  kind: city
+  fips: '1304140'
+  counties:
+  - Barrow
+  - Gwinnett
+  county_seat: false
+  population: 7495
+  wikipedia: https://en.wikipedia.org/wiki/Auburn,_Georgia
+  municode: https://library.municode.com/ga/auburn
+- id: augusta-richmond
+  name: Augusta
+  kind: consolidated
+  fips: '1304204'
+  counties:
+  - Richmond
+  county_seat: true
+  population: 202081
+  wikipedia: https://en.wikipedia.org/wiki/Augusta,_Georgia
+  consolidated_with: Richmond County
+- id: austell
+  name: Austell
+  kind: city
+  fips: '1304252'
+  counties:
+  - Cobb
+  - Douglas
+  county_seat: false
+  population: 7713
+  wikipedia: https://en.wikipedia.org/wiki/Austell,_Georgia
+- id: avalon
+  name: Avalon
+  kind: town
+  fips: '1304392'
+  counties:
+  - Stephens
+  county_seat: false
+  population: 233
+  wikipedia: https://en.wikipedia.org/wiki/Avalon,_Georgia
+- id: avera
+  name: Avera
+  kind: city
+  fips: '1304448'
+  counties:
+  - Jefferson
+  county_seat: false
+  population: 223
+  wikipedia: https://en.wikipedia.org/wiki/Avera,_Georgia
+- id: avondale-estates
+  name: Avondale Estates
+  kind: city
+  fips: '1304644'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 3567
+  wikipedia: https://en.wikipedia.org/wiki/Avondale_Estates,_Georgia
+- id: baconton
+  name: Baconton
+  kind: city
+  fips: '1304840'
+  counties:
+  - Mitchell
+  county_seat: false
+  population: 856
+  wikipedia: https://en.wikipedia.org/wiki/Baconton,_Georgia
+- id: bainbridge
+  name: Bainbridge
+  kind: city
+  fips: '1304896'
+  counties:
+  - Decatur
+  county_seat: true
+  population: 14468
+  wikipedia: https://en.wikipedia.org/wiki/Bainbridge,_Georgia
+- id: baldwin
+  name: Baldwin
+  kind: city
+  fips: '1304980'
+  counties:
+  - Banks
+  - Habersham
+  county_seat: false
+  population: 3629
+  wikipedia: https://en.wikipedia.org/wiki/Baldwin,_Georgia
+- id: ball-ground
+  name: Ball Ground
+  kind: city
+  fips: '1305036'
+  counties:
+  - Cherokee
+  county_seat: false
+  population: 2560
+  wikipedia: https://en.wikipedia.org/wiki/Ball_Ground,_Georgia
+- id: barnesville
+  name: Barnesville
+  kind: city
+  fips: '1305344'
+  counties:
+  - Lamar
+  county_seat: true
+  population: 6292
+  wikipedia: https://en.wikipedia.org/wiki/Barnesville,_Georgia
+- id: bartow
+  name: Bartow
+  kind: town
+  fips: '1305680'
+  counties:
+  - Jefferson
+  county_seat: false
+  population: 186
+  wikipedia: https://en.wikipedia.org/wiki/Bartow,_Georgia
+- id: barwick
+  name: Barwick
+  kind: city
+  fips: '1305708'
+  counties:
+  - Brooks
+  - Thomas
+  county_seat: false
+  population: 363
+  wikipedia: https://en.wikipedia.org/wiki/Barwick,_Georgia
+- id: baxley
+  name: Baxley
+  kind: city
+  fips: '1306016'
+  counties:
+  - Appling
+  county_seat: true
+  population: 4942
+  wikipedia: https://en.wikipedia.org/wiki/Baxley,_Georgia
+- id: bellville
+  name: Bellville
+  kind: city
+  fips: '1306688'
+  counties:
+  - Evans
+  county_seat: false
+  population: 127
+  wikipedia: https://en.wikipedia.org/wiki/Bellville,_Georgia
+- id: berkeley-lake
+  name: Berkeley Lake
+  kind: city
+  fips: '1307248'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 2054
+  wikipedia: https://en.wikipedia.org/wiki/Berkeley_Lake,_Georgia
+  municode: https://library.municode.com/ga/berkeley_lake
+- id: berlin
+  name: Berlin
+  kind: town
+  fips: '1307304'
+  counties:
+  - Colquitt
+  county_seat: false
+  population: 511
+  wikipedia: https://en.wikipedia.org/wiki/Berlin,_Georgia
+- id: bethlehem
+  name: Bethlehem
+  kind: town
+  fips: '1307612'
+  counties:
+  - Barrow
+  county_seat: false
+  population: 715
+  wikipedia: https://en.wikipedia.org/wiki/Bethlehem,_Georgia
+- id: between
+  name: Between
+  kind: town
+  fips: '1307640'
+  counties:
+  - Walton
+  county_seat: false
+  population: 402
+  wikipedia: https://en.wikipedia.org/wiki/Between,_Georgia
+- id: bishop
+  name: Bishop
+  kind: town
+  fips: '1308200'
+  counties:
+  - Oconee
+  county_seat: false
+  population: 332
+  wikipedia: https://en.wikipedia.org/wiki/Bishop,_Georgia
+- id: blackshear
+  name: Blackshear
+  kind: city
+  fips: '1308284'
+  counties:
+  - Pierce
+  county_seat: true
+  population: 3506
+  wikipedia: https://en.wikipedia.org/wiki/Blackshear,_Georgia
+- id: blairsville
+  name: Blairsville
+  kind: city
+  fips: '1308480'
+  counties:
+  - Union
+  county_seat: true
+  population: 616
+  wikipedia: https://en.wikipedia.org/wiki/Blairsville,_Georgia
+- id: blakely
+  name: Blakely
+  kind: city
+  fips: '1308536'
+  counties:
+  - Early
+  county_seat: true
+  population: 5371
+  wikipedia: https://en.wikipedia.org/wiki/Blakely,_Georgia
+- id: bloomingdale
+  name: Bloomingdale
+  kind: city
+  fips: '1308844'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 2790
+  wikipedia: https://en.wikipedia.org/wiki/Bloomingdale,_Georgia
+- id: blue-ridge
+  name: Blue Ridge
+  kind: city
+  fips: '1308928'
+  counties:
+  - Fannin
+  county_seat: true
+  population: 1253
+  wikipedia: https://en.wikipedia.org/wiki/Blue_Ridge,_Georgia
+- id: bluffton
+  name: Bluffton
+  kind: town
+  fips: '1308956'
+  counties:
+  - Clay
+  county_seat: false
+  population: 113
+  wikipedia: https://en.wikipedia.org/wiki/Bluffton,_Georgia
+- id: blythe
+  name: Blythe
+  kind: city
+  fips: '1309040'
+  counties:
+  - Burke
+  - Richmond
+  county_seat: false
+  population: 744
+  wikipedia: https://en.wikipedia.org/wiki/Blythe,_Georgia
+- id: bogart
+  name: Bogart
+  kind: town
+  fips: '1309068'
+  counties:
+  - Clarke
+  - Oconee
+  county_seat: false
+  population: 1326
+  wikipedia: https://en.wikipedia.org/wiki/Bogart,_Georgia
+- id: boston
+  name: Boston
+  kind: city
+  fips: '1309460'
+  counties:
+  - Thomas
+  county_seat: false
+  population: 1207
+  wikipedia: https://en.wikipedia.org/wiki/Boston,_Georgia
+- id: bostwick
+  name: Bostwick
+  kind: town
+  fips: '1309488'
+  counties:
+  - Morgan
+  county_seat: false
+  population: 378
+  wikipedia: https://en.wikipedia.org/wiki/Bostwick,_Georgia
+- id: bowdon
+  name: Bowdon
+  kind: city
+  fips: '1309544'
+  counties:
+  - Carroll
+  county_seat: false
+  population: 2161
+  wikipedia: https://en.wikipedia.org/wiki/Bowdon,_Georgia
+  municode: https://library.municode.com/ga/bowdon
+- id: bowersville
+  name: Bowersville
+  kind: town
+  fips: '1309656'
+  counties:
+  - Hart
+  county_seat: false
+  population: 444
+  wikipedia: https://en.wikipedia.org/wiki/Bowersville,_Georgia
+- id: bowman
+  name: Bowman
+  kind: city
+  fips: '1309712'
+  counties:
+  - Elbert
+  county_seat: false
+  population: 872
+  wikipedia: https://en.wikipedia.org/wiki/Bowman,_Georgia
+- id: braselton
+  name: Braselton
+  kind: town
+  fips: '1310076'
+  counties:
+  - Barrow
+  - Gwinnett
+  - Hall
+  - Jackson
+  county_seat: false
+  population: 13403
+  wikipedia: https://en.wikipedia.org/wiki/Braselton,_Georgia
+- id: braswell
+  name: Braswell
+  kind: city
+  fips: '1310104'
+  counties:
+  - Paulding
+  - Polk
+  county_seat: false
+  population: 355
+  wikipedia: https://en.wikipedia.org/wiki/Braswell,_Georgia
+- id: bremen
+  name: Bremen
+  kind: city
+  fips: '1310132'
+  counties:
+  - Carroll
+  - Haralson
+  county_seat: false
+  population: 7185
+  wikipedia: https://en.wikipedia.org/wiki/Bremen,_Georgia
+  municode: https://library.municode.com/ga/bremen
+- id: brinson
+  name: Brinson
+  kind: town
+  fips: '1310608'
+  counties:
+  - Decatur
+  county_seat: false
+  population: 217
+  wikipedia: https://en.wikipedia.org/wiki/Brinson,_Georgia
+- id: bronwood
+  name: Bronwood
+  kind: town
+  fips: '1310860'
+  counties:
+  - Terrell
+  county_seat: false
+  population: 334
+  wikipedia: https://en.wikipedia.org/wiki/Bronwood,_Georgia
+- id: brookhaven
+  name: Brookhaven
+  kind: city
+  fips: '1310944'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 55161
+  wikipedia: https://en.wikipedia.org/wiki/Brookhaven,_Georgia
+- id: brooklet
+  name: Brooklet
+  kind: city
+  fips: '1311000'
+  counties:
+  - Bulloch
+  county_seat: false
+  population: 1704
+  wikipedia: https://en.wikipedia.org/wiki/Brooklet,_Georgia
+- id: brooks
+  name: Brooks
+  kind: town
+  fips: '1311056'
+  counties:
+  - Fayette
+  county_seat: false
+  population: 568
+  wikipedia: https://en.wikipedia.org/wiki/Brooks,_Georgia
+- id: broxton
+  name: Broxton
+  kind: city
+  fips: '1311504'
+  counties:
+  - Coffee
+  county_seat: false
+  population: 1060
+  wikipedia: https://en.wikipedia.org/wiki/Broxton,_Georgia
+- id: brunswick
+  name: Brunswick
+  kind: city
+  fips: '1311560'
+  counties:
+  - Glynn
+  county_seat: true
+  population: 15210
+  wikipedia: https://en.wikipedia.org/wiki/Brunswick,_Georgia
+- id: buchanan
+  name: Buchanan
+  kind: city
+  fips: '1311616'
+  counties:
+  - Haralson
+  county_seat: true
+  population: 938
+  wikipedia: https://en.wikipedia.org/wiki/Buchanan,_Georgia
+- id: buckhead
+  name: Buckhead
+  kind: town
+  fips: '1311672'
+  counties:
+  - Morgan
+  county_seat: false
+  population: 194
+  wikipedia: https://en.wikipedia.org/wiki/Buckhead,_Morgan_County,_Georgia
+- id: buena-vista
+  name: Buena Vista
+  kind: city
+  fips: '1311728'
+  counties:
+  - Marion
+  county_seat: true
+  population: 1585
+  wikipedia: https://en.wikipedia.org/wiki/Buena_Vista,_Georgia
+  municode: https://library.municode.com/ga/buena_vista
+- id: buford
+  name: Buford
+  kind: city
+  fips: '1311784'
+  counties:
+  - Gwinnett
+  - Hall
+  county_seat: false
+  population: 17144
+  wikipedia: https://en.wikipedia.org/wiki/Buford,_Georgia
+  municode: https://library.municode.com/ga/buford
+- id: butler
+  name: Butler
+  kind: city
+  fips: '1312120'
+  counties:
+  - Taylor
+  county_seat: true
+  population: 1881
+  wikipedia: https://en.wikipedia.org/wiki/Butler,_Georgia
+  municode: https://library.municode.com/ga/butler
+- id: byromville
+  name: Byromville
+  kind: town
+  fips: '1312232'
+  counties:
+  - Dooly
+  county_seat: false
+  population: 422
+  wikipedia: https://en.wikipedia.org/wiki/Byromville,_Georgia
+- id: byron
+  name: Byron
+  kind: city
+  fips: '1312260'
+  counties:
+  - Peach
+  county_seat: false
+  population: 5702
+  wikipedia: https://en.wikipedia.org/wiki/Byron,_Georgia
+- id: cadwell
+  name: Cadwell
+  kind: town
+  fips: '1312344'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 381
+  wikipedia: https://en.wikipedia.org/wiki/Cadwell,_Georgia
+- id: cairo
+  name: Cairo
+  kind: city
+  fips: '1312400'
+  counties:
+  - Grady
+  county_seat: true
+  population: 10179
+  wikipedia: https://en.wikipedia.org/wiki/Cairo,_Georgia
+- id: calhoun
+  name: Calhoun
+  kind: city
+  fips: '1312456'
+  counties:
+  - Gordon
+  county_seat: true
+  population: 16949
+  wikipedia: https://en.wikipedia.org/wiki/Calhoun,_Georgia
+- id: camak
+  name: Camak
+  kind: town
+  fips: '1312512'
+  counties:
+  - Warren
+  county_seat: false
+  population: 141
+  wikipedia: https://en.wikipedia.org/wiki/Camak,_Georgia
+- id: camilla
+  name: Camilla
+  kind: city
+  fips: '1312624'
+  counties:
+  - Mitchell
+  county_seat: true
+  population: 5187
+  wikipedia: https://en.wikipedia.org/wiki/Camilla,_Georgia
+- id: canon
+  name: Canon
+  kind: city
+  fips: '1312932'
+  counties:
+  - Franklin
+  - Hart
+  county_seat: false
+  population: 643
+  wikipedia: https://en.wikipedia.org/wiki/Canon,_Georgia
+- id: canton
+  name: Canton
+  kind: city
+  fips: '1312988'
+  counties:
+  - Cherokee
+  county_seat: true
+  population: 32973
+  wikipedia: https://en.wikipedia.org/wiki/Canton,_Georgia
+- id: carl
+  name: Carl
+  kind: town
+  fips: '1313184'
+  counties:
+  - Barrow
+  county_seat: false
+  population: 209
+  wikipedia: https://en.wikipedia.org/wiki/Carl,_Georgia
+- id: carlton
+  name: Carlton
+  kind: city
+  fips: '1313212'
+  counties:
+  - Madison
+  county_seat: false
+  population: 263
+  wikipedia: https://en.wikipedia.org/wiki/Carlton,_Georgia
+- id: carnesville
+  name: Carnesville
+  kind: city
+  fips: '1313352'
+  counties:
+  - Franklin
+  county_seat: true
+  population: 713
+  wikipedia: https://en.wikipedia.org/wiki/Carnesville,_Georgia
+- id: carrollton
+  name: Carrollton
+  kind: city
+  fips: '1313492'
+  counties:
+  - Carroll
+  county_seat: true
+  population: 26738
+  wikipedia: https://en.wikipedia.org/wiki/Carrollton,_Georgia
+- id: cartersville
+  name: Cartersville
+  kind: city
+  fips: '1313688'
+  counties:
+  - Bartow
+  county_seat: true
+  population: 23187
+  wikipedia: https://en.wikipedia.org/wiki/Cartersville,_Georgia
+  municode: https://library.municode.com/ga/cartersville
+- id: cave-spring
+  name: Cave Spring
+  kind: city
+  fips: '1314108'
+  counties:
+  - Floyd
+  county_seat: false
+  population: 1174
+  wikipedia: https://en.wikipedia.org/wiki/Cave_Spring,_Georgia
+- id: cecil
+  name: Cecil
+  kind: town
+  fips: '1314192'
+  counties:
+  - Cook
+  county_seat: false
+  population: 284
+  wikipedia: https://en.wikipedia.org/wiki/Cecil,_Georgia
+- id: cedartown
+  name: Cedartown
+  kind: city
+  fips: '1314500'
+  counties:
+  - Polk
+  county_seat: true
+  population: 10190
+  wikipedia: https://en.wikipedia.org/wiki/Cedartown,_Georgia
+- id: centerville
+  name: Centerville
+  kind: city
+  fips: '1314920'
+  counties:
+  - Houston
+  county_seat: false
+  population: 8228
+  wikipedia: https://en.wikipedia.org/wiki/Centerville,_Georgia
+- id: centralhatchee
+  name: Centralhatchee
+  kind: town
+  fips: '1315026'
+  counties:
+  - Heard
+  county_seat: false
+  population: 348
+  wikipedia: https://en.wikipedia.org/wiki/Centralhatchee,_Georgia
+- id: chamblee
+  name: Chamblee
+  kind: city
+  fips: '1315172'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 30164
+  wikipedia: https://en.wikipedia.org/wiki/Chamblee,_Georgia
+  municode: https://library.municode.com/ga/chamblee
+- id: chatsworth
+  name: Chatsworth
+  kind: city
+  fips: '1315508'
+  counties:
+  - Murray
+  county_seat: true
+  population: 4299
+  wikipedia: https://en.wikipedia.org/wiki/Chatsworth,_Georgia
+- id: chattahoochee-hills
+  name: Chattahoochee Hills
+  kind: city
+  fips: '1315552'
+  counties:
+  - Coweta
+  - Fulton
+  county_seat: false
+  population: 2950
+  wikipedia: https://en.wikipedia.org/wiki/Chattahoochee_Hills,_Georgia
+- id: chauncey
+  name: Chauncey
+  kind: city
+  fips: '1315648'
+  counties:
+  - Dodge
+  county_seat: false
+  population: 289
+  wikipedia: https://en.wikipedia.org/wiki/Chauncey,_Georgia
+- id: chester
+  name: Chester
+  kind: town
+  fips: '1315900'
+  counties:
+  - Dodge
+  county_seat: false
+  population: 525
+  wikipedia: https://en.wikipedia.org/wiki/Chester,_Georgia
+- id: chickamauga
+  name: Chickamauga
+  kind: city
+  fips: '1315984'
+  counties:
+  - Walker
+  county_seat: false
+  population: 2917
+  wikipedia: https://en.wikipedia.org/wiki/Chickamauga,_Georgia
+- id: clarkesville
+  name: Clarkesville
+  kind: city
+  fips: '1316460'
+  counties:
+  - Habersham
+  county_seat: true
+  population: 1911
+  wikipedia: https://en.wikipedia.org/wiki/Clarkesville,_Georgia
+- id: clarkston
+  name: Clarkston
+  kind: city
+  fips: '1316544'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 14756
+  wikipedia: https://en.wikipedia.org/wiki/Clarkston,_Georgia
+- id: claxton
+  name: Claxton
+  kind: city
+  fips: '1316600'
+  counties:
+  - Evans
+  county_seat: true
+  population: 2602
+  wikipedia: https://en.wikipedia.org/wiki/Claxton,_Georgia
+- id: clayton
+  name: Clayton
+  kind: city
+  fips: '1316656'
+  counties:
+  - Rabun
+  county_seat: true
+  population: 2003
+  wikipedia: https://en.wikipedia.org/wiki/Clayton,_Georgia
+- id: clermont
+  name: Clermont
+  kind: town
+  fips: '1316796'
+  counties:
+  - Hall
+  county_seat: false
+  population: 1021
+  wikipedia: https://en.wikipedia.org/wiki/Clermont,_Georgia
+- id: cleveland
+  name: Cleveland
+  kind: city
+  fips: '1316824'
+  counties:
+  - White
+  county_seat: true
+  population: 3514
+  wikipedia: https://en.wikipedia.org/wiki/Cleveland,_Georgia
+- id: climax
+  name: Climax
+  kind: city
+  fips: '1316908'
+  counties:
+  - Decatur
+  county_seat: false
+  population: 276
+  wikipedia: https://en.wikipedia.org/wiki/Climax,_Georgia
+- id: cobbtown
+  name: Cobbtown
+  kind: city
+  fips: '1317272'
+  counties:
+  - Tattnall
+  county_seat: false
+  population: 341
+  wikipedia: https://en.wikipedia.org/wiki/Cobbtown,_Georgia
+- id: cochran
+  name: Cochran
+  kind: city
+  fips: '1317328'
+  counties:
+  - Bleckley
+  county_seat: true
+  population: 5026
+  wikipedia: https://en.wikipedia.org/wiki/Cochran,_Georgia
+- id: cohutta
+  name: Cohutta
+  kind: town
+  fips: '1317496'
+  counties:
+  - Whitfield
+  county_seat: false
+  population: 764
+  wikipedia: https://en.wikipedia.org/wiki/Cohutta,_Georgia
+- id: colbert
+  name: Colbert
+  kind: city
+  fips: '1317552'
+  counties:
+  - Madison
+  county_seat: false
+  population: 630
+  wikipedia: https://en.wikipedia.org/wiki/Colbert,_Georgia
+- id: college-park
+  name: College Park
+  kind: city
+  fips: '1317776'
+  counties:
+  - Clayton
+  - Fulton
+  county_seat: false
+  population: 13930
+  wikipedia: https://en.wikipedia.org/wiki/College_Park,_Georgia
+  municode: https://library.municode.com/ga/college_park
+- id: collins
+  name: Collins
+  kind: city
+  fips: '1317832'
+  counties:
+  - Tattnall
+  county_seat: false
+  population: 540
+  wikipedia: https://en.wikipedia.org/wiki/Collins,_Georgia
+- id: colquitt
+  name: Colquitt
+  kind: city
+  fips: '1318000'
+  counties:
+  - Miller
+  county_seat: true
+  population: 2001
+  wikipedia: https://en.wikipedia.org/wiki/Colquitt,_Georgia
+- id: columbus-muscogee
+  name: Columbus
+  kind: consolidated
+  fips: '1319000'
+  counties:
+  - Muscogee
+  county_seat: true
+  population: 206922
+  wikipedia: https://en.wikipedia.org/wiki/Columbus,_Georgia
+  consolidated_with: Muscogee County
+- id: comer
+  name: Comer
+  kind: city
+  fips: '1319084'
+  counties:
+  - Madison
+  county_seat: false
+  population: 1512
+  wikipedia: https://en.wikipedia.org/wiki/Comer,_Georgia
+- id: commerce
+  name: Commerce
+  kind: city
+  fips: '1319112'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 7387
+  wikipedia: https://en.wikipedia.org/wiki/Commerce,_Georgia
+- id: concord
+  name: Concord
+  kind: town
+  fips: '1319168'
+  counties:
+  - Pike
+  county_seat: false
+  population: 378
+  wikipedia: https://en.wikipedia.org/wiki/Concord,_Georgia
+- id: conyers
+  name: Conyers
+  kind: city
+  fips: '1319336'
+  counties:
+  - Rockdale
+  county_seat: true
+  population: 17305
+  wikipedia: https://en.wikipedia.org/wiki/Conyers,_Georgia
+- id: coolidge
+  name: Coolidge
+  kind: city
+  fips: '1319392'
+  counties:
+  - Thomas
+  county_seat: false
+  population: 528
+  wikipedia: https://en.wikipedia.org/wiki/Coolidge,_Georgia
+- id: cordele
+  name: Cordele
+  kind: city
+  fips: '1319616'
+  counties:
+  - Crisp
+  county_seat: true
+  population: 10220
+  wikipedia: https://en.wikipedia.org/wiki/Cordele,_Georgia
+- id: cornelia
+  name: Cornelia
+  kind: city
+  fips: '1319728'
+  counties:
+  - Habersham
+  county_seat: false
+  population: 4503
+  wikipedia: https://en.wikipedia.org/wiki/Cornelia,_Georgia
+  municode: https://library.municode.com/ga/cornelia
+- id: covington
+  name: Covington
+  kind: city
+  fips: '1320064'
+  counties:
+  - Newton
+  county_seat: true
+  population: 14192
+  wikipedia: https://en.wikipedia.org/wiki/Covington,_Georgia
+- id: crawford
+  name: Crawford
+  kind: city
+  fips: '1320288'
+  counties:
+  - Oglethorpe
+  county_seat: false
+  population: 821
+  wikipedia: https://en.wikipedia.org/wiki/Crawford,_Georgia
+- id: crawfordville
+  name: Crawfordville
+  kind: city
+  fips: '1320316'
+  counties:
+  - Taliaferro
+  county_seat: true
+  population: 479
+  wikipedia: https://en.wikipedia.org/wiki/Crawfordville,_Georgia
+- id: culloden
+  name: Culloden
+  kind: city
+  fips: '1320848'
+  counties:
+  - Monroe
+  county_seat: false
+  population: 200
+  wikipedia: https://en.wikipedia.org/wiki/Culloden,_Georgia
+- id: cumming
+  name: Cumming
+  kind: city
+  fips: '1320932'
+  counties:
+  - Forsyth
+  county_seat: true
+  population: 7318
+  wikipedia: https://en.wikipedia.org/wiki/Cumming,_Georgia
+- id: cusseta-chattahoochee
+  name: Cusseta
+  kind: consolidated
+  fips: '1321017'
+  counties:
+  - Chattahoochee
+  county_seat: true
+  population: 9565
+  wikipedia: https://en.wikipedia.org/wiki/Cusseta,_Georgia
+  consolidated_with: Chattahoochee County
+- id: cuthbert
+  name: Cuthbert
+  kind: city
+  fips: '1321072'
+  counties:
+  - Randolph
+  county_seat: true
+  population: 3143
+  wikipedia: https://en.wikipedia.org/wiki/Cuthbert,_Georgia
+- id: dacula
+  name: Dacula
+  kind: city
+  fips: '1321184'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 6882
+  wikipedia: https://en.wikipedia.org/wiki/Dacula,_Georgia
+  municode: https://library.municode.com/ga/dacula
+- id: dahlonega
+  name: Dahlonega
+  kind: city
+  fips: '1321240'
+  counties:
+  - Lumpkin
+  county_seat: true
+  population: 7537
+  wikipedia: https://en.wikipedia.org/wiki/Dahlonega,_Georgia
+- id: daisy
+  name: Daisy
+  kind: city
+  fips: '1321268'
+  counties:
+  - Evans
+  county_seat: false
+  population: 159
+  wikipedia: https://en.wikipedia.org/wiki/Daisy,_Georgia
+- id: dallas
+  name: Dallas
+  kind: city
+  fips: '1321324'
+  counties:
+  - Paulding
+  county_seat: true
+  population: 14042
+  wikipedia: https://en.wikipedia.org/wiki/Dallas,_Georgia
+- id: dalton
+  name: Dalton
+  kind: city
+  fips: '1321380'
+  counties:
+  - Whitfield
+  county_seat: true
+  population: 34417
+  wikipedia: https://en.wikipedia.org/wiki/Dalton,_Georgia
+  municode: https://library.municode.com/ga/dalton
+- id: damascus
+  name: Damascus
+  kind: city
+  fips: '1321436'
+  counties:
+  - Early
+  county_seat: false
+  population: 212
+  wikipedia: https://en.wikipedia.org/wiki/Damascus,_Georgia
+- id: danielsville
+  name: Danielsville
+  kind: city
+  fips: '1321632'
+  counties:
+  - Madison
+  county_seat: true
+  population: 654
+  wikipedia: https://en.wikipedia.org/wiki/Danielsville,_Georgia
+- id: danville
+  name: Danville
+  kind: town
+  fips: '1321688'
+  counties:
+  - Twiggs
+  - Wilkinson
+  county_seat: false
+  population: 165
+  wikipedia: https://en.wikipedia.org/wiki/Danville,_Georgia
+- id: darien
+  name: Darien
+  kind: city
+  fips: '1321716'
+  counties:
+  - McIntosh
+  county_seat: true
+  population: 1460
+  wikipedia: https://en.wikipedia.org/wiki/Darien,_Georgia
+- id: dasher
+  name: Dasher
+  kind: town
+  fips: '1321744'
+  counties:
+  - Lowndes
+  county_seat: false
+  population: 890
+  wikipedia: https://en.wikipedia.org/wiki/Dasher,_Georgia
+- id: davisboro
+  name: Davisboro
+  kind: city
+  fips: '1321800'
+  counties:
+  - Washington
+  county_seat: false
+  population: 1832
+  wikipedia: https://en.wikipedia.org/wiki/Davisboro,_Georgia
+- id: dawson
+  name: Dawson
+  kind: city
+  fips: '1321912'
+  counties:
+  - Terrell
+  county_seat: true
+  population: 4414
+  wikipedia: https://en.wikipedia.org/wiki/Dawson,_Georgia
+  municode: https://library.municode.com/ga/dawson
+- id: dawsonville
+  name: Dawsonville
+  kind: city
+  fips: '1321940'
+  counties:
+  - Dawson
+  county_seat: true
+  population: 3720
+  wikipedia: https://en.wikipedia.org/wiki/Dawsonville,_Georgia
+- id: de-soto
+  name: De Soto
+  kind: city
+  fips: '1322472'
+  counties:
+  - Sumter
+  county_seat: false
+  population: 124
+  wikipedia: https://en.wikipedia.org/wiki/De_Soto,_Georgia
+- id: dearing
+  name: Dearing
+  kind: town
+  fips: '1322024'
+  counties:
+  - McDuffie
+  county_seat: false
+  population: 529
+  wikipedia: https://en.wikipedia.org/wiki/Dearing,_Georgia
+- id: decatur
+  name: Decatur
+  kind: city
+  fips: '1322052'
+  counties:
+  - DeKalb
+  county_seat: true
+  population: 24928
+  wikipedia: https://en.wikipedia.org/wiki/Decatur,_Georgia
+- id: deepstep
+  name: Deepstep
+  kind: town
+  fips: '1322108'
+  counties:
+  - Washington
+  county_seat: false
+  population: 117
+  wikipedia: https://en.wikipedia.org/wiki/Deepstep,_Georgia
+- id: demorest
+  name: Demorest
+  kind: city
+  fips: '1322304'
+  counties:
+  - Habersham
+  county_seat: false
+  population: 2022
+  wikipedia: https://en.wikipedia.org/wiki/Demorest,_Georgia
+  municode: https://library.municode.com/ga/demorest
+- id: denton
+  name: Denton
+  kind: city
+  fips: '1322388'
+  counties:
+  - Jeff Davis
+  county_seat: false
+  population: 250
+  wikipedia: https://en.wikipedia.org/wiki/Denton,_Georgia
+- id: dexter
+  name: Dexter
+  kind: town
+  fips: '1322752'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 655
+  wikipedia: https://en.wikipedia.org/wiki/Dexter,_Georgia
+- id: dillard
+  name: Dillard
+  kind: city
+  fips: '1322976'
+  counties:
+  - Rabun
+  county_seat: false
+  population: 337
+  wikipedia: https://en.wikipedia.org/wiki/Dillard,_Georgia
+- id: doerun
+  name: Doerun
+  kind: city
+  fips: '1323284'
+  counties:
+  - Colquitt
+  county_seat: false
+  population: 738
+  wikipedia: https://en.wikipedia.org/wiki/Doerun,_Georgia
+- id: donalsonville
+  name: Donalsonville
+  kind: city
+  fips: '1323368'
+  counties:
+  - Seminole
+  county_seat: true
+  population: 2833
+  wikipedia: https://en.wikipedia.org/wiki/Donalsonville,_Georgia
+- id: dooling
+  name: Dooling
+  kind: town
+  fips: '1323480'
+  counties:
+  - Dooly
+  county_seat: false
+  population: 68
+  wikipedia: https://en.wikipedia.org/wiki/Dooling,_Georgia
+- id: doraville
+  name: Doraville
+  kind: city
+  fips: '1323536'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 10623
+  wikipedia: https://en.wikipedia.org/wiki/Doraville,_Georgia
+- id: douglas
+  name: Douglas
+  kind: city
+  fips: '1323872'
+  counties:
+  - Coffee
+  county_seat: true
+  population: 11722
+  wikipedia: https://en.wikipedia.org/wiki/Douglas,_Georgia
+- id: douglasville
+  name: Douglasville
+  kind: city
+  fips: '1323900'
+  counties:
+  - Douglas
+  county_seat: true
+  population: 34650
+  wikipedia: https://en.wikipedia.org/wiki/Douglasville,_Georgia
+- id: du-pont
+  name: Du Pont
+  kind: town
+  fips: '1324796'
+  counties:
+  - Clinch
+  county_seat: false
+  population: 134
+  wikipedia: https://en.wikipedia.org/wiki/Du_Pont,_Georgia
+- id: dublin
+  name: Dublin
+  kind: city
+  fips: '1324376'
+  counties:
+  - Laurens
+  county_seat: true
+  population: 16074
+  wikipedia: https://en.wikipedia.org/wiki/Dublin,_Georgia
+- id: dudley
+  name: Dudley
+  kind: city
+  fips: '1324488'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 593
+  wikipedia: https://en.wikipedia.org/wiki/Dudley,_Georgia
+- id: duluth
+  name: Duluth
+  kind: city
+  fips: '1324600'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 31873
+  wikipedia: https://en.wikipedia.org/wiki/Duluth,_Georgia
+- id: dunwoody
+  name: Dunwoody
+  kind: city
+  fips: '1324768'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 51683
+  wikipedia: https://en.wikipedia.org/wiki/Dunwoody,_Georgia
+- id: east-dublin
+  name: East Dublin
+  kind: city
+  fips: '1325300'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 2492
+  wikipedia: https://en.wikipedia.org/wiki/East_Dublin,_Georgia
+- id: east-ellijay
+  name: East Ellijay
+  kind: city
+  fips: '1325356'
+  counties:
+  - Gilmer
+  county_seat: false
+  population: 650
+  wikipedia: https://en.wikipedia.org/wiki/East_Ellijay,_Georgia
+- id: east-point
+  name: East Point
+  kind: city
+  fips: '1325720'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 38358
+  wikipedia: https://en.wikipedia.org/wiki/East_Point,_Georgia
+  municode: https://library.municode.com/ga/east_point
+- id: eastman
+  name: Eastman
+  kind: city
+  fips: '1325552'
+  counties:
+  - Dodge
+  county_seat: true
+  population: 5658
+  wikipedia: https://en.wikipedia.org/wiki/Eastman,_Georgia
+- id: eatonton
+  name: Eatonton
+  kind: city
+  fips: '1326084'
+  counties:
+  - Putnam
+  county_seat: true
+  population: 6480
+  wikipedia: https://en.wikipedia.org/wiki/Eatonton,_Georgia
+- id: edge-hill
+  name: Edge Hill
+  kind: city
+  fips: '1326224'
+  counties:
+  - Glascock
+  county_seat: false
+  population: 22
+  wikipedia: https://en.wikipedia.org/wiki/Edge_Hill,_Georgia
+- id: edison
+  name: Edison
+  kind: city
+  fips: '1326448'
+  counties:
+  - Calhoun
+  county_seat: false
+  population: 1230
+  wikipedia: https://en.wikipedia.org/wiki/Edison,_Georgia
+- id: elberton
+  name: Elberton
+  kind: city
+  fips: '1326616'
+  counties:
+  - Elbert
+  county_seat: true
+  population: 4640
+  wikipedia: https://en.wikipedia.org/wiki/Elberton,_Georgia
+- id: ellaville
+  name: Ellaville
+  kind: city
+  fips: '1326980'
+  counties:
+  - Schley
+  county_seat: true
+  population: 1595
+  wikipedia: https://en.wikipedia.org/wiki/Ellaville,_Georgia
+- id: ellenton
+  name: Ellenton
+  kind: town
+  fips: '1327008'
+  counties:
+  - Colquitt
+  county_seat: false
+  population: 210
+  wikipedia: https://en.wikipedia.org/wiki/Ellenton,_Georgia
+- id: ellijay
+  name: Ellijay
+  kind: city
+  fips: '1327092'
+  counties:
+  - Gilmer
+  county_seat: true
+  population: 1862
+  wikipedia: https://en.wikipedia.org/wiki/Ellijay,_Georgia
+- id: emerson
+  name: Emerson
+  kind: city
+  fips: '1327344'
+  counties:
+  - Bartow
+  county_seat: false
+  population: 1415
+  wikipedia: https://en.wikipedia.org/wiki/Emerson,_Georgia
+- id: enigma
+  name: Enigma
+  kind: town
+  fips: '1327596'
+  counties:
+  - Berrien
+  county_seat: false
+  population: 1058
+  wikipedia: https://en.wikipedia.org/wiki/Enigma,_Georgia
+- id: ephesus
+  name: Ephesus
+  kind: city
+  fips: '1327708'
+  counties:
+  - Heard
+  county_seat: false
+  population: 471
+  wikipedia: https://en.wikipedia.org/wiki/Ephesus,_Georgia
+- id: eton
+  name: Eton
+  kind: town
+  fips: '1327932'
+  counties:
+  - Murray
+  county_seat: false
+  population: 824
+  wikipedia: https://en.wikipedia.org/wiki/Eton,_Georgia
+- id: euharlee
+  name: Euharlee
+  kind: city
+  fips: '1327988'
+  counties:
+  - Bartow
+  county_seat: false
+  population: 4268
+  wikipedia: https://en.wikipedia.org/wiki/Euharlee,_Georgia
+- id: fairburn
+  name: Fairburn
+  kind: city
+  fips: '1328380'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 16483
+  wikipedia: https://en.wikipedia.org/wiki/Fairburn,_Georgia
+  municode: https://library.municode.com/ga/fairburn
+- id: fairmount
+  name: Fairmount
+  kind: city
+  fips: '1328492'
+  counties:
+  - Gordon
+  county_seat: false
+  population: 772
+  wikipedia: https://en.wikipedia.org/wiki/Fairmount,_Georgia
+- id: fargo
+  name: Fargo
+  kind: city
+  fips: '1328744'
+  counties:
+  - Clinch
+  county_seat: false
+  population: 250
+  wikipedia: https://en.wikipedia.org/wiki/Fargo,_Georgia
+- id: fayetteville
+  name: Fayetteville
+  kind: city
+  fips: '1328968'
+  counties:
+  - Fayette
+  county_seat: true
+  population: 18957
+  wikipedia: https://en.wikipedia.org/wiki/Fayetteville,_Georgia
+- id: fitzgerald
+  name: Fitzgerald
+  kind: city
+  fips: '1329528'
+  counties:
+  - Ben Hill
+  - Irwin
+  county_seat: true
+  population: 9006
+  wikipedia: https://en.wikipedia.org/wiki/Fitzgerald,_Georgia
+- id: flemington
+  name: Flemington
+  kind: city
+  fips: '1330088'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 825
+  wikipedia: https://en.wikipedia.org/wiki/Flemington,_Georgia
+- id: flovilla
+  name: Flovilla
+  kind: city
+  fips: '1330312'
+  counties:
+  - Butts
+  county_seat: false
+  population: 643
+  wikipedia: https://en.wikipedia.org/wiki/Flovilla,_Georgia
+- id: flowery-branch
+  name: Flowery Branch
+  kind: city
+  fips: '1330340'
+  counties:
+  - Hall
+  county_seat: false
+  population: 9391
+  wikipedia: https://en.wikipedia.org/wiki/Flowery_Branch,_Georgia
+- id: folkston
+  name: Folkston
+  kind: city
+  fips: '1330424'
+  counties:
+  - Charlton
+  county_seat: true
+  population: 4464
+  wikipedia: https://en.wikipedia.org/wiki/Folkston,_Georgia
+- id: forest-park
+  name: Forest Park
+  kind: city
+  fips: '1330536'
+  counties:
+  - Clayton
+  county_seat: false
+  population: 19932
+  wikipedia: https://en.wikipedia.org/wiki/Forest_Park,_Georgia
+  municode: https://library.municode.com/ga/forest_park
+- id: forsyth
+  name: Forsyth
+  kind: city
+  fips: '1330732'
+  counties:
+  - Monroe
+  county_seat: true
+  population: 4384
+  wikipedia: https://en.wikipedia.org/wiki/Forsyth,_Georgia
+- id: fort-gaines
+  name: Fort Gaines
+  kind: city
+  fips: '1330816'
+  counties:
+  - Clay
+  county_seat: true
+  population: 995
+  wikipedia: https://en.wikipedia.org/wiki/Fort_Gaines,_Georgia
+- id: fort-oglethorpe
+  name: Fort Oglethorpe
+  kind: city
+  fips: '1330956'
+  counties:
+  - Catoosa
+  - Walker
+  county_seat: false
+  population: 10423
+  wikipedia: https://en.wikipedia.org/wiki/Fort_Oglethorpe,_Georgia
+- id: fort-valley
+  name: Fort Valley
+  kind: city
+  fips: '1331096'
+  counties:
+  - Peach
+  county_seat: true
+  population: 8780
+  wikipedia: https://en.wikipedia.org/wiki/Fort_Valley,_Georgia
+- id: franklin
+  name: Franklin
+  kind: city
+  fips: '1331292'
+  counties:
+  - Heard
+  county_seat: true
+  population: 950
+  wikipedia: https://en.wikipedia.org/wiki/Franklin,_Georgia
+  municode: https://library.municode.com/ga/franklin
+- id: franklin-springs
+  name: Franklin Springs
+  kind: city
+  fips: '1331320'
+  counties:
+  - Franklin
+  county_seat: false
+  population: 1155
+  wikipedia: https://en.wikipedia.org/wiki/Franklin_Springs,_Georgia
+- id: funston
+  name: Funston
+  kind: town
+  fips: '1331684'
+  counties:
+  - Colquitt
+  county_seat: false
+  population: 402
+  wikipedia: https://en.wikipedia.org/wiki/Funston,_Georgia
+- id: gainesville
+  name: Gainesville
+  kind: city
+  fips: '1331908'
+  counties:
+  - Hall
+  county_seat: true
+  population: 42296
+  wikipedia: https://en.wikipedia.org/wiki/Gainesville,_Georgia
+  municode: https://library.municode.com/ga/gainesville
+- id: garden-city
+  name: Garden City
+  kind: city
+  fips: '1332048'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 10289
+  wikipedia: https://en.wikipedia.org/wiki/Garden_City,_Georgia
+  municode: https://library.municode.com/ga/garden_city
+- id: garfield
+  name: Garfield
+  kind: city
+  fips: '1332188'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 257
+  wikipedia: https://en.wikipedia.org/wiki/Garfield,_Georgia
+- id: gay
+  name: Gay
+  kind: town
+  fips: '1332384'
+  counties:
+  - Meriwether
+  county_seat: false
+  population: 110
+  wikipedia: https://en.wikipedia.org/wiki/Gay,_Georgia
+- id: geneva
+  name: Geneva
+  kind: town
+  fips: '1332412'
+  counties:
+  - Talbot
+  county_seat: false
+  population: 75
+  wikipedia: https://en.wikipedia.org/wiki/Geneva,_Georgia
+- id: georgetown-quitman
+  name: Georgetown
+  kind: consolidated
+  fips: '1332528'
+  counties:
+  - Quitman
+  county_seat: true
+  population: 2235
+  wikipedia: https://en.wikipedia.org/wiki/Georgetown,_Quitman_County,_Georgia
+  consolidated_with: Quitman County
+- id: gibson
+  name: Gibson
+  kind: city
+  fips: '1332748'
+  counties:
+  - Glascock
+  county_seat: true
+  population: 630
+  wikipedia: https://en.wikipedia.org/wiki/Gibson,_Georgia
+- id: gillsville
+  name: Gillsville
+  kind: city
+  fips: '1332860'
+  counties:
+  - Banks
+  - Hall
+  county_seat: false
+  population: 306
+  wikipedia: https://en.wikipedia.org/wiki/Gillsville,_Georgia
+- id: girard
+  name: Girard
+  kind: town
+  fips: '1332916'
+  counties:
+  - Burke
+  county_seat: false
+  population: 184
+  wikipedia: https://en.wikipedia.org/wiki/Girard,_Georgia
+- id: glennville
+  name: Glennville
+  kind: city
+  fips: '1333336'
+  counties:
+  - Tattnall
+  county_seat: false
+  population: 3834
+  wikipedia: https://en.wikipedia.org/wiki/Glennville,_Georgia
+- id: glenwood
+  name: Glenwood
+  kind: city
+  fips: '1333392'
+  counties:
+  - Wheeler
+  county_seat: false
+  population: 850
+  wikipedia: https://en.wikipedia.org/wiki/Glenwood,_Georgia
+- id: good-hope
+  name: Good Hope
+  kind: town
+  fips: '1333896'
+  counties:
+  - Walton
+  county_seat: false
+  population: 339
+  wikipedia: https://en.wikipedia.org/wiki/Good_Hope,_Georgia
+- id: gordon
+  name: Gordon
+  kind: city
+  fips: '1333980'
+  counties:
+  - Wilkinson
+  county_seat: false
+  population: 1783
+  wikipedia: https://en.wikipedia.org/wiki/Gordon,_Georgia
+- id: graham
+  name: Graham
+  kind: city
+  fips: '1334260'
+  counties:
+  - Appling
+  county_seat: false
+  population: 263
+  wikipedia: https://en.wikipedia.org/wiki/Graham,_Georgia
+- id: grantville
+  name: Grantville
+  kind: city
+  fips: '1334428'
+  counties:
+  - Coweta
+  county_seat: false
+  population: 3103
+  wikipedia: https://en.wikipedia.org/wiki/Grantville,_Georgia
+  municode: https://library.municode.com/ga/grantville
+- id: gray
+  name: Gray
+  kind: city
+  fips: '1334512'
+  counties:
+  - Jones
+  county_seat: true
+  population: 3436
+  wikipedia: https://en.wikipedia.org/wiki/Gray,_Georgia
+- id: grayson
+  name: Grayson
+  kind: city
+  fips: '1334596'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 4730
+  wikipedia: https://en.wikipedia.org/wiki/Grayson,_Georgia
+- id: greensboro
+  name: Greensboro
+  kind: city
+  fips: '1334876'
+  counties:
+  - Greene
+  county_seat: true
+  population: 3648
+  wikipedia: https://en.wikipedia.org/wiki/Greensboro,_Georgia
+- id: greenville
+  name: Greenville
+  kind: city
+  fips: '1335016'
+  counties:
+  - Meriwether
+  county_seat: true
+  population: 794
+  wikipedia: https://en.wikipedia.org/wiki/Greenville,_Georgia
+- id: griffin
+  name: Griffin
+  kind: city
+  fips: '1335324'
+  counties:
+  - Spalding
+  county_seat: true
+  population: 23478
+  wikipedia: https://en.wikipedia.org/wiki/Griffin,_Georgia
+  municode: https://library.municode.com/ga/griffin
+- id: grovetown
+  name: Grovetown
+  kind: city
+  fips: '1335716'
+  counties:
+  - Columbia
+  county_seat: false
+  population: 15577
+  wikipedia: https://en.wikipedia.org/wiki/Grovetown,_Georgia
+  municode: https://library.municode.com/ga/grovetown
+- id: gumbranch
+  name: Gumbranch
+  kind: city
+  fips: '1335800'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 235
+  wikipedia: https://en.wikipedia.org/wiki/Gumbranch,_Georgia
+- id: guyton
+  name: Guyton
+  kind: city
+  fips: '1335884'
+  counties:
+  - Effingham
+  county_seat: false
+  population: 2289
+  wikipedia: https://en.wikipedia.org/wiki/Guyton,_Georgia
+- id: hagan
+  name: Hagan
+  kind: city
+  fips: '1336024'
+  counties:
+  - Evans
+  county_seat: false
+  population: 959
+  wikipedia: https://en.wikipedia.org/wiki/Hagan,_Georgia
+- id: hahira
+  name: Hahira
+  kind: city
+  fips: '1336052'
+  counties:
+  - Lowndes
+  county_seat: false
+  population: 3384
+  wikipedia: https://en.wikipedia.org/wiki/Hahira,_Georgia
+- id: hamilton
+  name: Hamilton
+  kind: city
+  fips: '1336220'
+  counties:
+  - Harris
+  county_seat: true
+  population: 1680
+  wikipedia: https://en.wikipedia.org/wiki/Hamilton,_Georgia
+- id: hampton
+  name: Hampton
+  kind: city
+  fips: '1336276'
+  counties:
+  - Henry
+  county_seat: false
+  population: 8368
+  wikipedia: https://en.wikipedia.org/wiki/Hampton,_Georgia
+- id: hapeville
+  name: Hapeville
+  kind: city
+  fips: '1336472'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 6553
+  wikipedia: https://en.wikipedia.org/wiki/Hapeville,_Georgia
+- id: haralson
+  name: Haralson
+  kind: town
+  fips: '1336528'
+  counties:
+  - Coweta
+  - Meriwether
+  county_seat: false
+  population: 172
+  wikipedia: https://en.wikipedia.org/wiki/Haralson,_Georgia
+- id: harlem
+  name: Harlem
+  kind: city
+  fips: '1336696'
+  counties:
+  - Columbia
+  county_seat: false
+  population: 3571
+  wikipedia: https://en.wikipedia.org/wiki/Harlem,_Georgia
+  municode: https://library.municode.com/ga/harlem
+- id: harrison
+  name: Harrison
+  kind: town
+  fips: '1336920'
+  counties:
+  - Washington
+  county_seat: false
+  population: 339
+  wikipedia: https://en.wikipedia.org/wiki/Harrison,_Georgia
+- id: hartwell
+  name: Hartwell
+  kind: city
+  fips: '1337144'
+  counties:
+  - Hart
+  county_seat: true
+  population: 4470
+  wikipedia: https://en.wikipedia.org/wiki/Hartwell,_Georgia
+- id: hawkinsville
+  name: Hawkinsville
+  kind: city
+  fips: '1337396'
+  counties:
+  - Pulaski
+  county_seat: true
+  population: 3980
+  wikipedia: https://en.wikipedia.org/wiki/Hawkinsville,_Georgia
+- id: hazlehurst
+  name: Hazlehurst
+  kind: city
+  fips: '1337564'
+  counties:
+  - Jeff Davis
+  county_seat: true
+  population: 4088
+  wikipedia: https://en.wikipedia.org/wiki/Hazlehurst,_Georgia
+- id: helen
+  name: Helen
+  kind: city
+  fips: '1337788'
+  counties:
+  - White
+  county_seat: false
+  population: 531
+  wikipedia: https://en.wikipedia.org/wiki/Helen,_Georgia
+- id: hephzibah
+  name: Hephzibah
+  kind: city
+  fips: '1338040'
+  counties:
+  - Richmond
+  county_seat: false
+  population: 3830
+  wikipedia: https://en.wikipedia.org/wiki/Hephzibah,_Georgia
+- id: hiawassee
+  name: Hiawassee
+  kind: town
+  fips: '1338124'
+  counties:
+  - Towns
+  county_seat: true
+  population: 981
+  wikipedia: https://en.wikipedia.org/wiki/Hiawassee,_Georgia
+- id: higgston
+  name: Higgston
+  kind: town
+  fips: '1338348'
+  counties:
+  - Montgomery
+  county_seat: false
+  population: 314
+  wikipedia: https://en.wikipedia.org/wiki/Higgston,_Georgia
+- id: hiltonia
+  name: Hiltonia
+  kind: city
+  fips: '1338920'
+  counties:
+  - Screven
+  county_seat: false
+  population: 310
+  wikipedia: https://en.wikipedia.org/wiki/Hiltonia,_Georgia
+- id: hinesville
+  name: Hinesville
+  kind: city
+  fips: '1338964'
+  counties:
+  - Liberty
+  county_seat: true
+  population: 34891
+  wikipedia: https://en.wikipedia.org/wiki/Hinesville,_Georgia
+- id: hiram
+  name: Hiram
+  kind: city
+  fips: '1339076'
+  counties:
+  - Paulding
+  county_seat: false
+  population: 4929
+  wikipedia: https://en.wikipedia.org/wiki/Hiram,_Georgia
+- id: hoboken
+  name: Hoboken
+  kind: city
+  fips: '1339216'
+  counties:
+  - Brantley
+  county_seat: false
+  population: 480
+  wikipedia: https://en.wikipedia.org/wiki/Hoboken,_Georgia
+- id: hogansville
+  name: Hogansville
+  kind: city
+  fips: '1339244'
+  counties:
+  - Troup
+  county_seat: false
+  population: 3267
+  wikipedia: https://en.wikipedia.org/wiki/Hogansville,_Georgia
+- id: holly-springs
+  name: Holly Springs
+  kind: city
+  fips: '1339524'
+  counties:
+  - Cherokee
+  county_seat: false
+  population: 16213
+  wikipedia: https://en.wikipedia.org/wiki/Holly_Springs,_Georgia
+  municode: https://library.municode.com/ga/holly_springs
+- id: homeland
+  name: Homeland
+  kind: city
+  fips: '1339692'
+  counties:
+  - Charlton
+  county_seat: false
+  population: 886
+  wikipedia: https://en.wikipedia.org/wiki/Homeland,_Georgia
+- id: homer
+  name: Homer
+  kind: town
+  fips: '1339720'
+  counties:
+  - Banks
+  county_seat: true
+  population: 1264
+  wikipedia: https://en.wikipedia.org/wiki/Homer,_Georgia
+- id: homerville
+  name: Homerville
+  kind: city
+  fips: '1339748'
+  counties:
+  - Clinch
+  county_seat: true
+  population: 2344
+  wikipedia: https://en.wikipedia.org/wiki/Homerville,_Georgia
+- id: hoschton
+  name: Hoschton
+  kind: city
+  fips: '1340056'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 2666
+  wikipedia: https://en.wikipedia.org/wiki/Hoschton,_Georgia
+- id: hull
+  name: Hull
+  kind: city
+  fips: '1340532'
+  counties:
+  - Madison
+  county_seat: false
+  population: 230
+  wikipedia: https://en.wikipedia.org/wiki/Hull,_Georgia
+- id: ideal
+  name: Ideal
+  kind: city
+  fips: '1340812'
+  counties:
+  - Macon
+  county_seat: false
+  population: 407
+  wikipedia: https://en.wikipedia.org/wiki/Ideal,_Georgia
+- id: ila
+  name: Ila
+  kind: city
+  fips: '1340840'
+  counties:
+  - Madison
+  county_seat: false
+  population: 350
+  wikipedia: https://en.wikipedia.org/wiki/Ila,_Georgia
+- id: iron-city
+  name: Iron City
+  kind: town
+  fips: '1341344'
+  counties:
+  - Seminole
+  county_seat: false
+  population: 312
+  wikipedia: https://en.wikipedia.org/wiki/Iron_City,_Georgia
+- id: irwinton
+  name: Irwinton
+  kind: city
+  fips: '1341400'
+  counties:
+  - Wilkinson
+  county_seat: true
+  population: 531
+  wikipedia: https://en.wikipedia.org/wiki/Irwinton,_Georgia
+- id: ivey
+  name: Ivey
+  kind: town
+  fips: '1341540'
+  counties:
+  - Wilkinson
+  county_seat: false
+  population: 1037
+  wikipedia: https://en.wikipedia.org/wiki/Ivey,_Georgia
+- id: jackson
+  name: Jackson
+  kind: city
+  fips: '1341596'
+  counties:
+  - Butts
+  county_seat: true
+  population: 5557
+  wikipedia: https://en.wikipedia.org/wiki/Jackson,_Georgia
+- id: jacksonville
+  name: Jacksonville
+  kind: town
+  fips: '1341708'
+  counties:
+  - Telfair
+  county_seat: false
+  population: 111
+  wikipedia: https://en.wikipedia.org/wiki/Jacksonville,_Georgia
+- id: jakin
+  name: Jakin
+  kind: city
+  fips: '1341792'
+  counties:
+  - Early
+  county_seat: false
+  population: 131
+  wikipedia: https://en.wikipedia.org/wiki/Jakin,_Georgia
+- id: jasper
+  name: Jasper
+  kind: city
+  fips: '1341932'
+  counties:
+  - Pickens
+  county_seat: true
+  population: 4084
+  wikipedia: https://en.wikipedia.org/wiki/Jasper,_Georgia
+  municode: https://library.municode.com/ga/jasper
+- id: jefferson
+  name: Jefferson
+  kind: city
+  fips: '1341988'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 13233
+  wikipedia: https://en.wikipedia.org/wiki/Jefferson,_Georgia
+- id: jeffersonville
+  name: Jeffersonville
+  kind: city
+  fips: '1342100'
+  counties:
+  - Twiggs
+  county_seat: true
+  population: 977
+  wikipedia: https://en.wikipedia.org/wiki/Jeffersonville,_Georgia
+- id: jenkinsburg
+  name: Jenkinsburg
+  kind: city
+  fips: '1342156'
+  counties:
+  - Butts
+  county_seat: false
+  population: 391
+  wikipedia: https://en.wikipedia.org/wiki/Jenkinsburg,_Georgia
+- id: jersey
+  name: Jersey
+  kind: town
+  fips: '1342184'
+  counties:
+  - Walton
+  county_seat: false
+  population: 146
+  wikipedia: https://en.wikipedia.org/wiki/Jersey,_Georgia
+- id: jesup
+  name: Jesup
+  kind: city
+  fips: '1342268'
+  counties:
+  - Wayne
+  county_seat: true
+  population: 9809
+  wikipedia: https://en.wikipedia.org/wiki/Jesup,_Georgia
+- id: johns-creek
+  name: Johns Creek
+  kind: city
+  fips: '1342425'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 82453
+  wikipedia: https://en.wikipedia.org/wiki/Johns_Creek,_Georgia
+- id: jonesboro
+  name: Jonesboro
+  kind: city
+  fips: '1342604'
+  counties:
+  - Clayton
+  county_seat: true
+  population: 4235
+  wikipedia: https://en.wikipedia.org/wiki/Jonesboro,_Georgia
+- id: junction-city
+  name: Junction City
+  kind: town
+  fips: '1342800'
+  counties:
+  - Talbot
+  county_seat: false
+  population: 138
+  wikipedia: https://en.wikipedia.org/wiki/Junction_City,_Georgia
+- id: kennesaw
+  name: Kennesaw
+  kind: city
+  fips: '1343192'
+  counties:
+  - Cobb
+  county_seat: false
+  population: 33036
+  wikipedia: https://en.wikipedia.org/wiki/Kennesaw,_Georgia
+- id: keysville
+  name: Keysville
+  kind: city
+  fips: '1343360'
+  counties:
+  - Burke
+  county_seat: false
+  population: 300
+  wikipedia: https://en.wikipedia.org/wiki/Keysville,_Georgia
+- id: kingsland
+  name: Kingsland
+  kind: city
+  fips: '1343640'
+  counties:
+  - Camden
+  county_seat: false
+  population: 18337
+  wikipedia: https://en.wikipedia.org/wiki/Kingsland,_Georgia
+  municode: https://library.municode.com/ga/kingsland
+- id: kingston
+  name: Kingston
+  kind: city
+  fips: '1343668'
+  counties:
+  - Bartow
+  county_seat: false
+  population: 722
+  wikipedia: https://en.wikipedia.org/wiki/Kingston,_Georgia
+- id: kite
+  name: Kite
+  kind: town
+  fips: '1343892'
+  counties:
+  - Johnson
+  county_seat: false
+  population: 160
+  wikipedia: https://en.wikipedia.org/wiki/Kite,_Georgia
+- id: lafayette
+  name: LaFayette
+  kind: city
+  fips: '1344312'
+  counties:
+  - Walker
+  county_seat: true
+  population: 6888
+  wikipedia: https://en.wikipedia.org/wiki/LaFayette,_Georgia
+- id: lagrange
+  name: LaGrange
+  kind: city
+  fips: '1344340'
+  counties:
+  - Troup
+  county_seat: true
+  population: 30858
+  wikipedia: https://en.wikipedia.org/wiki/LaGrange,_Georgia
+  municode: https://library.municode.com/ga/lagrange
+- id: lake-city
+  name: Lake City
+  kind: city
+  fips: '1344508'
+  counties:
+  - Clayton
+  county_seat: false
+  population: 2952
+  wikipedia: https://en.wikipedia.org/wiki/Lake_City,_Georgia
+- id: lake-park
+  name: Lake Park
+  kind: city
+  fips: '1344704'
+  counties:
+  - Lowndes
+  county_seat: false
+  population: 932
+  wikipedia: https://en.wikipedia.org/wiki/Lake_Park,_Georgia
+- id: lakeland
+  name: Lakeland
+  kind: city
+  fips: '1344592'
+  counties:
+  - Lanier
+  county_seat: true
+  population: 2875
+  wikipedia: https://en.wikipedia.org/wiki/Lakeland,_Georgia
+- id: lavonia
+  name: Lavonia
+  kind: city
+  fips: '1345460'
+  counties:
+  - Franklin
+  - Hart
+  county_seat: false
+  population: 2143
+  wikipedia: https://en.wikipedia.org/wiki/Lavonia,_Georgia
+  municode: https://library.municode.com/ga/lavonia
+- id: lawrenceville
+  name: Lawrenceville
+  kind: city
+  fips: '1345488'
+  counties:
+  - Gwinnett
+  county_seat: true
+  population: 30629
+  wikipedia: https://en.wikipedia.org/wiki/Lawrenceville,_Georgia
+  municode: https://library.municode.com/ga/lawrenceville
+- id: leary
+  name: Leary
+  kind: city
+  fips: '1345600'
+  counties:
+  - Calhoun
+  county_seat: false
+  population: 524
+  wikipedia: https://en.wikipedia.org/wiki/Leary,_Georgia
+- id: leesburg
+  name: Leesburg
+  kind: city
+  fips: '1345768'
+  counties:
+  - Lee
+  county_seat: true
+  population: 3480
+  wikipedia: https://en.wikipedia.org/wiki/Leesburg,_Georgia
+- id: lenox
+  name: Lenox
+  kind: town
+  fips: '1345936'
+  counties:
+  - Cook
+  county_seat: false
+  population: 752
+  wikipedia: https://en.wikipedia.org/wiki/Lenox,_Georgia
+- id: leslie
+  name: Leslie
+  kind: city
+  fips: '1346020'
+  counties:
+  - Sumter
+  county_seat: false
+  population: 344
+  wikipedia: https://en.wikipedia.org/wiki/Leslie,_Georgia
+  municode: https://library.municode.com/ga/leslie
+- id: lexington
+  name: Lexington
+  kind: city
+  fips: '1346188'
+  counties:
+  - Oglethorpe
+  county_seat: true
+  population: 203
+  wikipedia: https://en.wikipedia.org/wiki/Lexington,_Georgia
+- id: lilburn
+  name: Lilburn
+  kind: city
+  fips: '1346356'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 14502
+  wikipedia: https://en.wikipedia.org/wiki/Lilburn,_Georgia
+- id: lilly
+  name: Lilly
+  kind: city
+  fips: '1346384'
+  counties:
+  - Dooly
+  county_seat: false
+  population: 129
+  wikipedia: https://en.wikipedia.org/wiki/Lilly,_Georgia
+- id: lincolnton
+  name: Lincolnton
+  kind: city
+  fips: '1346552'
+  counties:
+  - Lincoln
+  county_seat: true
+  population: 1480
+  wikipedia: https://en.wikipedia.org/wiki/Lincolnton,_Georgia
+- id: lithonia
+  name: Lithonia
+  kind: city
+  fips: '1346860'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 2662
+  wikipedia: https://en.wikipedia.org/wiki/Lithonia,_Georgia
+- id: locust-grove
+  name: Locust Grove
+  kind: city
+  fips: '1347140'
+  counties:
+  - Henry
+  county_seat: false
+  population: 8947
+  wikipedia: https://en.wikipedia.org/wiki/Locust_Grove,_Georgia
+- id: loganville
+  name: Loganville
+  kind: city
+  fips: '1347196'
+  counties:
+  - Gwinnett
+  - Walton
+  county_seat: false
+  population: 14127
+  wikipedia: https://en.wikipedia.org/wiki/Loganville,_Georgia
+- id: lone-oak
+  name: Lone Oak
+  kind: town
+  fips: '1347252'
+  counties:
+  - Meriwether
+  county_seat: false
+  population: 114
+  wikipedia: https://en.wikipedia.org/wiki/Lone_Oak,_Georgia
+- id: lookout-mountain
+  name: Lookout Mountain
+  kind: city
+  fips: '1347336'
+  counties:
+  - Walker
+  county_seat: false
+  population: 1641
+  wikipedia: https://en.wikipedia.org/wiki/Lookout_Mountain,_Georgia
+- id: louisville
+  name: Louisville
+  kind: city
+  fips: '1347560'
+  counties:
+  - Jefferson
+  county_seat: true
+  population: 2381
+  wikipedia: https://en.wikipedia.org/wiki/Louisville,_Georgia
+- id: lovejoy
+  name: Lovejoy
+  kind: city
+  fips: '1347616'
+  counties:
+  - Clayton
+  county_seat: false
+  population: 10122
+  wikipedia: https://en.wikipedia.org/wiki/Lovejoy,_Georgia
+- id: ludowici
+  name: Ludowici
+  kind: city
+  fips: '1347784'
+  counties:
+  - Long
+  county_seat: true
+  population: 1590
+  wikipedia: https://en.wikipedia.org/wiki/Ludowici,_Georgia
+- id: lula
+  name: Lula
+  kind: city
+  fips: '1347896'
+  counties:
+  - Banks
+  - Hall
+  county_seat: false
+  population: 2822
+  wikipedia: https://en.wikipedia.org/wiki/Lula,_Georgia
+- id: lumber-city
+  name: Lumber City
+  kind: city
+  fips: '1347952'
+  counties:
+  - Telfair
+  county_seat: false
+  population: 967
+  wikipedia: https://en.wikipedia.org/wiki/Lumber_City,_Georgia
+- id: lumpkin
+  name: Lumpkin
+  kind: city
+  fips: '1347980'
+  counties:
+  - Stewart
+  county_seat: true
+  population: 891
+  wikipedia: https://en.wikipedia.org/wiki/Lumpkin,_Georgia
+- id: luthersville
+  name: Luthersville
+  kind: city
+  fips: '1348008'
+  counties:
+  - Meriwether
+  county_seat: false
+  population: 776
+  wikipedia: https://en.wikipedia.org/wiki/Luthersville,_Georgia
+- id: lyerly
+  name: Lyerly
+  kind: town
+  fips: '1348092'
+  counties:
+  - Chattooga
+  county_seat: false
+  population: 454
+  wikipedia: https://en.wikipedia.org/wiki/Lyerly,_Georgia
+- id: lyons
+  name: Lyons
+  kind: city
+  fips: '1348232'
+  counties:
+  - Toombs
+  county_seat: true
+  population: 4239
+  wikipedia: https://en.wikipedia.org/wiki/Lyons,_Georgia
+- id: mableton
+  name: Mableton
+  kind: city
+  fips: '1348288'
+  counties:
+  - Cobb
+  county_seat: false
+  population: 40834
+  wikipedia: https://en.wikipedia.org/wiki/Mableton,_Georgia
+- id: macon-bibb
+  name: Macon
+  kind: consolidated
+  fips: '1349008'
+  counties:
+  - Bibb
+  county_seat: true
+  population: 157346
+  wikipedia: https://en.wikipedia.org/wiki/Macon,_Georgia
+  consolidated_with: Bibb County
+- id: madison
+  name: Madison
+  kind: city
+  fips: '1349196'
+  counties:
+  - Morgan
+  county_seat: true
+  population: 4447
+  wikipedia: https://en.wikipedia.org/wiki/Madison,_Georgia
+  municode: https://library.municode.com/ga/madison
+- id: manassas
+  name: Manassas
+  kind: city
+  fips: '1349504'
+  counties:
+  - Tattnall
+  county_seat: false
+  population: 59
+  wikipedia: https://en.wikipedia.org/wiki/Manassas,_Georgia
+- id: manchester
+  name: Manchester
+  kind: city
+  fips: '1349532'
+  counties:
+  - Meriwether
+  - Talbot
+  county_seat: false
+  population: 3584
+  wikipedia: https://en.wikipedia.org/wiki/Manchester,_Georgia
+- id: mansfield
+  name: Mansfield
+  kind: city
+  fips: '1349616'
+  counties:
+  - Newton
+  county_seat: false
+  population: 442
+  wikipedia: https://en.wikipedia.org/wiki/Mansfield,_Georgia
+- id: marietta
+  name: Marietta
+  kind: city
+  fips: '1349756'
+  counties:
+  - Cobb
+  county_seat: true
+  population: 60972
+  wikipedia: https://en.wikipedia.org/wiki/Marietta,_Georgia
+- id: marshallville
+  name: Marshallville
+  kind: city
+  fips: '1349924'
+  counties:
+  - Macon
+  county_seat: false
+  population: 1048
+  wikipedia: https://en.wikipedia.org/wiki/Marshallville,_Georgia
+- id: martin
+  name: Martin
+  kind: town
+  fips: '1350008'
+  counties:
+  - Franklin
+  - Stephens
+  county_seat: false
+  population: 336
+  wikipedia: https://en.wikipedia.org/wiki/Martin,_Georgia
+- id: maxeys
+  name: Maxeys
+  kind: town
+  fips: '1350260'
+  counties:
+  - Oglethorpe
+  county_seat: false
+  population: 198
+  wikipedia: https://en.wikipedia.org/wiki/Maxeys,_Georgia
+- id: maysville
+  name: Maysville
+  kind: town
+  fips: '1350484'
+  counties:
+  - Banks
+  - Jackson
+  county_seat: false
+  population: 1867
+  wikipedia: https://en.wikipedia.org/wiki/Maysville,_Georgia
+- id: mccaysville
+  name: McCaysville
+  kind: city
+  fips: '1348428'
+  counties:
+  - Fannin
+  county_seat: false
+  population: 1149
+  wikipedia: https://en.wikipedia.org/wiki/McCaysville,_Georgia
+- id: mcdonough
+  name: McDonough
+  kind: city
+  fips: '1348624'
+  counties:
+  - Henry
+  county_seat: true
+  population: 29051
+  wikipedia: https://en.wikipedia.org/wiki/McDonough,_Georgia
+- id: mcintyre
+  name: McIntyre
+  kind: town
+  fips: '1348848'
+  counties:
+  - Wilkinson
+  county_seat: false
+  population: 575
+  wikipedia: https://en.wikipedia.org/wiki/McIntyre,_Georgia
+- id: mcrae-helena
+  name: McRae-Helena
+  kind: city
+  fips: '1349100'
+  counties:
+  - Telfair
+  - Wheeler
+  county_seat: true
+  population: 6253
+  wikipedia: https://en.wikipedia.org/wiki/McRae%E2%80%93Helena,_Georgia
+- id: meansville
+  name: Meansville
+  kind: city
+  fips: '1350596'
+  counties:
+  - Pike
+  county_seat: false
+  population: 266
+  wikipedia: https://en.wikipedia.org/wiki/Meansville,_Georgia
+- id: meigs
+  name: Meigs
+  kind: city
+  fips: '1350680'
+  counties:
+  - Mitchell
+  - Thomas
+  county_seat: false
+  population: 928
+  wikipedia: https://en.wikipedia.org/wiki/Meigs,_Georgia
+- id: menlo
+  name: Menlo
+  kind: city
+  fips: '1350848'
+  counties:
+  - Chattooga
+  county_seat: false
+  population: 480
+  wikipedia: https://en.wikipedia.org/wiki/Menlo,_Georgia
+- id: metter
+  name: Metter
+  kind: city
+  fips: '1351072'
+  counties:
+  - Candler
+  county_seat: true
+  population: 4004
+  wikipedia: https://en.wikipedia.org/wiki/Metter,_Georgia
+  municode: https://library.municode.com/ga/metter
+- id: midville
+  name: Midville
+  kind: city
+  fips: '1351240'
+  counties:
+  - Burke
+  county_seat: false
+  population: 385
+  wikipedia: https://en.wikipedia.org/wiki/Midville,_Georgia
+- id: midway
+  name: Midway
+  kind: city
+  fips: '1351352'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 2141
+  wikipedia: https://en.wikipedia.org/wiki/Midway,_Georgia
+  municode: https://library.municode.com/ga/midway
+- id: milan
+  name: Milan
+  kind: city
+  fips: '1351408'
+  counties:
+  - Dodge
+  - Telfair
+  county_seat: false
+  population: 613
+  wikipedia: https://en.wikipedia.org/wiki/Milan,_Georgia
+- id: milledgeville
+  name: Milledgeville
+  kind: city
+  fips: '1351492'
+  counties:
+  - Baldwin
+  county_seat: true
+  population: 17070
+  wikipedia: https://en.wikipedia.org/wiki/Milledgeville,_Georgia
+- id: millen
+  name: Millen
+  kind: city
+  fips: '1351520'
+  counties:
+  - Jenkins
+  county_seat: true
+  population: 2966
+  wikipedia: https://en.wikipedia.org/wiki/Millen,_Georgia
+- id: milner
+  name: Milner
+  kind: city
+  fips: '1351604'
+  counties:
+  - Lamar
+  county_seat: false
+  population: 772
+  wikipedia: https://en.wikipedia.org/wiki/Milner,_Georgia
+- id: milton
+  name: Milton
+  kind: city
+  fips: '1351670'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 41296
+  wikipedia: https://en.wikipedia.org/wiki/Milton,_Georgia
+- id: mitchell
+  name: Mitchell
+  kind: town
+  fips: '1351968'
+  counties:
+  - Glascock
+  county_seat: false
+  population: 153
+  wikipedia: https://en.wikipedia.org/wiki/Mitchell,_Georgia
+- id: molena
+  name: Molena
+  kind: city
+  fips: '1352108'
+  counties:
+  - Pike
+  county_seat: false
+  population: 392
+  wikipedia: https://en.wikipedia.org/wiki/Molena,_Georgia
+- id: monroe
+  name: Monroe
+  kind: city
+  fips: '1352192'
+  counties:
+  - Walton
+  county_seat: true
+  population: 14756
+  wikipedia: https://en.wikipedia.org/wiki/Monroe,_Georgia
+- id: montezuma
+  name: Montezuma
+  kind: city
+  fips: '1352304'
+  counties:
+  - Macon
+  county_seat: false
+  population: 3047
+  wikipedia: https://en.wikipedia.org/wiki/Montezuma,_Georgia
+- id: monticello
+  name: Monticello
+  kind: city
+  fips: '1352416'
+  counties:
+  - Jasper
+  county_seat: true
+  population: 2541
+  wikipedia: https://en.wikipedia.org/wiki/Monticello,_Georgia
+- id: montrose
+  name: Montrose
+  kind: town
+  fips: '1352500'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 203
+  wikipedia: https://en.wikipedia.org/wiki/Montrose,_Georgia
+- id: moreland
+  name: Moreland
+  kind: town
+  fips: '1352668'
+  counties:
+  - Coweta
+  county_seat: false
+  population: 382
+  wikipedia: https://en.wikipedia.org/wiki/Moreland,_Georgia
+- id: morgan
+  name: Morgan
+  kind: city
+  fips: '1352696'
+  counties:
+  - Calhoun
+  county_seat: true
+  population: 1741
+  wikipedia: https://en.wikipedia.org/wiki/Morgan,_Georgia
+- id: morganton
+  name: Morganton
+  kind: city
+  fips: '1352724'
+  counties:
+  - Fannin
+  county_seat: false
+  population: 285
+  wikipedia: https://en.wikipedia.org/wiki/Morganton,_Georgia
+- id: morrow
+  name: Morrow
+  kind: city
+  fips: '1353004'
+  counties:
+  - Clayton
+  county_seat: false
+  population: 6569
+  wikipedia: https://en.wikipedia.org/wiki/Morrow,_Georgia
+- id: morven
+  name: Morven
+  kind: city
+  fips: '1353032'
+  counties:
+  - Brooks
+  county_seat: false
+  population: 506
+  wikipedia: https://en.wikipedia.org/wiki/Morven,_Georgia
+- id: moultrie
+  name: Moultrie
+  kind: city
+  fips: '1353060'
+  counties:
+  - Colquitt
+  county_seat: true
+  population: 14638
+  wikipedia: https://en.wikipedia.org/wiki/Moultrie,_Georgia
+- id: mount-airy
+  name: Mount Airy
+  kind: town
+  fips: '1353284'
+  counties:
+  - Habersham
+  county_seat: false
+  population: 1391
+  wikipedia: https://en.wikipedia.org/wiki/Mount_Airy,_Georgia
+- id: mount-vernon
+  name: Mount Vernon
+  kind: city
+  fips: '1353508'
+  counties:
+  - Montgomery
+  county_seat: true
+  population: 1990
+  wikipedia: https://en.wikipedia.org/wiki/Mount_Vernon,_Georgia
+- id: mount-zion
+  name: Mount Zion
+  kind: city
+  fips: '1353620'
+  counties:
+  - Carroll
+  county_seat: false
+  population: 1766
+  wikipedia: https://en.wikipedia.org/wiki/Mount_Zion,_Georgia
+- id: mountain-city
+  name: Mountain City
+  kind: town
+  fips: '1353116'
+  counties:
+  - Rabun
+  county_seat: false
+  population: 904
+  wikipedia: https://en.wikipedia.org/wiki/Mountain_City,_Georgia
+- id: mountain-park
+  name: Mountain Park
+  kind: city
+  fips: '1353172'
+  counties:
+  - Cherokee
+  - Fulton
+  county_seat: false
+  population: 583
+  wikipedia: https://en.wikipedia.org/wiki/Mountain_Park,_Fulton_County,_Georgia
+- id: nahunta
+  name: Nahunta
+  kind: city
+  fips: '1354124'
+  counties:
+  - Brantley
+  county_seat: true
+  population: 1013
+  wikipedia: https://en.wikipedia.org/wiki/Nahunta,_Georgia
+- id: nashville
+  name: Nashville
+  kind: city
+  fips: '1354264'
+  counties:
+  - Berrien
+  county_seat: true
+  population: 4974
+  wikipedia: https://en.wikipedia.org/wiki/Nashville,_Georgia
+  municode: https://library.municode.com/ga/nashville
+- id: nelson
+  name: Nelson
+  kind: city
+  fips: '1354572'
+  counties:
+  - Cherokee
+  - Pickens
+  county_seat: false
+  population: 1145
+  wikipedia: https://en.wikipedia.org/wiki/Nelson,_Georgia
+  municode: https://library.municode.com/ga/nelson
+- id: newborn
+  name: Newborn
+  kind: town
+  fips: '1354656'
+  counties:
+  - Newton
+  county_seat: false
+  population: 676
+  wikipedia: https://en.wikipedia.org/wiki/Newborn,_Georgia
+- id: newington
+  name: Newington
+  kind: town
+  fips: '1354992'
+  counties:
+  - Screven
+  county_seat: false
+  population: 290
+  wikipedia: https://en.wikipedia.org/wiki/Newington,_Georgia
+- id: newnan
+  name: Newnan
+  kind: city
+  fips: '1355020'
+  counties:
+  - Coweta
+  county_seat: true
+  population: 42549
+  wikipedia: https://en.wikipedia.org/wiki/Newnan,_Georgia
+- id: newton
+  name: Newton
+  kind: city
+  fips: '1355244'
+  counties:
+  - Baker
+  county_seat: false
+  population: 602
+  wikipedia: https://en.wikipedia.org/wiki/Newton,_Georgia
+- id: nicholls
+  name: Nicholls
+  kind: city
+  fips: '1355440'
+  counties:
+  - Coffee
+  county_seat: false
+  population: 3147
+  wikipedia: https://en.wikipedia.org/wiki/Nicholls,_Georgia
+- id: nicholson
+  name: Nicholson
+  kind: city
+  fips: '1355468'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 1808
+  wikipedia: https://en.wikipedia.org/wiki/Nicholson,_Georgia
+- id: norcross
+  name: Norcross
+  kind: city
+  fips: '1355776'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 17209
+  wikipedia: https://en.wikipedia.org/wiki/Norcross,_Georgia
+  municode: https://library.municode.com/ga/norcross
+- id: norman-park
+  name: Norman Park
+  kind: city
+  fips: '1355860'
+  counties:
+  - Colquitt
+  county_seat: false
+  population: 963
+  wikipedia: https://en.wikipedia.org/wiki/Norman_Park,_Georgia
+- id: north-high-shoals
+  name: North High Shoals
+  kind: town
+  fips: '1356308'
+  counties:
+  - Oconee
+  county_seat: false
+  population: 552
+  wikipedia: https://en.wikipedia.org/wiki/North_High_Shoals,_Georgia
+- id: norwood
+  name: Norwood
+  kind: city
+  fips: '1356560'
+  counties:
+  - Warren
+  county_seat: false
+  population: 202
+  wikipedia: https://en.wikipedia.org/wiki/Norwood,_Georgia
+- id: nunez
+  name: Nunez
+  kind: city
+  fips: '1356644'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 134
+  wikipedia: https://en.wikipedia.org/wiki/Nunez,_Georgia
+- id: oak-park
+  name: Oak Park
+  kind: town
+  fips: '1357232'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 512
+  wikipedia: https://en.wikipedia.org/wiki/Oak_Park,_Georgia
+- id: oakwood
+  name: Oakwood
+  kind: city
+  fips: '1357260'
+  counties:
+  - Hall
+  county_seat: false
+  population: 4822
+  wikipedia: https://en.wikipedia.org/wiki/Oakwood,_Georgia
+- id: ochlocknee
+  name: Ochlocknee
+  kind: town
+  fips: '1357372'
+  counties:
+  - Thomas
+  county_seat: false
+  population: 672
+  wikipedia: https://en.wikipedia.org/wiki/Ochlocknee,_Georgia
+- id: ocilla
+  name: Ocilla
+  kind: city
+  fips: '1357428'
+  counties:
+  - Irwin
+  county_seat: true
+  population: 3498
+  wikipedia: https://en.wikipedia.org/wiki/Ocilla,_Georgia
+  municode: https://library.municode.com/ga/ocilla
+- id: oconee
+  name: Oconee
+  kind: city
+  fips: '1357456'
+  counties:
+  - Washington
+  county_seat: false
+  population: 197
+  wikipedia: https://en.wikipedia.org/wiki/Oconee,_Georgia
+- id: odum
+  name: Odum
+  kind: town
+  fips: '1357540'
+  counties:
+  - Wayne
+  county_seat: false
+  population: 463
+  wikipedia: https://en.wikipedia.org/wiki/Odum,_Georgia
+- id: offerman
+  name: Offerman
+  kind: city
+  fips: '1357568'
+  counties:
+  - Pierce
+  county_seat: false
+  population: 450
+  wikipedia: https://en.wikipedia.org/wiki/Offerman,_Georgia
+- id: oglethorpe
+  name: Oglethorpe
+  kind: city
+  fips: '1357736'
+  counties:
+  - Macon
+  county_seat: true
+  population: 995
+  wikipedia: https://en.wikipedia.org/wiki/Oglethorpe,_Georgia
+- id: oliver
+  name: Oliver
+  kind: city
+  fips: '1358100'
+  counties:
+  - Screven
+  county_seat: false
+  population: 210
+  wikipedia: https://en.wikipedia.org/wiki/Oliver,_Georgia
+- id: omega
+  name: Omega
+  kind: city
+  fips: '1358184'
+  counties:
+  - Colquitt
+  - Tift
+  county_seat: false
+  population: 1318
+  wikipedia: https://en.wikipedia.org/wiki/Omega,_Georgia
+- id: orchard-hill
+  name: Orchard Hill
+  kind: town
+  fips: '1358296'
+  counties:
+  - Spalding
+  county_seat: false
+  population: 219
+  wikipedia: https://en.wikipedia.org/wiki/Orchard_Hill,_Georgia
+- id: oxford
+  name: Oxford
+  kind: city
+  fips: '1358744'
+  counties:
+  - Newton
+  county_seat: false
+  population: 2308
+  wikipedia: https://en.wikipedia.org/wiki/Oxford,_Georgia
+- id: palmetto
+  name: Palmetto
+  kind: city
+  fips: '1358884'
+  counties:
+  - Coweta
+  - Fulton
+  county_seat: false
+  population: 5071
+  wikipedia: https://en.wikipedia.org/wiki/Palmetto,_Georgia
+- id: parrott
+  name: Parrott
+  kind: town
+  fips: '1359416'
+  counties:
+  - Terrell
+  county_seat: false
+  population: 120
+  wikipedia: https://en.wikipedia.org/wiki/Parrott,_Georgia
+- id: patterson
+  name: Patterson
+  kind: city
+  fips: '1359500'
+  counties:
+  - Pierce
+  county_seat: false
+  population: 749
+  wikipedia: https://en.wikipedia.org/wiki/Patterson,_Georgia
+- id: pavo
+  name: Pavo
+  kind: city
+  fips: '1359556'
+  counties:
+  - Brooks
+  - Thomas
+  county_seat: false
+  population: 622
+  wikipedia: https://en.wikipedia.org/wiki/Pavo,_Georgia
+- id: peachtree-city
+  name: Peachtree City
+  kind: city
+  fips: '1359724'
+  counties:
+  - Fayette
+  county_seat: false
+  population: 38244
+  wikipedia: https://en.wikipedia.org/wiki/Peachtree_City,_Georgia
+- id: peachtree-corners
+  name: Peachtree Corners
+  kind: city
+  fips: '1359735'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 42243
+  wikipedia: https://en.wikipedia.org/wiki/Peachtree_Corners,_Georgia
+- id: pearson
+  name: Pearson
+  kind: city
+  fips: '1359808'
+  counties:
+  - Atkinson
+  county_seat: true
+  population: 1821
+  wikipedia: https://en.wikipedia.org/wiki/Pearson,_Georgia
+- id: pelham
+  name: Pelham
+  kind: city
+  fips: '1359976'
+  counties:
+  - Mitchell
+  county_seat: false
+  population: 3507
+  wikipedia: https://en.wikipedia.org/wiki/Pelham,_Georgia
+- id: pembroke
+  name: Pembroke
+  kind: city
+  fips: '1360004'
+  counties:
+  - Bryan
+  county_seat: true
+  population: 2513
+  wikipedia: https://en.wikipedia.org/wiki/Pembroke,_Georgia
+- id: pendergrass
+  name: Pendergrass
+  kind: city
+  fips: '1360032'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 1692
+  wikipedia: https://en.wikipedia.org/wiki/Pendergrass,_Georgia
+- id: perry
+  name: Perry
+  kind: city
+  fips: '1360340'
+  counties:
+  - Houston
+  - Peach
+  county_seat: true
+  population: 20624
+  wikipedia: https://en.wikipedia.org/wiki/Perry,_Georgia
+  municode: https://library.municode.com/ga/perry
+- id: pine-lake
+  name: Pine Lake
+  kind: city
+  fips: '1361040'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 752
+  wikipedia: https://en.wikipedia.org/wiki/Pine_Lake,_Georgia
+- id: pine-mountain
+  name: Pine Mountain
+  kind: town
+  fips: '1361124'
+  counties:
+  - Harris
+  - Meriwether
+  county_seat: false
+  population: 1216
+  wikipedia: https://en.wikipedia.org/wiki/Pine_Mountain,_Harris_County,_Georgia
+- id: pinehurst
+  name: Pinehurst
+  kind: city
+  fips: '1360984'
+  counties:
+  - Dooly
+  county_seat: false
+  population: 309
+  wikipedia: https://en.wikipedia.org/wiki/Pinehurst,_Georgia
+- id: pineview
+  name: Pineview
+  kind: town
+  fips: '1361320'
+  counties:
+  - Wilcox
+  county_seat: false
+  population: 454
+  wikipedia: https://en.wikipedia.org/wiki/Pineview,_Georgia
+- id: pitts
+  name: Pitts
+  kind: city
+  fips: '1361544'
+  counties:
+  - Wilcox
+  county_seat: false
+  population: 252
+  wikipedia: https://en.wikipedia.org/wiki/Pitts,_Georgia
+- id: plains
+  name: Plains
+  kind: city
+  fips: '1361628'
+  counties:
+  - Sumter
+  county_seat: false
+  population: 573
+  wikipedia: https://en.wikipedia.org/wiki/Plains,_Georgia
+- id: plainville
+  name: Plainville
+  kind: city
+  fips: '1361684'
+  counties:
+  - Gordon
+  county_seat: false
+  population: 356
+  wikipedia: https://en.wikipedia.org/wiki/Plainville,_Georgia
+- id: pooler
+  name: Pooler
+  kind: city
+  fips: '1362104'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 25711
+  wikipedia: https://en.wikipedia.org/wiki/Pooler,_Georgia
+  municode: https://library.municode.com/ga/pooler
+- id: port-wentworth
+  name: Port Wentworth
+  kind: city
+  fips: '1362328'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 10878
+  wikipedia: https://en.wikipedia.org/wiki/Port_Wentworth,_Georgia
+- id: portal
+  name: Portal
+  kind: town
+  fips: '1362216'
+  counties:
+  - Bulloch
+  county_seat: false
+  population: 638
+  wikipedia: https://en.wikipedia.org/wiki/Portal,_Georgia
+- id: porterdale
+  name: Porterdale
+  kind: city
+  fips: '1362244'
+  counties:
+  - Newton
+  county_seat: false
+  population: 1799
+  wikipedia: https://en.wikipedia.org/wiki/Porterdale,_Georgia
+- id: poulan
+  name: Poulan
+  kind: city
+  fips: '1362496'
+  counties:
+  - Worth
+  county_seat: false
+  population: 760
+  wikipedia: https://en.wikipedia.org/wiki/Poulan,_Georgia
+- id: powder-springs
+  name: Powder Springs
+  kind: city
+  fips: '1362524'
+  counties:
+  - Cobb
+  county_seat: false
+  population: 16887
+  wikipedia: https://en.wikipedia.org/wiki/Powder_Springs,_Georgia
+- id: pulaski
+  name: Pulaski
+  kind: town
+  fips: '1363000'
+  counties:
+  - Candler
+  county_seat: false
+  population: 211
+  wikipedia: https://en.wikipedia.org/wiki/Pulaski,_Georgia
+- id: quitman
+  name: Quitman
+  kind: city
+  fips: '1363224'
+  counties:
+  - Brooks
+  county_seat: true
+  population: 4064
+  wikipedia: https://en.wikipedia.org/wiki/Quitman,_Georgia
+- id: ranger
+  name: Ranger
+  kind: town
+  fips: '1363560'
+  counties:
+  - Gordon
+  county_seat: false
+  population: 107
+  wikipedia: https://en.wikipedia.org/wiki/Ranger,_Georgia
+- id: ray-city
+  name: Ray City
+  kind: city
+  fips: '1363728'
+  counties:
+  - Berrien
+  - Lanier
+  county_seat: false
+  population: 956
+  wikipedia: https://en.wikipedia.org/wiki/Ray_City,_Georgia
+- id: rayle
+  name: Rayle
+  kind: town
+  fips: '1363756'
+  counties:
+  - Wilkes
+  county_seat: false
+  population: 158
+  wikipedia: https://en.wikipedia.org/wiki/Rayle,_Georgia
+- id: rebecca
+  name: Rebecca
+  kind: city
+  fips: '1363840'
+  counties:
+  - Turner
+  county_seat: false
+  population: 208
+  wikipedia: https://en.wikipedia.org/wiki/Rebecca,_Georgia
+- id: register
+  name: Register
+  kind: town
+  fips: '1364372'
+  counties:
+  - Bulloch
+  county_seat: false
+  population: 157
+  wikipedia: https://en.wikipedia.org/wiki/Register,_Georgia
+- id: reidsville
+  name: Reidsville
+  kind: city
+  fips: '1364512'
+  counties:
+  - Tattnall
+  county_seat: true
+  population: 2515
+  wikipedia: https://en.wikipedia.org/wiki/Reidsville,_Georgia
+- id: remerton
+  name: Remerton
+  kind: city
+  fips: '1364596'
+  counties:
+  - Lowndes
+  county_seat: false
+  population: 1334
+  wikipedia: https://en.wikipedia.org/wiki/Remerton,_Georgia
+- id: rentz
+  name: Rentz
+  kind: town
+  fips: '1364680'
+  counties:
+  - Laurens
+  county_seat: false
+  population: 312
+  wikipedia: https://en.wikipedia.org/wiki/Rentz,_Georgia
+- id: resaca
+  name: Resaca
+  kind: town
+  fips: '1364736'
+  counties:
+  - Gordon
+  county_seat: false
+  population: 1142
+  wikipedia: https://en.wikipedia.org/wiki/Resaca,_Georgia
+- id: rest-haven
+  name: Rest Haven
+  kind: town
+  fips: '1364792'
+  counties:
+  - Gwinnett
+  - Hall
+  county_seat: false
+  population: 45
+  wikipedia: https://en.wikipedia.org/wiki/Rest_Haven,_Georgia
+- id: reynolds
+  name: Reynolds
+  kind: town
+  fips: '1364876'
+  counties:
+  - Taylor
+  county_seat: false
+  population: 926
+  wikipedia: https://en.wikipedia.org/wiki/Reynolds,_Georgia
+- id: rhine
+  name: Rhine
+  kind: town
+  fips: '1364932'
+  counties:
+  - Dodge
+  county_seat: false
+  population: 295
+  wikipedia: https://en.wikipedia.org/wiki/Rhine,_Georgia
+- id: riceboro
+  name: Riceboro
+  kind: city
+  fips: '1364960'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 615
+  wikipedia: https://en.wikipedia.org/wiki/Riceboro,_Georgia
+- id: richland
+  name: Richland
+  kind: city
+  fips: '1365016'
+  counties:
+  - Stewart
+  county_seat: false
+  population: 1370
+  wikipedia: https://en.wikipedia.org/wiki/Richland,_Georgia
+- id: richmond-hill
+  name: Richmond Hill
+  kind: city
+  fips: '1365044'
+  counties:
+  - Bryan
+  county_seat: false
+  population: 16633
+  wikipedia: https://en.wikipedia.org/wiki/Richmond_Hill,_Georgia
+  municode: https://library.municode.com/ga/richmond_hill
+- id: riddleville
+  name: Riddleville
+  kind: town
+  fips: '1365156'
+  counties:
+  - Washington
+  county_seat: false
+  population: 80
+  wikipedia: https://en.wikipedia.org/wiki/Riddleville,_Georgia
+- id: rincon
+  name: Rincon
+  kind: town
+  fips: '1365296'
+  counties:
+  - Effingham
+  county_seat: false
+  population: 10934
+  wikipedia: https://en.wikipedia.org/wiki/Rincon,_Georgia
+- id: ringgold
+  name: Ringgold
+  kind: city
+  fips: '1365324'
+  counties:
+  - Catoosa
+  county_seat: true
+  population: 3414
+  wikipedia: https://en.wikipedia.org/wiki/Ringgold,_Georgia
+  municode: https://library.municode.com/ga/ringgold
+- id: riverdale
+  name: Riverdale
+  kind: city
+  fips: '1365464'
+  counties:
+  - Clayton
+  county_seat: false
+  population: 15129
+  wikipedia: https://en.wikipedia.org/wiki/Riverdale,_Georgia
+- id: roberta
+  name: Roberta
+  kind: city
+  fips: '1365856'
+  counties:
+  - Crawford
+  county_seat: false
+  population: 813
+  wikipedia: https://en.wikipedia.org/wiki/Roberta,_Georgia
+- id: rochelle
+  name: Rochelle
+  kind: city
+  fips: '1366024'
+  counties:
+  - Wilcox
+  county_seat: false
+  population: 1167
+  wikipedia: https://en.wikipedia.org/wiki/Rochelle,_Georgia
+- id: rockmart
+  name: Rockmart
+  kind: city
+  fips: '1366276'
+  counties:
+  - Polk
+  county_seat: false
+  population: 4730
+  wikipedia: https://en.wikipedia.org/wiki/Rockmart,_Georgia
+  municode: https://library.municode.com/ga/rockmart
+- id: rocky-ford
+  name: Rocky Ford
+  kind: town
+  fips: '1366444'
+  counties:
+  - Screven
+  county_seat: false
+  population: 167
+  wikipedia: https://en.wikipedia.org/wiki/Rocky_Ford,_Georgia
+- id: rome
+  name: Rome
+  kind: city
+  fips: '1366668'
+  counties:
+  - Floyd
+  county_seat: true
+  population: 37713
+  wikipedia: https://en.wikipedia.org/wiki/Rome,_Georgia
+- id: roopville
+  name: Roopville
+  kind: town
+  fips: '1366696'
+  counties:
+  - Carroll
+  county_seat: false
+  population: 231
+  wikipedia: https://en.wikipedia.org/wiki/Roopville,_Georgia
+- id: rossville
+  name: Rossville
+  kind: city
+  fips: '1367256'
+  counties:
+  - Walker
+  county_seat: false
+  population: 3980
+  wikipedia: https://en.wikipedia.org/wiki/Rossville,_Georgia
+- id: roswell
+  name: Roswell
+  kind: city
+  fips: '1367284'
+  counties:
+  - Cobb
+  - Fulton
+  county_seat: false
+  population: 92833
+  wikipedia: https://en.wikipedia.org/wiki/Roswell,_Georgia
+  municode: https://library.municode.com/ga/roswell
+- id: royston
+  name: Royston
+  kind: city
+  fips: '1367452'
+  counties:
+  - Franklin
+  - Hart
+  - Madison
+  county_seat: false
+  population: 2649
+  wikipedia: https://en.wikipedia.org/wiki/Royston,_Georgia
+- id: rutledge
+  name: Rutledge
+  kind: city
+  fips: '1367760'
+  counties:
+  - Morgan
+  county_seat: false
+  population: 871
+  wikipedia: https://en.wikipedia.org/wiki/Rutledge,_Georgia
+  municode: https://library.municode.com/ga/rutledge
+- id: sale-city
+  name: Sale City
+  kind: town
+  fips: '1368096'
+  counties:
+  - Mitchell
+  county_seat: false
+  population: 354
+  wikipedia: https://en.wikipedia.org/wiki/Sale_City,_Georgia
+- id: sandersville
+  name: Sandersville
+  kind: city
+  fips: '1368208'
+  counties:
+  - Washington
+  county_seat: true
+  population: 5813
+  wikipedia: https://en.wikipedia.org/wiki/Sandersville,_Georgia
+- id: sandy-springs
+  name: Sandy Springs
+  kind: city
+  fips: '1368516'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 108080
+  wikipedia: https://en.wikipedia.org/wiki/Sandy_Springs,_Georgia
+  municode: https://library.municode.com/ga/sandy_springs
+- id: santa-claus
+  name: Santa Claus
+  kind: city
+  fips: '1368600'
+  counties:
+  - Toombs
+  county_seat: false
+  population: 204
+  wikipedia: https://en.wikipedia.org/wiki/Santa_Claus,_Georgia
+- id: sardis
+  name: Sardis
+  kind: city
+  fips: '1368740'
+  counties:
+  - Burke
+  county_seat: false
+  population: 995
+  wikipedia: https://en.wikipedia.org/wiki/Sardis,_Georgia
+- id: sasser
+  name: Sasser
+  kind: town
+  fips: '1368796'
+  counties:
+  - Terrell
+  county_seat: false
+  population: 287
+  wikipedia: https://en.wikipedia.org/wiki/Sasser,_Georgia
+- id: savannah
+  name: Savannah
+  kind: city
+  fips: '1369000'
+  counties:
+  - Chatham
+  county_seat: true
+  population: 147780
+  wikipedia: https://en.wikipedia.org/wiki/Savannah,_Georgia
+  municode: https://library.municode.com/ga/savannah
+- id: scotland
+  name: Scotland
+  kind: city
+  fips: '1369336'
+  counties:
+  - Telfair
+  - Wheeler
+  county_seat: false
+  population: 173
+  wikipedia: https://en.wikipedia.org/wiki/Scotland,_Georgia
+- id: screven
+  name: Screven
+  kind: city
+  fips: '1369448'
+  counties:
+  - Wayne
+  county_seat: false
+  population: 769
+  wikipedia: https://en.wikipedia.org/wiki/Screven,_Georgia
+- id: senoia
+  name: Senoia
+  kind: city
+  fips: '1369672'
+  counties:
+  - Coweta
+  county_seat: false
+  population: 5016
+  wikipedia: https://en.wikipedia.org/wiki/Senoia,_Georgia
+- id: shady-dale
+  name: Shady Dale
+  kind: town
+  fips: '1369784'
+  counties:
+  - Jasper
+  county_seat: false
+  population: 252
+  wikipedia: https://en.wikipedia.org/wiki/Shady_Dale,_Georgia
+- id: sharon
+  name: Sharon
+  kind: city
+  fips: '1369896'
+  counties:
+  - Taliaferro
+  county_seat: false
+  population: 104
+  wikipedia: https://en.wikipedia.org/wiki/Sharon,_Georgia
+- id: sharpsburg
+  name: Sharpsburg
+  kind: town
+  fips: '1369980'
+  counties:
+  - Coweta
+  county_seat: false
+  population: 327
+  wikipedia: https://en.wikipedia.org/wiki/Sharpsburg,_Georgia
+- id: shellman
+  name: Shellman
+  kind: city
+  fips: '1370120'
+  counties:
+  - Randolph
+  county_seat: false
+  population: 861
+  wikipedia: https://en.wikipedia.org/wiki/Shellman,_Georgia
+- id: shiloh
+  name: Shiloh
+  kind: city
+  fips: '1370428'
+  counties:
+  - Harris
+  county_seat: false
+  population: 402
+  wikipedia: https://en.wikipedia.org/wiki/Shiloh,_Georgia
+- id: siloam
+  name: Siloam
+  kind: town
+  fips: '1370932'
+  counties:
+  - Greene
+  county_seat: false
+  population: 194
+  wikipedia: https://en.wikipedia.org/wiki/Siloam,_Georgia
+- id: sky-valley
+  name: Sky Valley
+  kind: city
+  fips: '1371282'
+  counties:
+  - Rabun
+  county_seat: false
+  population: 593
+  wikipedia: https://en.wikipedia.org/wiki/Sky_Valley,_Georgia
+  municode: https://library.municode.com/ga/sky_valley
+- id: smithville
+  name: Smithville
+  kind: city
+  fips: '1371464'
+  counties:
+  - Lee
+  county_seat: false
+  population: 593
+  wikipedia: https://en.wikipedia.org/wiki/Smithville,_Georgia
+- id: smyrna
+  name: Smyrna
+  kind: city
+  fips: '1371492'
+  counties:
+  - Cobb
+  county_seat: false
+  population: 55663
+  wikipedia: https://en.wikipedia.org/wiki/Smyrna,_Georgia
+  municode: https://library.municode.com/ga/smyrna
+- id: snellville
+  name: Snellville
+  kind: city
+  fips: '1371604'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 20573
+  wikipedia: https://en.wikipedia.org/wiki/Snellville,_Georgia
+- id: social-circle
+  name: Social Circle
+  kind: city
+  fips: '1371660'
+  counties:
+  - Newton
+  - Walton
+  county_seat: false
+  population: 5974
+  wikipedia: https://en.wikipedia.org/wiki/Social_Circle,_Georgia
+- id: soperton
+  name: Soperton
+  kind: city
+  fips: '1371772'
+  counties:
+  - Treutlen
+  county_seat: true
+  population: 2889
+  wikipedia: https://en.wikipedia.org/wiki/Soperton,_Georgia
+- id: south-fulton
+  name: South Fulton
+  kind: city
+  fips: '1372122'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 107436
+  wikipedia: https://en.wikipedia.org/wiki/South_Fulton,_Georgia
+  municode: https://library.municode.com/ga/south_fulton
+- id: sparks
+  name: Sparks
+  kind: town
+  fips: '1372556'
+  counties:
+  - Cook
+  county_seat: false
+  population: 2043
+  wikipedia: https://en.wikipedia.org/wiki/Sparks,_Georgia
+- id: sparta
+  name: Sparta
+  kind: city
+  fips: '1372584'
+  counties:
+  - Hancock
+  county_seat: true
+  population: 1357
+  wikipedia: https://en.wikipedia.org/wiki/Sparta,_Georgia
+- id: springfield
+  name: Springfield
+  kind: city
+  fips: '1372780'
+  counties:
+  - Effingham
+  county_seat: true
+  population: 2703
+  wikipedia: https://en.wikipedia.org/wiki/Springfield,_Georgia
+- id: st-marys
+  name: St. Marys
+  kind: city
+  fips: '1367984'
+  counties:
+  - Camden
+  county_seat: false
+  population: 18256
+  wikipedia: https://en.wikipedia.org/wiki/St._Marys,_Georgia
+- id: stapleton
+  name: Stapleton
+  kind: city
+  fips: '1373004'
+  counties:
+  - Jefferson
+  county_seat: false
+  population: 402
+  wikipedia: https://en.wikipedia.org/wiki/Stapleton,_Georgia
+- id: statesboro
+  name: Statesboro
+  kind: city
+  fips: '1373256'
+  counties:
+  - Bulloch
+  county_seat: true
+  population: 33438
+  wikipedia: https://en.wikipedia.org/wiki/Statesboro,_Georgia
+- id: statham
+  name: Statham
+  kind: city
+  fips: '1373312'
+  counties:
+  - Barrow
+  county_seat: false
+  population: 2813
+  wikipedia: https://en.wikipedia.org/wiki/Statham,_Georgia
+- id: stillmore
+  name: Stillmore
+  kind: city
+  fips: '1373620'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 439
+  wikipedia: https://en.wikipedia.org/wiki/Stillmore,_Georgia
+- id: stockbridge
+  name: Stockbridge
+  kind: city
+  fips: '1373704'
+  counties:
+  - Henry
+  county_seat: false
+  population: 28973
+  wikipedia: https://en.wikipedia.org/wiki/Stockbridge,_Georgia
+  municode: https://library.municode.com/ga/stockbridge
+- id: stone-mountain
+  name: Stone Mountain
+  kind: city
+  fips: '1373816'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 6703
+  wikipedia: https://en.wikipedia.org/wiki/Stone_Mountain,_Georgia
+- id: stonecrest
+  name: Stonecrest
+  kind: city
+  fips: '1373784'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 59194
+  wikipedia: https://en.wikipedia.org/wiki/Stonecrest,_Georgia
+- id: sugar-hill
+  name: Sugar Hill
+  kind: city
+  fips: '1374180'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 25076
+  wikipedia: https://en.wikipedia.org/wiki/Sugar_Hill,_Georgia
+- id: summertown
+  name: Summertown
+  kind: city
+  fips: '1374348'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 121
+  wikipedia: https://en.wikipedia.org/wiki/Summertown,_Georgia
+- id: summerville
+  name: Summerville
+  kind: city
+  fips: '1374376'
+  counties:
+  - Chattooga
+  county_seat: true
+  population: 4435
+  wikipedia: https://en.wikipedia.org/wiki/Summerville,_Georgia
+- id: sumner
+  name: Sumner
+  kind: town
+  fips: '1374432'
+  counties:
+  - Worth
+  county_seat: false
+  population: 445
+  wikipedia: https://en.wikipedia.org/wiki/Sumner,_Georgia
+- id: sunny-side
+  name: Sunny Side
+  kind: city
+  fips: '1374572'
+  counties:
+  - Spalding
+  county_seat: false
+  population: 203
+  wikipedia: https://en.wikipedia.org/wiki/Sunny_Side,_Georgia
+- id: surrency
+  name: Surrency
+  kind: town
+  fips: '1374852'
+  counties:
+  - Appling
+  county_seat: false
+  population: 194
+  wikipedia: https://en.wikipedia.org/wiki/Surrency,_Georgia
+- id: suwanee
+  name: Suwanee
+  kind: city
+  fips: '1374936'
+  counties:
+  - Gwinnett
+  county_seat: false
+  population: 20786
+  wikipedia: https://en.wikipedia.org/wiki/Suwanee,_Georgia
+- id: swainsboro
+  name: Swainsboro
+  kind: city
+  fips: '1374964'
+  counties:
+  - Emanuel
+  county_seat: true
+  population: 7425
+  wikipedia: https://en.wikipedia.org/wiki/Swainsboro,_Georgia
+- id: sycamore
+  name: Sycamore
+  kind: city
+  fips: '1375104'
+  counties:
+  - Turner
+  county_seat: false
+  population: 692
+  wikipedia: https://en.wikipedia.org/wiki/Sycamore,_Georgia
+- id: sylvania
+  name: Sylvania
+  kind: city
+  fips: '1375160'
+  counties:
+  - Screven
+  county_seat: true
+  population: 2634
+  wikipedia: https://en.wikipedia.org/wiki/Sylvania,_Georgia
+- id: sylvester
+  name: Sylvester
+  kind: city
+  fips: '1375188'
+  counties:
+  - Worth
+  county_seat: true
+  population: 5644
+  wikipedia: https://en.wikipedia.org/wiki/Sylvester,_Georgia
+- id: talbotton
+  name: Talbotton
+  kind: city
+  fips: '1375244'
+  counties:
+  - Talbot
+  county_seat: true
+  population: 742
+  wikipedia: https://en.wikipedia.org/wiki/Talbotton,_Georgia
+- id: talking-rock
+  name: Talking Rock
+  kind: town
+  fips: '1375272'
+  counties:
+  - Pickens
+  county_seat: false
+  population: 91
+  wikipedia: https://en.wikipedia.org/wiki/Talking_Rock,_Georgia
+- id: tallapoosa
+  name: Tallapoosa
+  kind: city
+  fips: '1375300'
+  counties:
+  - Haralson
+  county_seat: false
+  population: 3227
+  wikipedia: https://en.wikipedia.org/wiki/Tallapoosa,_Georgia
+- id: tallulah-falls
+  name: Tallulah Falls
+  kind: town
+  fips: '1375328'
+  counties:
+  - Habersham
+  - Rabun
+  county_seat: false
+  population: 199
+  wikipedia: https://en.wikipedia.org/wiki/Tallulah_Falls,_Georgia
+- id: talmo
+  name: Talmo
+  kind: town
+  fips: '1375412'
+  counties:
+  - Jackson
+  county_seat: false
+  population: 257
+  wikipedia: https://en.wikipedia.org/wiki/Talmo,_Georgia
+- id: tarrytown
+  name: Tarrytown
+  kind: town
+  fips: '1375496'
+  counties:
+  - Montgomery
+  county_seat: false
+  population: 66
+  wikipedia: https://en.wikipedia.org/wiki/Tarrytown,_Georgia
+- id: taylorsville
+  name: Taylorsville
+  kind: town
+  fips: '1375664'
+  counties:
+  - Bartow
+  - Polk
+  county_seat: false
+  population: 252
+  wikipedia: https://en.wikipedia.org/wiki/Taylorsville,_Georgia
+- id: temple
+  name: Temple
+  kind: city
+  fips: '1375832'
+  counties:
+  - Carroll
+  - Haralson
+  county_seat: false
+  population: 5089
+  wikipedia: https://en.wikipedia.org/wiki/Temple,_Georgia
+- id: tennille
+  name: Tennille
+  kind: city
+  fips: '1375888'
+  counties:
+  - Washington
+  county_seat: false
+  population: 1469
+  wikipedia: https://en.wikipedia.org/wiki/Tennille,_Georgia
+- id: thomaston
+  name: Thomaston
+  kind: city
+  fips: '1376168'
+  counties:
+  - Upson
+  county_seat: true
+  population: 9816
+  wikipedia: https://en.wikipedia.org/wiki/Thomaston,_Georgia
+- id: thomasville
+  name: Thomasville
+  kind: city
+  fips: '1376224'
+  counties:
+  - Thomas
+  county_seat: true
+  population: 18881
+  wikipedia: https://en.wikipedia.org/wiki/Thomasville,_Georgia
+- id: thomson
+  name: Thomson
+  kind: city
+  fips: '1376280'
+  counties:
+  - McDuffie
+  county_seat: true
+  population: 6814
+  wikipedia: https://en.wikipedia.org/wiki/Thomson,_Georgia
+  municode: https://library.municode.com/ga/thomson
+- id: thunderbolt
+  name: Thunderbolt
+  kind: town
+  fips: '1376364'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 2556
+  wikipedia: https://en.wikipedia.org/wiki/Thunderbolt,_Georgia
+  municode: https://library.municode.com/ga/thunderbolt
+- id: tifton
+  name: Tifton
+  kind: city
+  fips: '1376476'
+  counties:
+  - Tift
+  county_seat: true
+  population: 17045
+  wikipedia: https://en.wikipedia.org/wiki/Tifton,_Georgia
+- id: tiger
+  name: Tiger
+  kind: town
+  fips: '1376504'
+  counties:
+  - Rabun
+  county_seat: false
+  population: 422
+  wikipedia: https://en.wikipedia.org/wiki/Tiger,_Georgia
+- id: tignall
+  name: Tignall
+  kind: town
+  fips: '1376532'
+  counties:
+  - Wilkes
+  county_seat: false
+  population: 485
+  wikipedia: https://en.wikipedia.org/wiki/Tignall,_Georgia
+- id: toccoa
+  name: Toccoa
+  kind: city
+  fips: '1376756'
+  counties:
+  - Stephens
+  county_seat: true
+  population: 9133
+  wikipedia: https://en.wikipedia.org/wiki/Toccoa,_Georgia
+- id: toomsboro
+  name: Toomsboro
+  kind: town
+  fips: '1376952'
+  counties:
+  - Wilkinson
+  county_seat: false
+  population: 383
+  wikipedia: https://en.wikipedia.org/wiki/Toomsboro,_Georgia
+- id: trenton
+  name: Trenton
+  kind: city
+  fips: '1377372'
+  counties:
+  - Dade
+  county_seat: true
+  population: 2195
+  wikipedia: https://en.wikipedia.org/wiki/Trenton,_Georgia
+- id: trion
+  name: Trion
+  kind: town
+  fips: '1377540'
+  counties:
+  - Chattooga
+  county_seat: false
+  population: 1960
+  wikipedia: https://en.wikipedia.org/wiki/Trion,_Georgia
+- id: tucker
+  name: Tucker
+  kind: city
+  fips: '1377652'
+  counties:
+  - DeKalb
+  county_seat: false
+  population: 37005
+  wikipedia: https://en.wikipedia.org/wiki/Tucker,_Georgia
+  municode: https://library.municode.com/ga/tucker
+- id: tunnel-hill
+  name: Tunnel Hill
+  kind: city
+  fips: '1377736'
+  counties:
+  - Whitfield
+  county_seat: false
+  population: 963
+  wikipedia: https://en.wikipedia.org/wiki/Tunnel_Hill,_Georgia
+- id: turin
+  name: Turin
+  kind: town
+  fips: '1377764'
+  counties:
+  - Coweta
+  county_seat: false
+  population: 347
+  wikipedia: https://en.wikipedia.org/wiki/Turin,_Georgia
+- id: twin-city
+  name: Twin City
+  kind: city
+  fips: '1377988'
+  counties:
+  - Emanuel
+  county_seat: false
+  population: 1642
+  wikipedia: https://en.wikipedia.org/wiki/Twin_City,_Georgia
+- id: ty-ty
+  name: Ty Ty
+  kind: city
+  fips: '1378100'
+  counties:
+  - Tift
+  county_seat: false
+  population: 641
+  wikipedia: https://en.wikipedia.org/wiki/Ty_Ty,_Georgia
+- id: tybee-island
+  name: Tybee Island
+  kind: city
+  fips: '1378036'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 3114
+  wikipedia: https://en.wikipedia.org/wiki/Tybee_Island,_Georgia
+- id: tyrone
+  name: Tyrone
+  kind: town
+  fips: '1378044'
+  counties:
+  - Fayette
+  county_seat: false
+  population: 7658
+  wikipedia: https://en.wikipedia.org/wiki/Tyrone,_Georgia
+- id: unadilla
+  name: Unadilla
+  kind: city
+  fips: '1378156'
+  counties:
+  - Dooly
+  county_seat: false
+  population: 3118
+  wikipedia: https://en.wikipedia.org/wiki/Unadilla,_Georgia
+- id: union-city
+  name: Union City
+  kind: city
+  fips: '1378324'
+  counties:
+  - Fulton
+  county_seat: false
+  population: 26738
+  wikipedia: https://en.wikipedia.org/wiki/Union_City,_Georgia
+- id: union-point
+  name: Union Point
+  kind: city
+  fips: '1378380'
+  counties:
+  - Greene
+  county_seat: false
+  population: 1597
+  wikipedia: https://en.wikipedia.org/wiki/Union_Point,_Georgia
+- id: uvalda
+  name: Uvalda
+  kind: city
+  fips: '1378744'
+  counties:
+  - Montgomery
+  county_seat: false
+  population: 439
+  wikipedia: https://en.wikipedia.org/wiki/Uvalda,_Georgia
+- id: valdosta
+  name: Valdosta
+  kind: city
+  fips: '1378800'
+  counties:
+  - Lowndes
+  county_seat: true
+  population: 55378
+  wikipedia: https://en.wikipedia.org/wiki/Valdosta,_Georgia
+- id: varnell
+  name: Varnell
+  kind: city
+  fips: '1378996'
+  counties:
+  - Whitfield
+  county_seat: false
+  population: 2179
+  wikipedia: https://en.wikipedia.org/wiki/Varnell,_Georgia
+- id: vernonburg
+  name: Vernonburg
+  kind: town
+  fips: '1379164'
+  counties:
+  - Chatham
+  county_seat: false
+  population: 139
+  wikipedia: https://en.wikipedia.org/wiki/Vernonburg,_Georgia
+- id: vidalia
+  name: Vidalia
+  kind: city
+  fips: '1379388'
+  counties:
+  - Montgomery
+  - Toombs
+  county_seat: false
+  population: 10785
+  wikipedia: https://en.wikipedia.org/wiki/Vidalia,_Georgia
+  municode: https://library.municode.com/ga/vidalia
+- id: vidette
+  name: Vidette
+  kind: city
+  fips: '1379416'
+  counties:
+  - Burke
+  county_seat: false
+  population: 103
+  wikipedia: https://en.wikipedia.org/wiki/Vidette,_Georgia
+- id: vienna
+  name: Vienna
+  kind: city
+  fips: '1379444'
+  counties:
+  - Dooly
+  county_seat: true
+  population: 2928
+  wikipedia: https://en.wikipedia.org/wiki/Vienna,_Georgia
+- id: villa-rica
+  name: Villa Rica
+  kind: city
+  fips: '1379528'
+  counties:
+  - Carroll
+  - Douglas
+  county_seat: false
+  population: 16970
+  wikipedia: https://en.wikipedia.org/wiki/Villa_Rica,_Georgia
+- id: waco
+  name: Waco
+  kind: city
+  fips: '1379808'
+  counties:
+  - Haralson
+  county_seat: false
+  population: 536
+  wikipedia: https://en.wikipedia.org/wiki/Waco,_Georgia
+- id: wadley
+  name: Wadley
+  kind: city
+  fips: '1379864'
+  counties:
+  - Jefferson
+  county_seat: false
+  population: 1643
+  wikipedia: https://en.wikipedia.org/wiki/Wadley,_Georgia
+- id: waleska
+  name: Waleska
+  kind: city
+  fips: '1379948'
+  counties:
+  - Cherokee
+  county_seat: false
+  population: 921
+  wikipedia: https://en.wikipedia.org/wiki/Waleska,_Georgia
+- id: walnut-grove
+  name: Walnut Grove
+  kind: town
+  fips: '1380228'
+  counties:
+  - Walton
+  county_seat: false
+  population: 1322
+  wikipedia: https://en.wikipedia.org/wiki/Walnut_Grove,_Georgia
+- id: walthourville
+  name: Walthourville
+  kind: city
+  fips: '1380256'
+  counties:
+  - Liberty
+  county_seat: false
+  population: 3680
+  wikipedia: https://en.wikipedia.org/wiki/Walthourville,_Georgia
+- id: warm-springs
+  name: Warm Springs
+  kind: city
+  fips: '1380480'
+  counties:
+  - Meriwether
+  county_seat: false
+  population: 465
+  wikipedia: https://en.wikipedia.org/wiki/Warm_Springs,_Georgia
+- id: warner-robins
+  name: Warner Robins
+  kind: city
+  fips: '1380508'
+  counties:
+  - Houston
+  - Peach
+  county_seat: false
+  population: 80308
+  wikipedia: https://en.wikipedia.org/wiki/Warner_Robins,_Georgia
+- id: warrenton
+  name: Warrenton
+  kind: city
+  fips: '1380592'
+  counties:
+  - Warren
+  county_seat: true
+  population: 1744
+  wikipedia: https://en.wikipedia.org/wiki/Warrenton,_Georgia
+- id: warwick
+  name: Warwick
+  kind: city
+  fips: '1380676'
+  counties:
+  - Worth
+  county_seat: false
+  population: 504
+  wikipedia: https://en.wikipedia.org/wiki/Warwick,_Georgia
+- id: washington
+  name: Washington
+  kind: city
+  fips: '1380704'
+  counties:
+  - Wilkes
+  county_seat: true
+  population: 3754
+  wikipedia: https://en.wikipedia.org/wiki/Washington,_Georgia
+- id: watkinsville
+  name: Watkinsville
+  kind: town
+  fips: '1380788'
+  counties:
+  - Oconee
+  county_seat: true
+  population: 2896
+  wikipedia: https://en.wikipedia.org/wiki/Watkinsville,_Georgia
+- id: waverly-hall
+  name: Waverly Hall
+  kind: town
+  fips: '1380844'
+  counties:
+  - Harris
+  county_seat: false
+  population: 638
+  wikipedia: https://en.wikipedia.org/wiki/Waverly_Hall,_Georgia
+- id: waycross
+  name: Waycross
+  kind: city
+  fips: '1380956'
+  counties:
+  - Pierce
+  - Ware
+  county_seat: true
+  population: 13942
+  wikipedia: https://en.wikipedia.org/wiki/Waycross,_Georgia
+- id: waynesboro
+  name: Waynesboro
+  kind: city
+  fips: '1380984'
+  counties:
+  - Burke
+  county_seat: true
+  population: 5799
+  wikipedia: https://en.wikipedia.org/wiki/Waynesboro,_Georgia
+- id: west-point
+  name: West Point
+  kind: city
+  fips: '1382132'
+  counties:
+  - Harris
+  - Troup
+  county_seat: false
+  population: 3719
+  wikipedia: https://en.wikipedia.org/wiki/West_Point,_Georgia
+  municode: https://library.municode.com/ga/west_point
+- id: whigham
+  name: Whigham
+  kind: city
+  fips: '1382412'
+  counties:
+  - Grady
+  county_seat: false
+  population: 428
+  wikipedia: https://en.wikipedia.org/wiki/Whigham,_Georgia
+- id: white
+  name: White
+  kind: city
+  fips: '1382468'
+  counties:
+  - Bartow
+  county_seat: false
+  population: 661
+  wikipedia: https://en.wikipedia.org/wiki/White,_Georgia
+- id: white-plains
+  name: White Plains
+  kind: city
+  fips: '1382692'
+  counties:
+  - Greene
+  county_seat: false
+  population: 239
+  wikipedia: https://en.wikipedia.org/wiki/White_Plains,_Georgia
+- id: whitesburg
+  name: Whitesburg
+  kind: town
+  fips: '1382720'
+  counties:
+  - Carroll
+  county_seat: false
+  population: 596
+  wikipedia: https://en.wikipedia.org/wiki/Whitesburg,_Georgia
+- id: willacoochee
+  name: Willacoochee
+  kind: city
+  fips: '1382972'
+  counties:
+  - Atkinson
+  county_seat: false
+  population: 1240
+  wikipedia: https://en.wikipedia.org/wiki/Willacoochee,_Georgia
+- id: williamson
+  name: Williamson
+  kind: city
+  fips: '1383084'
+  counties:
+  - Pike
+  county_seat: false
+  population: 681
+  wikipedia: https://en.wikipedia.org/wiki/Williamson,_Georgia
+- id: winder
+  name: Winder
+  kind: city
+  fips: '1383420'
+  counties:
+  - Barrow
+  county_seat: true
+  population: 18338
+  wikipedia: https://en.wikipedia.org/wiki/Winder,_Georgia
+- id: winterville
+  name: Winterville
+  kind: city
+  fips: '1383728'
+  counties:
+  - Clarke
+  county_seat: false
+  population: 1201
+  wikipedia: https://en.wikipedia.org/wiki/Winterville,_Georgia
+- id: woodbine
+  name: Woodbine
+  kind: city
+  fips: '1383868'
+  counties:
+  - Camden
+  county_seat: true
+  population: 1062
+  wikipedia: https://en.wikipedia.org/wiki/Woodbine,_Georgia
+  municode: https://library.municode.com/ga/woodbine
+- id: woodbury
+  name: Woodbury
+  kind: city
+  fips: '1383896'
+  counties:
+  - Meriwether
+  county_seat: false
+  population: 908
+  wikipedia: https://en.wikipedia.org/wiki/Woodbury,_Georgia
+- id: woodland
+  name: Woodland
+  kind: city
+  fips: '1383952'
+  counties:
+  - Talbot
+  county_seat: false
+  population: 305
+  wikipedia: https://en.wikipedia.org/wiki/Woodland,_Georgia
+- id: woodstock
+  name: Woodstock
+  kind: city
+  fips: '1384176'
+  counties:
+  - Cherokee
+  county_seat: false
+  population: 35065
+  wikipedia: https://en.wikipedia.org/wiki/Woodstock,_Georgia
+  municode: https://library.municode.com/ga/woodstock
+- id: woodville
+  name: Woodville
+  kind: city
+  fips: '1384260'
+  counties:
+  - Greene
+  county_seat: false
+  population: 264
+  wikipedia: https://en.wikipedia.org/wiki/Woodville,_Georgia
+- id: woolsey
+  name: Woolsey
+  kind: town
+  fips: '1384288'
+  counties:
+  - Fayette
+  county_seat: false
+  population: 206
+  wikipedia: https://en.wikipedia.org/wiki/Woolsey,_Georgia
+- id: wrens
+  name: Wrens
+  kind: city
+  fips: '1384456'
+  counties:
+  - Jefferson
+  county_seat: false
+  population: 2217
+  wikipedia: https://en.wikipedia.org/wiki/Wrens,_Georgia
+- id: wrightsville
+  name: Wrightsville
+  kind: city
+  fips: '1384512'
+  counties:
+  - Johnson
+  county_seat: true
+  population: 3449
+  wikipedia: https://en.wikipedia.org/wiki/Wrightsville,_Georgia
+- id: yatesville
+  name: Yatesville
+  kind: town
+  fips: '1384708'
+  counties:
+  - Upson
+  county_seat: false
+  population: 394
+  wikipedia: https://en.wikipedia.org/wiki/Yatesville,_Georgia
+- id: young-harris
+  name: Young Harris
+  kind: city
+  fips: '1384960'
+  counties:
+  - Towns
+  county_seat: false
+  population: 1098
+  wikipedia: https://en.wikipedia.org/wiki/Young_Harris,_Georgia
+- id: zebulon
+  name: Zebulon
+  kind: city
+  fips: '1385128'
+  counties:
+  - Pike
+  county_seat: true
+  population: 1225
+  wikipedia: https://en.wikipedia.org/wiki/Zebulon,_Georgia

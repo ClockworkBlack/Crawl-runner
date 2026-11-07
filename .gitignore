@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# the database is persisted as a release asset (see .github/workflows/crawl.yml), not in git
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db.gz
+deltas/
+dist/
+state/http_cache/
+state/*.tmp
+# regenerated from the Electo checkout on every run
+state/electo_people.json
+state/electo_codes.json
+simulated_screens/
+# rebuilt every run or kept in the database
+state/legis_people.json
+state/entities.json
+state/orgs.json
+state/profile_inputs.json

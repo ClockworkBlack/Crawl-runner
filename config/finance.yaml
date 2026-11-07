@@ -1,0 +1,32 @@
+# Campaign finance sources.
+#
+# Georgia: state and county/municipal candidates file Campaign Contribution Disclosure Reports (CCDRs).
+# State-level filers (and many local ones) use the Government Transparency and Campaign Finance
+# Commission's e-filing system; municipal candidates may instead file with the city clerk, and many
+# cities post the PDFs (the crawler parses those: doc_type finance_report).
+#
+# The crawler never guesses a search URL. `probe` lists what the Commission's front page links to
+# (state/finance_portal.json); once a person has confirmed the right search page and its query
+# format, put it in search_url with {last} / {first} / {name} placeholders and set confirmed: true.
+georgia_commission:
+  home: https://ethics.ga.gov/
+  search_url: null
+  confirmed: false
+
+# FEC (federal candidates and PACs): api.open.fec.gov. Set FEC_API_KEY as a GitHub secret
+# (DEMO_KEY works for small volumes).
+fec:
+  enabled: true
+
+# ProPublica Nonprofit Explorer (IRS 990 data): no key needed.
+propublica:
+  enabled: true
+
+# OpenCorporates (Georgia corporate registry data: incorporation, status, officers).
+# Needs OPENCORPORATES_API_KEY; skipped without one.
+opencorporates:
+  enabled: true
+
+# Organization lookups per run (biggest money first; each is re-checked after recheck_days).
+org_limit: 40
+recheck_days: 90

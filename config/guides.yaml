@@ -1,0 +1,73 @@
+# Endorsements, scorecards and voter guides: organizations' OWN pages only (an endorsement is cited
+# to the endorser). The crawler starts at each home page and follows links matching `include`;
+# robots.txt is honored, so a guide that disallows crawling is simply skipped (gacrawl blocked).
+# Never Sway, Ballotpedia or other aggregators (config/outlets.yaml excludes them everywhere).
+# kind: endorsements | scorecard | questionnaire | party  — what the deriver expects to find.
+guides:
+  - id: guide:lwv-ga
+    name: League of Women Voters of Georgia
+    url: https://lwvga.org/
+    kind: questionnaire
+    include: ["vote411", "voter-guide", "voters-guide", "candidate", "election", "guide"]
+  - id: guide:vote411
+    name: Vote411 (League of Women Voters Education Fund)
+    url: https://www.vote411.org/
+    kind: questionnaire
+    include: ["georgia", "/ballot", "candidate", "race"]
+    max_pages: 60
+  - id: guide:ga-chamber
+    name: Georgia Chamber of Commerce
+    url: https://www.gachamber.com/
+    kind: endorsements
+    include: ["endorse", "impact", "political", "candidate", "scorecard", "legislative"]
+  - id: guide:gcv
+    name: Georgia Conservation Voters
+    url: https://gcvoters.org/
+    kind: scorecard
+    include: ["scorecard", "endorse", "candidate", "legislator"]
+  - id: guide:sierra-ga
+    name: Sierra Club Georgia Chapter
+    url: https://www.sierraclub.org/georgia
+    kind: endorsements
+    include: ["endorse", "political", "candidate"]
+  - id: guide:grtl
+    name: Georgia Right to Life
+    url: https://www.grtl.org/
+    kind: endorsements
+    include: ["endorse", "candidate", "pac", "survey", "scorecard"]
+  - id: guide:georgia-equality
+    name: Georgia Equality
+    url: https://georgiaequality.org/
+    kind: endorsements
+    include: ["endorse", "candidate", "scorecard", "legislative"]
+  - id: guide:nra-pvf
+    name: NRA Political Victory Fund
+    url: https://www.nrapvf.org/
+    kind: scorecard
+    include: ["grades", "georgia", "candidate", "endorse"]
+  - id: guide:gae
+    name: Georgia Association of Educators
+    url: https://www.gae.org/
+    kind: endorsements
+    include: ["endorse", "pace", "candidate", "legislative", "scorecard"]
+  - id: guide:ga-realtors
+    name: Georgia Association of Realtors
+    url: https://garealtor.com/
+    kind: endorsements
+    include: ["endorse", "rpac", "garpac", "candidate", "political"]
+  - id: guide:gagop
+    name: Georgia Republican Party
+    url: https://gagop.org/
+    kind: party
+    include: ["candidate", "endorse", "elected", "officials"]
+  - id: guide:dpg
+    name: Democratic Party of Georgia
+    url: https://www.georgiademocrat.org/
+    kind: party
+    include: ["candidate", "endorse", "elected", "officials"]
+  - id: guide:afp-ga
+    name: Americans for Prosperity (Georgia)
+    url: https://americansforprosperity.org/
+    kind: scorecard
+    include: ["georgia", "scorecard", "endorse", "candidate"]
+    max_pages: 40

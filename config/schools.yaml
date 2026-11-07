@@ -1,0 +1,73 @@
+# Schools: where the crawler reads Georgia's schools, colleges, district boundaries and official statistics.
+# Every URL here is a published resource the crawler opens as-is; file names inside the GOSA directory are
+# read from the directory page itself (they carry timestamps), never built from a pattern.
+#
+# `gacrawl schools seed`    every public school, private school and postsecondary institution in Georgia, with
+#                           coordinates, from NCES's EDGE open-data services (Common Core of Data, the Private School
+#                           Survey and IPEDS), plus district boundaries (for "which district is this address in")
+# `gacrawl schools stats`   GOSA's downloadable data (graduation rate, enrollment, attendance, dropouts, personnel,
+#                           retained students, HOPE eligibility, completers, financial efficiency) and GaDOE's CCRPI
+#                           files, by school and district
+# `gacrawl schools people`  board members, superintendents and principals from the districts' and schools' own
+#                           pages already crawled (board pages, "about" pages, staff pages); each person becomes a
+#                           research candidate (official-record mentions, minutes votes, news, statements) exactly
+#                           like everyone on a ballot
+# `gacrawl schools sites`   school websites (linked from district pages) and their principal/administration pages
+
+nces:
+  # NCES EDGE (Education Demographic and Geographic Estimates) feature services; JSON, paged 2,000 at a time
+  public_schools: https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/School_Characteristics_Current/FeatureServer/1
+  private_schools: https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/Private_School_Locations_Current/FeatureServer/0
+  postsecondary: https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/Postsecondary_School_Locations_Current/FeatureServer/0
+  districts: https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/School_District_Characteristics_Current/FeatureServer/0
+  state: GA
+  state_fips: "13"
+  boundary_offset: 0.0015      # degrees: simplification tolerance for district outlines (about 150 m)
+
+gosa:
+  downloads: https://download.gosa.ga.gov/
+  # series (the directory's row names) and the file-name stem each one uses; the newest year's file is read
+  series:
+    # rules from the files' own layouts (read November 2026): `where` keeps the all-students row of each place,
+    # `sum` adds grade or diploma-type rows up, `ratio` makes a percentage, `outputs` reads two series from one file
+    graduation_rate: {match: "Graduation_Rate_", label: "Graduation rate (4-year cohort, %)", value: "PROGRAM_PERCENT",
+                      where: {LABEL_LVL_1_DESC: "Grad Rate -ALL Students"}}
+    enrollment: {match: "Enrollment_by_Grade_", label: "Enrollment (fall)", value: "ENROLLMENT_COUNT",
+                 where: {ENROLLMENT_PERIOD: "Fall"}, sum: true}
+    attendance: {match: "Attendance_", label: "Students absent more than 15 days (%)", value: "OVER_15_PERCENT_ALL"}
+    dropouts_9_12: {match: "9-12_Dropouts_", label: "Dropout rate (grades 9-12, %)", value: "PROGRAM_PERCENT",
+                    where: {LABEL_LVL_1_DESC: "9-12 Drop Outs -ALL Students"}}
+    personnel:
+      match: "CERTIFIED_PERSONNEL_"
+      outputs:
+        - {id: teachers, label: "PK-12 teachers (full-time equivalent)", value: "MEASURE",
+           where: {DATA_CATEGORY: "Positions", DATA_SUB_CATEGORY: "Number", EMPLOYEE_TYPE: "PK-12 Teachers"}}
+        - {id: teacher_salary, label: "Average PK-12 teacher salary ($)", value: "MEASURE",
+           where: {DATA_CATEGORY: "Positions", DATA_SUB_CATEGORY: "Average Annual Salary", EMPLOYEE_TYPE: "PK-12 Teachers"}}
+    retained: {match: "Retained_K-12_", label: "Students retained (%)", ratio: ["Total_Retained", "Total_Enrolled"]}
+    hope_eligible: {match: "HOPE_ELIGIBLE_", label: "HOPE-eligible graduates (%)", value: "HOPE_ELIGIBLE_PCT"}
+    completers: {match: "HS_Completer_Credentials_", label: "High-school graduates (diplomas)", value: "PROGRAM_TOTAL",
+                 where: {COMPLETER_TYPE: "Graduates", LABEL_LVL_5_CD: "Total"}, sum: true}
+    fesr_district: {match: "District_FESR_", label: "Financial efficiency (district)", xlsx: true}
+    fesr_school: {match: "School_FESR_", label: "Financial efficiency (school)", xlsx: true}
+    act: {match: "ACT_", label: "ACT composite (average score)", where: {SUBGRP_DESC: "All Students", TEST_CMPNT_TYP_CD: "Composite"},
+          level_value: {school: "INSTN_AVG_SCORE_VAL", district: "DSTRCT_AVG_SCORE_VAL", state: "STATE_AVG_SCORE_VAL"}}
+  max_file_bytes: 60000000
+
+ccrpi:
+  page: https://gadoe.org/CCRPI       # links on this page to the CCRPI score files (xlsx/csv) are followed
+  link_words: ["ccrpi", "single score", "score"]
+
+# district websites' board pages, superintendent pages and school lists are read by the `:site` source
+# (registry.sources_for); the words below pick those pages out of what was crawled
+people:
+  board_page: ["board of education", "board members", "school board", "our board", "board-of-education", "boardmembers"]
+  superintendent_page: ["superintendent"]
+  principal_page: ["principal", "administration", "about us", "about our school", "staff", "our school", "welcome"]
+  roles:
+    chair: ["chair", "chairman", "chairwoman", "chairperson", "president"]
+    vice_chair: ["vice chair", "vice-chair", "vice chairman", "vice president"]
+    member: ["member", "district", "post", "seat", "at-large", "at large"]
+  seat: "(?:district|post|seat|area|ward)\\s*(\\d+|[A-Z])"
+  max_school_sites_per_run: 400        # school home/administration pages read per `schools sites` run
+  school_site_pages: 3                 # pages per school: home, then the administration/about/principal page(s)

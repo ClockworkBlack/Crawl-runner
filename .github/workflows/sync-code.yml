@@ -1,0 +1,86 @@
+name: sync-code
+
+# Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes, every 15 minutes:
+#   1. copies the crawler's code from the private repository, the code only: state/, data/, imports/, config/private/
+#      (what the crawler gathered, contacts, the requester's signature) and the records-request mail workflows never
+#      leave the private repository
+#   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/) and then deletes the run
+#      here, so the public repository keeps no logs once they are saved. Needs DATA_TOKEN.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write        # delete finished runs here once their logs are saved in the private repository
+
+concurrency:
+  group: sync-code
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'ClockworkBlack/Crawl-runner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+    steps:
+      - name: Copy the code from the private repository
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" src
+          git clone -q "https://x-access-token:${DATA_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pub
+          SHA=$(git -C src rev-parse --short HEAD)
+          rsync -a --delete \
+            --exclude .git --exclude state/ --exclude data/ --exclude imports/ --exclude config/private/ --exclude logs/ \
+            --exclude .github/workflows/records-send.yml --exclude .github/workflows/records-test.yml \
+            --exclude .github/workflows/probe.yml \
+            src/ pub/
+          # excluded paths are also never kept here (rsync --delete leaves excluded paths alone, so remove them)
+          rm -rf pub/state pub/data pub/imports pub/config/private pub/logs \
+                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml
+          if grep -rIlE "Humble Servant|ORR_PASSWORD=|@gmail\.com" pub --exclude-dir=.git --exclude=sync-code.yml >/dev/null 2>&1; then
+            echo "::error::private text found in the copy; nothing pushed"; grep -rIlE "Humble Servant|@gmail\.com" pub --exclude-dir=.git; exit 1
+          fi
+          cd pub
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "already in sync ($SHA)"; exit 0; }
+          git commit -qm "Code from the private repository ($SHA)"
+          git push -q origin HEAD:main
+          echo "synced $SHA"
+      - name: Move finished runs' logs to the private repository, then delete them here
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" logs-repo
+          git -C logs-repo sparse-checkout set --no-cone /logs/runner/
+          n=0; done_ids=""
+          for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at)"'); do
+            IFS=, read -r id name created <<< "$row"
+            if [ "$name" = "crawl" ] || [ "$name" = "police" ]; then
+              d="logs-repo/logs/runner/${created:0:7}"; mkdir -p "$d"
+              f="$d/${created:0:10}_${name}_${id}.zip"
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null || { rm -f "$f"; echo "logs for $id not ready yet"; continue; }
+              n=$((n+1))
+            fi
+            done_ids="$done_ids $id"
+          done
+          # keep 30 days of runner logs in the private repository (by the date in the file name)
+          CUT=$(date -u -d '30 days ago' +%Y-%m-%d)
+          for f in logs-repo/logs/runner/*/*.zip; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done
+          cd logs-repo
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add -A logs/runner 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -qm "runner logs: $n run(s)"
+            ok=false; for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && { ok=true; break; }; sleep $((i*5)); done
+            [ "$ok" = true ] || { echo "::error::could not save the logs; nothing deleted"; exit 1; }
+            echo "saved $n run log(s) in the private repository"
+          fi
+          cd ..
+          # only now that they are saved: delete those runs (logs and attachments) from this public repository
+          for id in $done_ids; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$id" >/dev/null && echo "removed run $id"; done

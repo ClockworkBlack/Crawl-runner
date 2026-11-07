@@ -1,0 +1,10 @@
+# Records to take out of the database: a portal that turned out to belong to another place, or a source removed
+# for cause. Each entry's records (and its cursors) are deleted by `gacrawl purge`, which the merge job runs before
+# deriving; entries stay listed as the record of what was removed and why (a second run deletes nothing).
+# Research records that cited a purged record (mentions) go too.
+- source: columbus-muscogee:legistar
+  reason: >-
+    columbus.legistar.com is Columbus, Ohio's council system (its records name Ohio 2,483 times and Georgia
+    never; Franklin and Delaware counties, the Ohio Revised Code). The override in config/overrides.yaml stopped
+    crawling it; these records made Electo quarantine every Columbus, Georgia record.
+  date: 2026-11-06

@@ -1,0 +1,313 @@
+_about: 'Georgia General Assembly: sessions to keep current, past sessions pulled once, and the landmark bills whose roll
+  calls are fetched for every member (the list Electo shows; add to it freely). Sources: legis.ga.gov''s own data service.'
+sessions:
+  current:
+  - 1033
+  - 1034
+  history:
+  - 24
+  - 25
+  - 26
+  - 27
+  - 1027
+  - 1029
+  - 1030
+  - 1031
+  - 1032
+  - 1033
+  - 1034
+  names:
+    24: 2015-2016
+    25: 2017-2018
+    27: 2019-2020
+    1029: 2021-2022
+    1031: 2023-2024
+    1033: 2025-2026
+    26: 2018 special
+    1027: 2020 special
+    1030: 2021 special
+    1032: 2023 special
+    1034: 2026 special
+  years:
+    24:
+    - 2015
+    - 2016
+    25:
+    - 2017
+    - 2018
+    27:
+    - 2019
+    - 2020
+    1029:
+    - 2021
+    - 2022
+    1031:
+    - 2023
+    - 2024
+    1033:
+    - 2025
+    - 2026
+    26:
+    - 2018
+    - 2018
+    1027:
+    - 2020
+    - 2020
+    1030:
+    - 2021
+    - 2021
+    1032:
+    - 2023
+    - 2023
+    1034:
+    - 2026
+    - 2026
+votes:
+  key_bills:
+  - session: 24
+    bill: HB 170
+    title: Transportation Funding Act of 2015 (fuel-tax and fee changes for roads)
+  - session: 24
+    bill: HB 1
+    title: 'Haleigh''s Hope Act (2015): legalized low-THC cannabis oil for listed conditions'
+  - session: 24
+    bill: SR 287
+    title: Opportunity School District constitutional amendment (2015; voters rejected it in 2016)
+  - session: 24
+    bill: HB 757
+    title: Free Exercise Protection Act (2016 'religious liberty' bill; vetoed)
+  - session: 24
+    bill: HB 859
+    title: Campus carry (2016; vetoed)
+  - session: 24
+    bill: HB 1060
+    title: 'Firearms: carrying and possession changes (2016; vetoed)'
+  - session: 24
+    bill: HB 941
+    title: Review of peace officers' use of deadly force; grand-jury procedure (2016)
+  - session: 24
+    bill: SB 8
+    title: Safe Harbor for sexually exploited children (2015)
+  - session: 25
+    bill: HB 280
+    title: Campus carry (2017; signed)
+  - session: 25
+    bill: HB 338
+    title: 'First Priority Act: state intervention in low-performing schools (2017)'
+  - session: 25
+    bill: SB 16
+    title: 'Low-THC oil: added eligible conditions (2017)'
+  - session: 25
+    bill: HB 918
+    title: 'Income tax cut: top rate to 5.75%, doubled standard deduction (2018)'
+  - session: 25
+    bill: HB 673
+    title: 'Hands-Free Georgia Act: distracted driving (2018)'
+  - session: 25
+    bill: HB 930
+    title: 'The ATL: metro Atlanta transit authority (2018)'
+  - session: 25
+    bill: HB 65
+    title: 'Low-THC oil registry: PTSD and intractable pain added (2018)'
+  - session: 25
+    bill: HB 159
+    title: Adoption law overhaul (2018)
+  - session: 25
+    bill: HB 787
+    title: Charter school funding changes (2018)
+  - session: 25
+    bill: SB 375
+    title: Keep Faith in Adoption and Foster Care Act (2018; passed Senate only)
+  - session: 25
+    bill: SB 315
+    title: 'Computer crimes: unauthorized access (2018; vetoed)'
+  - session: 27
+    bill: HB 481
+    title: 'LIFE Act: abortion ban after fetal cardiac activity (2019)'
+  - session: 27
+    bill: HB 316
+    title: 'New voting system: ballot-marking devices (2019)'
+  - session: 27
+    bill: HB 324
+    title: 'Georgia''s Hope Act: in-state low-THC oil production (2019)'
+  - session: 27
+    bill: SB 106
+    title: 'Patients First Act: Medicaid and ACA waivers (2019)'
+  - session: 27
+    bill: HB 426
+    title: Hate-crimes sentencing (2020)
+  - session: 27
+    bill: HB 838
+    title: Law-enforcement officer protections and bias-crime provisions (2020)
+  - session: 27
+    bill: SB 359
+    title: Surprise Billing Consumer Protection Act (2020)
+  - session: 27
+    bill: HB 444
+    title: 'Dual Enrollment Act: limits on dual-enrollment funding (2020)'
+  - session: 27
+    bill: SB 402
+    title: Unsecured judicial release (bail) conditions (2020)
+  - session: 27
+    bill: HB 276
+    title: Marketplace facilitators collect sales tax (2020)
+  - session: 27
+    bill: SB 288
+    title: Automatic record restriction for certain convictions (2020)
+  - session: 27
+    bill: HB 545
+    title: Right-to-farm nuisance limits (2020; passed Senate by substitute)
+  - session: 1029
+    bill: SB 202
+    title: 'Election Integrity Act of 2021: absentee ID, drop boxes, State Election Board powers'
+  - session: 1029
+    bill: HB 479
+    title: Repeal of citizen's arrest (2021)
+  - session: 1029
+    bill: SB 319
+    title: Permitless ('constitutional') carry of handguns (2022)
+  - session: 1029
+    bill: HB 1013
+    title: Mental Health Parity Act (2022)
+  - session: 1029
+    bill: HB 1084
+    title: 'Protect Students First Act: ''divisive concepts'' in classrooms (2022)'
+  - session: 1029
+    bill: HB 1437
+    title: 'Income tax: flat-rate cut phased to 4.99% (2022)'
+  - session: 1029
+    bill: HB 1178
+    title: Parents' Bill of Rights (2022)
+  - session: 1029
+    bill: SB 226
+    title: School library and classroom materials complaints (2022)
+  - session: 1029
+    bill: HB 1
+    title: 'Forming Open and Robust University Minds Act: campus speech (2022)'
+  - session: 1029
+    bill: HB 286
+    title: Limits on counties reducing police funding (2021)
+  - session: 1029
+    bill: SB 403
+    title: Behavioral Health and Peace Officer Co-Responder Act (2022)
+  - session: 1031
+    bill: SB 140
+    title: Ban on hormone therapy and surgery for gender dysphoria in minors (2023)
+  - session: 1031
+    bill: SB 92
+    title: Prosecuting Attorneys Qualifications Commission (2023)
+  - session: 1031
+    bill: SB 233
+    title: 'Georgia Promise Scholarship Act: education savings accounts (2024)'
+  - session: 1031
+    bill: SB 189
+    title: 'Elections: ballot text counting, challenges, QR-code removal (2024)'
+  - session: 1031
+    bill: HB 1105
+    title: 'Georgia Criminal Alien Track and Report Act: sheriffs and ICE (2024)'
+  - session: 1031
+    bill: SB 63
+    title: Cash bail required for more offenses; limits on bail funds (2024)
+  - session: 1031
+    bill: HB 1015
+    title: Income tax rate cut to 5.39% (2024)
+  - session: 1031
+    bill: HB 581
+    title: 'Property tax: statewide homestead assessment cap and FLOST (2024)'
+  - session: 1031
+    bill: HB 30
+    title: Definition of antisemitism in state law (2024)
+  - session: 1031
+    bill: HB 404
+    title: 'Safe at Home Act: tenant protections (2024)'
+  - session: 1031
+    bill: HB 19
+    title: FY 2024 state budget (2023)
+  - session: 1033
+    bill: SB 68
+    title: 'Tort reform: civil litigation changes (2025)'
+  - session: 1033
+    bill: SB 69
+    title: Third-party litigation funding regulation (2025)
+  - session: 1033
+    bill: SB 1
+    title: 'Riley Gaines Act: sex-based school sports teams (2025)'
+  - session: 1033
+    bill: SB 36
+    title: Georgia Religious Freedom Restoration Act (2025)
+  - session: 1033
+    bill: HB 111
+    title: Income tax rate cut to 5.19% (2025)
+  - session: 1033
+    bill: HB 112
+    title: One-time income tax rebate (2025)
+  - session: 1033
+    bill: HB 268
+    title: 'School safety: threat assessment, records sharing (2025)'
+  - session: 1033
+    bill: HB 340
+    title: 'Distraction-Free Education Act: phone-free K-8 schools (2025)'
+  - session: 1033
+    bill: HB 428
+    title: Right to in vitro fertilization codified (2025)
+  - session: 1033
+    bill: SB 30
+    title: 'Hormone therapy and puberty blockers for minors: liability (2025; failed in House)'
+  - session: 1033
+    bill: HB 397
+    title: 'Elections: Saturday advance voting opt-in and related changes (2025-26)'
+  - session: 1033
+    bill: HB 974
+    title: FY 2027 state budget (2026)
+  - session: 1033
+    bill: HB 1000
+    title: One-time income tax credit for 2024-2025 filers (2026)
+  - session: 1033
+    bill: HR 32
+    title: 'Constitutional amendment: conservation-use acreage (2026 ballot, Amendment 1)'
+  - session: 1033
+    bill: HR 251
+    title: 'Constitutional amendment: nonpartisan probate judge elections (2026 ballot)'
+  - session: 1033
+    bill: HR 1243
+    title: 'Constitutional amendment: Next Generation 9-1-1 Fund (2026 ballot, Amendment 3)'
+  - session: 1033
+    bill: SB 428
+    title: Medicaid waiver request to CMS (2026)
+  - session: 1033
+    bill: HB 1009
+    title: 'Personal electronic devices at school: policies (2026)'
+  - session: 1033
+    bill: SB 406
+    title: Georgia Property Owners' Bill of Rights Act (2026)
+  - session: 1033
+    bill: SB 591
+    title: Disruption of a religious service prohibited (2026)
+  - session: 1034
+    bill: SB 3EX
+    title: '2026 special session: Election Equipment Specifications and Standards Committee'
+  all_passed_in_current: true
+  max_bills_per_run: 40
+members:
+  recheck_days: 30
+code_acts:
+  # sessions whose enacted acts are read for exact Code changes (Electo's base text is Release 86, through 2022)
+  sessions:
+  - 1031
+  - 1032
+  - 1033
+  - 1034
+
+# Committee hearing video (gacrawl/legis_video.py, `gacrawl legis video`): bills are linked to the official recording
+# of the committee that acted on them, on that day. official_pages: the legislature's own pages; any youtube.com or
+# vimeo.com channel they link is used. channels: official channels checked by hand, with the basis.
+video:
+  since: "2019-01-01"
+  official_pages:
+    - https://www.senate.ga.gov/spo/en-US/SenateVideo.aspx       # Senate Press Office video page ("Georgia State Senate YouTube Channel")
+    - https://www.legis.ga.gov/house/media-services              # House Media Services
+    - https://www.legis.ga.gov/senate/press-office               # Senate Press Office
+  channels:
+    - name: Georgia House of Representatives (Vimeo)
+      url: https://vimeo.com/georgiahouse
+      basis: "checked by hand 2026-11-07: the account is named Georgia House of Representatives and its videos are dated House committee and study committee meetings; house.ga.gov's own channel page refuses crawlers (robots), so the link from it could not be read"

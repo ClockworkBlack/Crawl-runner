@@ -1,0 +1,6 @@
+{
+  "_note": "Public runner / private data (scripts/ci_runner.sh). While active, the public repository runner_repo runs the crawl and police schedules on free Actions minutes and keeps everything it gathers in this private repository (data_repo); this repository's own scheduled runs stand down. The sync-code workflow (running in runner_repo, hourly) copies the code from here, never state/, data/ or imports/. Both repositories need the DATA_TOKEN secret (a fine-grained token with Contents and Workflows read/write on both, Issues read/write on data_repo, and Contents write on Electo).",
+  "active": true,
+  "runner_repo": "ClockworkBlack/Crawl-runner",
+  "data_repo": "ClockworkBlack/Crawl"
+}

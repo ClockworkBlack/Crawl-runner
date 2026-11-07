@@ -1,0 +1,50 @@
+{
+  "_note": "Daytime backfill (gacrawl/backfill.py): back-to-back runs from the morning until candidate profiles stop filling. Set enabled to false to stop it; delete state/backfill.json's done flag (or the file) to start over. month_minutes_cap counts every Crawl run's Actions minutes this month (month_minutes_before adds runs from before counting began). Sized for GitHub Free (about 2,000 included minutes) plus the $30 Actions budget (about 5,000 more): 4,500 leaves about 2,500 for the rest of the month's nightly runs so the budget's hard stop never cuts them off. Catch-up through Sunday night (until), around the clock; from free_after every run is sized to stay inside GitHub's free 2,000 minutes a month (free): 2 crawl jobs x 14 minutes nightly, short research, one 15-minute police run a night, four nights a week (Mon, Wed, Fri, Sun; every step's time cap quartered). About 1,800-2,000 minutes a month. On the public runner (minutes free) runner overrides these: 8 x 45-minute crawl jobs at night, 6 for a run started by hand, 3 parallel feed/API jobs per daytime backfill run, 200 minutes of candidate research and 40 of finance per run, 60-minute police runs, 40 minutes of police news. Still polite: every site keeps its own delay and the off-peak window for pages.",
+  "enabled": true,
+  "window": {
+    "start": "00:00",
+    "end": "23:59",
+    "timezone": "America/New_York"
+  },
+  "research_minutes": 100,
+  "finance_minutes": 20,
+  "crawl_minutes": 18,
+  "night_shards": 4,
+  "night_minutes": 30,
+  "stop": {
+    "never_researched": 0,
+    "quiet_runs": 2,
+    "min_added": 60
+  },
+  "month_minutes_cap": 8500,
+  "month_minutes_before": {
+    "2026-11": 511
+  },
+  "until": "2026-11-09T06:00",
+  "free_after": "2026-11-09T06:00",
+  "free": {
+    "shards": 2,
+    "minutes": 14,
+    "research_minutes": 6,
+    "police_runs": 1,
+    "police_minutes": 15,
+    "days": [
+      0,
+      2,
+      4,
+      6
+    ]
+  },
+  "runner": {
+    "night_shards": 8,
+    "night_minutes": 45,
+    "crawl_shards": 6,
+    "backfill_shards": 3,
+    "crawl_minutes": 25,
+    "research_minutes": 200,
+    "finance_minutes": 40,
+    "police_minutes": 60,
+    "police_news_minutes": 40,
+    "until": ""
+  }
+}

@@ -1,0 +1,267 @@
+# Extra one-off sources beyond the jurisdiction registry (state agencies, a
+# county's separate elections site, a regional commission...). Same fields as
+# before: id, url, kind, since, include/exclude, max_pages, depth,
+# render: browser, legistar: <client>, feeds: [...], channel/endpoint to pin.
+# An entry whose id matches a registry source (e.g. "canton:site") overrides it.
+sources:
+  - id: ga-sos-elections
+    url: https://sos.ga.gov/elections-division-georgia-secretary-of-states-office
+    kind: page
+    tier: a
+    include: ["/elections", "/news", "/press"]
+    max_pages: 60
+    enabled: true
+
+  # Added from Electo research (2026-11-06). Start pages are URLs opened during research, not built by hand.
+  - id: ga-governor-press
+    url: https://gov.georgia.gov/press-releases/2026-09-24/gov-kemp-announces-district-attorney-appointment
+    kind: page
+    tier: a
+    include: ["/press-releases"]     # appointments to vacancies, executive orders, signed bills
+    max_pages: 80
+    enabled: true
+  - id: accg-election-results
+    url: https://ers.accg.org/index.php
+    kind: page
+    tier: b
+    include: ["/index.php", "/results.php", "/candidate.php"]   # county-reported local results (ACCG)
+    max_pages: 200
+    enabled: true
+
+  # State government bodies (2026-11-06). Start pages were opened during research (each body's own site). The General
+  # Assembly comes through legis.ga.gov's API (gacrawl legis: members, bills, votes, acts); house.ga.gov and
+  # senate.ga.gov refused the request, and seb.georgia.gov (State Election Board) disallows crawlers in robots.txt,
+  # so neither is crawled. The Secretary of State and the Governor are above.
+  - id: ga-ltgov-press            # press releases, newsletters (President of the Senate)
+    url: https://ltgov.georgia.gov/press-releases
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Office of the Lieutenant Governor"
+    include: ["/press-releases"]
+    max_pages: 80
+    enabled: true
+  - id: ga-ag-press            # press room and archived releases
+    url: https://law.georgia.gov/press-releases
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Office of the Attorney General"
+    include: ["/press-releases"]
+    max_pages: 120
+    enabled: true
+  - id: ga-ag-opinions            # official and unofficial opinions (local government, open records, elections)
+    url: https://law.georgia.gov/opinions
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Office of the Attorney General"
+    include: ["/opinions"]
+    max_pages: 150
+    enabled: true
+  - id: ga-psc-news            # newsroom, media advisories, commissioners
+    url: https://psc.ga.gov/newsroom/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Public Service Commission"
+    include: ["/newsroom", "/about-the-psc/commissioners"]
+    max_pages: 100
+    enabled: true
+  - id: ga-psc-agendas            # agendas and the commission calendar
+    url: https://psc.ga.gov/agendas-calendars/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Public Service Commission"
+    include: ["/agendas-calendars"]
+    max_pages: 100
+    enabled: true
+  - id: ga-ethics-meetings            # commission meetings, agendas, minutes
+    url: https://ethics.ga.gov/category/commission-meetings/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Government Transparency and Campaign Finance Commission"
+    include: ["commission-meeting", "agenda", "minutes", "/wp-content/uploads"]
+    max_pages: 80
+    enabled: true
+  - id: ga-audits-reports            # audit reports, local government compliance
+    url: https://www.audits2.ga.gov/reports/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Department of Audits and Accounts"
+    include: ["/reports/", "/local-government-compliance"]
+    max_pages: 120
+    enabled: true
+  - id: ga-courts-news            # news and weekly legislative reports
+    url: https://georgiacourts.gov/latest-news/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Judicial Council of Georgia / Administrative Office of the Courts"
+    include: ["/latest-news", "/wp-content/uploads"]
+    max_pages: 80
+    enabled: true
+
+  - id: ga-agriculture-press
+    url: https://agr.georgia.gov/news/press-releases
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Department of Agriculture (Agriculture Commissioner)"
+    include: ["/news/press-releases"]
+    max_pages: 80
+    enabled: true
+  - id: ga-insurance-press
+    url: https://oci.georgia.gov/press-releases
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Office of the Commissioner of Insurance and Safety Fire"
+    include: ["/press-releases"]
+    max_pages: 80
+    enabled: true
+  - id: ga-labor
+    url: https://dol.georgia.gov/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Department of Labor (Labor Commissioner)"
+    include: ["/press-releases"]
+    max_pages: 80
+    enabled: true
+
+  - id: ga-doe-press            # State School Superintendent and the State Board of Education's announcements
+    url: https://gadoe.org/contact/press-releases/
+    kind: page
+    tier: a
+    jurisdiction: ga
+    jurisdiction_name: "Georgia Department of Education (State School Superintendent)"
+    include: ["/contact/press-releases", "/contact/news", "/about/superintendent", "/about/state-board"]
+    max_pages: 100
+    enabled: true
+
+  # Georgia's 12 regional commissions (planning, aging, workforce; their boards are local elected officials).
+  # Domains from the Department of Community Affairs' list of regional commissions (dca.georgia.gov/media/87921).
+  - id: rc-csra
+    url: https://csrarc.ga.gov/
+    kind: page
+    tier: b
+    jurisdiction_name: "Central Savannah River Area Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-coastal
+    url: https://coastalrc.ga.gov/
+    kind: page
+    tier: b
+    jurisdiction_name: "Coastal Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-gmrc
+    url: https://gmrc.ga.gov/
+    kind: page
+    tier: b
+    jurisdiction_name: "Georgia Mountains Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-hogarc
+    url: https://hogarc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Heart of Georgia Altamaha Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-mgrc
+    url: https://middlegeorgiarc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Middle Georgia Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-negrc
+    url: https://negrc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Northeast Georgia Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-nwgrc
+    url: https://nwgrc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Northwest Georgia Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-rvrc
+    url: https://rivervalleyrc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "River Valley Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-sgrc
+    url: https://sgrc.us/
+    kind: page
+    tier: b
+    jurisdiction_name: "Southern Georgia Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-swgrc
+    url: https://swgrc.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Southwest Georgia Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-trrc
+    url: https://threeriversrc.com/
+    kind: page
+    tier: b
+    jurisdiction_name: "Three Rivers Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true
+  - id: rc-arc
+    url: https://atlantaregional.org/
+    kind: page
+    tier: b
+    jurisdiction_name: "Atlanta Regional Commission"
+    include: ["agenda", "minutes", "meeting", "council", "board", "news", "plan"]
+    exclude: ["/search", "login", "?print", "/tag/", "/author/", "/event", "calendar.aspx?"]
+    max_pages: 80
+    depth: 3
+    enabled: true

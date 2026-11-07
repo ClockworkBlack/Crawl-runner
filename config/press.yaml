@@ -1,0 +1,45 @@
+# Official newsrooms crawled as press releases (kind press_release, evidence primary).
+# Only official domains; the crawler starts at each home page and follows links that match
+# `include` (so no deep URL is guessed). Feeds are auto-detected from the pages themselves.
+# Appointments are derived from these releases (gacrawl.press): who was appointed to what, by whom.
+press:
+  - id: press:governor
+    name: Office of the Governor
+    url: https://gov.georgia.gov/
+    include: ["press-releases", "/press", "news"]
+    tier: a
+  - id: press:ltgov
+    name: Office of the Lieutenant Governor
+    url: https://ltgov.georgia.gov/
+    include: ["press-releases", "/press", "news"]
+    tier: b
+  - id: press:ag
+    name: Office of the Attorney General
+    url: https://law.georgia.gov/
+    include: ["press-releases", "/press", "news"]
+    tier: b
+  - id: press:sos
+    name: Secretary of State
+    url: https://sos.ga.gov/
+    include: ["news", "press", "elections"]
+    tier: a
+  - id: press:legis
+    name: Georgia General Assembly (House and Senate press)
+    url: https://www.legis.ga.gov/
+    include: ["press", "news", "house", "senate"]
+    tier: b
+  - id: press:gadoe
+    name: Georgia Department of Education
+    url: https://www.gadoe.org/
+    include: ["press", "news", "state-board"]
+    tier: c
+  - id: press:psc
+    name: Public Service Commission
+    url: https://psc.ga.gov/
+    include: ["press", "news", "commissioners"]
+    tier: c
+  - id: press:dnr
+    name: Department of Natural Resources (boards and appointments)
+    url: https://gadnr.org/
+    include: ["press", "news", "board"]
+    tier: c

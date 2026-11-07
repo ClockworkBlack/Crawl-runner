@@ -1,0 +1,146 @@
+name: police
+
+# Police departments, sheriff's offices and public-safety departments (chief or sheriff, phones, emails, address,
+# precincts, complaint and records pages) from each government's own site, and the news-tip addresses on the
+# outlets in config/outlets.yaml, for Electo's Policing tab. Its own workflow and concurrency group, so it never
+# queues behind (or displaces) the crawl, the backfill chain or open records.
+#
+# Pages are read only inside the off-peak window (config/settings.yaml schedule): three runs a weeknight, more on
+# weekend nights. Each run reads the departments not checked in 30 days, largest places first, and stops at its
+# budget; once every department is current a run finds nothing due and ends in a minute or two.
+# Results: state/police.json and state/media.json (committed), then police.json, media.json and
+# records_contacts.json are patched into the published Electo bundle, so Electo can import them without waiting for
+# the nightly export. Police incidents in the news are searched by the nightly crawl (it owns the database).
+
+on:
+  schedule:
+    - cron: "37 4 * * *"     # 11:37 PM EST / 12:37 AM EDT
+    - cron: "52 6 * * *"     # 1:52 AM EST / 2:52 AM EDT
+    - cron: "7 9 * * *"      # 4:07 AM EST / 5:07 AM EDT
+    - cron: "22 2 * * 0,1"   # Saturday and Sunday nights, 9:22 PM EST (the weekend window opens at 9 PM)
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Budget in minutes"
+        default: "30"
+      only:
+        description: "Only this jurisdiction id (blank = everything due)"
+        required: false
+      refresh:
+        description: "Re-read every department now, not only those older than 30 days"
+        type: boolean
+        default: false
+      test_now:
+        description: "Run now even outside the off-peak window (a small test: use with 'only' and a few minutes)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: police
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  GH_TOKEN: ${{ github.token }}
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}  # public runner only (config/runner.json)
+  DATA_TAG: crawl-data
+  HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
+
+jobs:
+  police:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the public runner keeps no credential in a checkout that processes crawled pages (it writes to the private
+          # repository with DATA_TOKEN); the private repository commits its own state with it
+          persist-credentials: ${{ github.event.repository.private }}
+      - name: Runner mode and state (config/runner.json)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - id: window
+        name: Off-peak window
+        run: |
+          W=$(gacrawl window); echo "$W"
+          G=$(echo "$W" | python -c "import sys,json;print(str(json.load(sys.stdin)['good_time']).lower())")
+          # free mode: one run a night (the first), shorter
+          eval "$(python -m gacrawl.backfill plan | sed 's/^/BF_/')"
+          if [ "$BF_free" = "True" ] && [ "${{ github.event_name }}" = "schedule" ] && { [ "$BF_free_today" != "True" ] || { [ "${{ github.event.schedule }}" != "37 4 * * *" ] && [ "${{ github.event.schedule }}" != "22 2 * * 0,1" ]; }; }; then
+            G=false; echo "::notice::Free mode: one police run a night"
+          fi
+          if [ "$BF_free" = "True" ]; then echo "free_minutes=$BF_free_police_minutes" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$BF_police_minutes" ]; then echo "free_minutes=$BF_police_minutes" >> "$GITHUB_OUTPUT"; fi   # public runner: longer runs
+          if [ "$STAND_DOWN" = "true" ]; then G=false; echo "::notice::The public runner runs the schedule (config/runner.json)"; fi
+          [ "${{ inputs.test_now }}" = "true" ] && { G=true; echo "::notice::Test run outside the off-peak window (asked for)"; }
+          echo "go=$G" >> "$GITHUB_OUTPUT"
+          [ "$G" = "true" ] || echo "::notice::Outside the off-peak window; government pages are read at night. Nothing read."
+      - name: Departments and media tip lines (official pages)
+        if: steps.window.outputs.go == 'true'
+        run: |
+          M="${{ inputs.minutes || steps.window.outputs.free_minutes || vars.POLICE_MINUTES || '30' }}"
+          FLAG=""
+          [ -n "${{ inputs.only }}" ] && FLAG="$FLAG --only ${{ inputs.only }}"
+          [ "${{ inputs.refresh }}" = "true" ] && FLAG="$FLAG --refresh"
+          # watchdog: SIGINT lets it save what it has
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl police all --max-minutes "$M" $FLAG || echo "police stopped after $((M + 5)) minutes"
+      - name: Commit state
+        if: always() && steps.window.outputs.go == 'true'
+        run: |
+          bash scripts/ci_runner.sh push-state "police: $(date -u +%Y-%m-%dT%H:%MZ)" state/police.json state/media.json state/blocked.json
+      - name: Patch the Electo bundle (police.json, media.json, records_contacts.json)
+        if: always() && steps.window.outputs.go == 'true'
+        run: |
+          mkdir -p patch
+          gh release download "$DATA_TAG" -p electo-bundle.tar.gz -D patch --clobber || { echo "no bundle yet; the nightly export will carry these"; exit 0; }
+          tar -xzf patch/electo-bundle.tar.gz -C patch
+          gacrawl export --policing-only --out patch/electo
+          tar -cf - -C patch electo | gzip -1 > electo-bundle.tar.gz
+          gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber
+      - name: Push the Policing files to Electo and import them there
+        if: always() && steps.window.outputs.go == 'true' && env.HAS_ELECTO_TOKEN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          ELECTO_PATH: ${{ vars.ELECTO_PATH || 'data/crawl' }}
+        run: |
+          [ -f patch/electo/police.json ] || { echo "no patched bundle"; exit 0; }
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
+          mkdir -p "/tmp/electo/${ELECTO_PATH}"
+          # only these files: the nightly run replaces the whole folder, this one never removes anything
+          for f in manifest.json jurisdictions.json police.json media.json records_contacts.json police_incidents.json; do
+            [ -e "patch/electo/$f" ] && cp "patch/electo/$f" "/tmp/electo/${ELECTO_PATH}/"
+          done
+          cd /tmp/electo
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          # Electo's own importer, here (its crawl-policing workflow would spend Electo's minutes)
+          CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only | tail -1 | cut -c1-300 || true
+          git add "${ELECTO_PATH}"
+          for f in police media records sites police_news bill_reasons donors; do [ -e "ga/crawl/$f.json" ] && git add "ga/crawl/$f.json"; done
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -qm "police data: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do git pull --rebase --autostash -q && git push -q && exit 0; sleep 5; done
+          exit 1
+      - name: Summary
+        if: always()
+        run: |
+          [ "$PUBLIC_RUNNER" = "true" ] && { echo "### police: finished (details are kept in the private repository)" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("state/police.json"); d = json.loads(p.read_text()) if p.exists() else {}
+          m = pathlib.Path("state/media.json"); o = json.loads(m.read_text()) if m.exists() else {}
+          found = sum(1 for v in d.values() if v.get("found"))
+          chiefs = sum(1 for v in d.values() if v.get("found") and v.get("chief"))
+          print(f"## Police\n\n- jurisdictions checked: {len(d)}\n- departments found: {found}\n- with a chief or sheriff named: {chiefs}\n"
+                f"- outlets checked: {len(o)}, with tip addresses: {sum(1 for v in o.values() if v.get('found'))}")
+          PY

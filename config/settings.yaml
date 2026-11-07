@@ -1,0 +1,119 @@
+# How the crawler behaves. Jurisdictions live in jurisdictions.yaml (generated),
+# hand edits in overrides.yaml, extra one-off sources in sources.yaml.
+http:
+  # Identify honestly. Point to the repo so site admins can see what this is.
+  # Wikimedia and others require a descriptive User-Agent for automated clients.
+  user_agent: "GACivicCrawler/0.3 (+https://github.com/ClockworkBlack/Crawl)"
+  min_interval_seconds: 3      # per host; robots.txt Crawl-delay wins if larger
+  host_intervals:              # per-host floors (seconds between requests to that host)
+    webapi.legistar.com: 0.5   # API built for machine traffic; shared by every Legistar city
+    www.legis.ga.gov: 1        # the General Assembly's data service (bill text PDFs, details)
+    www.googleapis.com: 0.5    # YouTube Data API (quota is per day; many channels share this host)
+    api.civicclerk.com: 1
+    public.api.bsky.app: 1
+    api.gdeltproject.org: 6    # GDELT asks for at most one request every 5 seconds (counted from its answer, below)
+    news.google.com: 3
+    www.gacities.com: 2
+    en.wikipedia.org: 1
+    query.wikidata.org: 2
+  # Public data APIs whose operators invite programmatic use with an identifying User-Agent (official websites,
+  # campaign finance, nonprofits, companies, school records). robots.txt (written for crawlers indexing pages) isn't
+  # applied to exactly these endpoints; spacing, back-off and the block list still are, and a refusal on the API
+  # itself still stops the crawler. Nothing else bypasses robots.txt.
+  api_endpoints:
+    - query.wikidata.org/sparql
+    - en.wikipedia.org/w/api.php
+    - api.open.fec.gov/v1
+    - projects.propublica.org/nonprofits/api
+    - api.opencorporates.com
+    # NCES EDGE's own feature services (public-domain school, district and college data, published by NCES as a
+    # query API); the shared ArcGIS host has no robots.txt at all (/robots.txt answers 403 "Invalid URL"), which the
+    # crawler would otherwise read as "disallow everything"
+    - services1.arcgis.com/ua5sjt3lwtpigjyd/arcgis/rest/services
+  host_timeouts:               # read timeouts for services that are slow to answer but do answer
+    api.gdeltproject.org: 120  # a news search can take a minute or more (30 s timed out every query)
+  space_after_answer:          # hosts whose spacing counts from the end of the previous answer
+    - api.gdeltproject.org     # a query sent the moment the last one answered gets HTTP 429
+  contact: ""                  # optional project contact (e.g. the records mailbox); never a personal address
+  timeout_seconds: 30
+  max_bytes: 25000000        # pages
+  max_doc_bytes: 150000000   # PDFs and office documents (agenda packets, minutes books)
+  blocked_ttl_days: 7          # a host that refuses the crawler is left alone this long
+
+# "Good times": when government sites see the least human traffic.
+# Page crawling (HTML / sitemap / browser) only runs inside these windows.
+schedule:
+  timezone: America/New_York
+  api_anytime: true            # APIs and feeds are built for machine traffic
+  windows:
+    - {days: [mon, tue, wed, thu, fri], start: "23:00", end: "06:00"}
+    - {days: [sat, sun], start: "21:00", end: "08:00"}
+
+# How often each jurisdiction is re-crawled, by tier
+# (a = counties, consolidated governments and cities >= 10k; b = 1k-10k; c = under 1k).
+cadence_days: {a: 2, b: 7, c: 30}   # busy sites every 2 days: frees crawl time for sites not yet crawled
+
+frontier:
+  document_ttl_days: 3650      # PDFs and other documents: fetched once (they don't change after posting)
+  page_revisit_days: 7         # HTML pages below the listing pages: at most weekly
+
+workers: 24                    # sources crawled at once (different hosts; per-host spacing still applies, so more
+                               # workers means more sites in parallel, never more load on any one site)
+recheck_days: 14               # re-time channels every two weeks; immediately if one fails
+max_minutes: 300               # stop a run after this long; progress resumes next run
+
+limits:
+  since: "2016-01-01"
+  max_pages: 200
+  meeting_lookback_days: 45    # delta runs also re-read meetings this recent (minutes/votes arrive late)
+
+# Candidates imported from Electo (`gacrawl electo import`). Empty = everyone.
+electo:
+  levels: []                   # e.g. [local] to research only county/city candidates
+  min_last_race_year: ""       # e.g. "2024" to skip people whose last race was earlier
+
+candidates:
+  max_minutes: 60              # research budget per run; due candidates resume next run
+  workers: 6                   # candidates researched at once (their sites are different hosts; shared hosts are paced)
+  max_host_wait_s: 45          # a shared host whose next turn is further off than this: that step is skipped, the candidate stays due
+  site_max_pages: 25           # pages read on a campaign site (issues, about and endorsement pages first)
+  site_recheck_days: 14        # how a campaign site is read (feed, sitemap, pages, browser) is kept this long
+  dead_site_days: 30           # a campaign site that is gone (404, no such host) is left alone this long
+  account_recheck_days: 7      # a social account's proof page is re-checked this often
+  cadence_days: 30             # re-research candidates with no recent race this often
+  recent_cadence_days: 3       # candidates whose last race was this year or last
+  max_mentions: 150            # official-record mentions kept per candidate
+  max_articles_per_query: 60
+  gdelt: true                  # news search (several names per query; each article opened and checked)
+  google_news: true            # leads only, and only while news.google.com's robots.txt allows the crawler (it
+                               # does not, as of November 2026: the step then reads only a candidate's news_feeds)
+  news_workers: 4              # article pages opened at once for one news query (different outlets)
+  news_cadence_days: 14        # news searched again for a candidate after this long (recent races: 3 days)
+  leads_for: priority_or_recent # news-lead searches only for officeholders and recent candidates
+  bluesky_search: true
+
+# Local transcription of meeting recordings posted on official sites (audio/video files), with the open-source
+# faster-whisper model. Off by default: it needs `pip install faster-whisper` and real CPU time (a 2-hour meeting
+# takes 20-40 minutes on a GitHub runner with the base model). Granicus transcripts and caption files cost nothing.
+transcribe:
+  enabled: false
+  model: base                  # tiny | base | small (bigger = better, slower)
+  per_run: 2                   # recordings per run
+  max_mb: 300
+  budget_seconds: 900          # stop a single recording after this long
+
+# Georgia Open Records Act requests for codes of ordinances (`gacrawl records ...`).
+# Nothing is sent until enabled is true, requester is set, and the mailbox secrets exist
+# (ORR_SMTP_HOST, ORR_SMTP_PORT, ORR_USER, ORR_PASSWORD, ORR_FROM, optional ORR_IMAP_HOST).
+openrecords:
+  enabled: true                # sending on (2026-11-06)
+  # requester (the name requests are signed with) and organization (second signature line) are set in
+  # config/private/settings.yaml, which stays in the private repository
+  daily_limit: 25              # new requests per night (Gmail allows far more; this keeps the account out of spam checks)
+  cooldown_days: 180           # never ask the same jurisdiction twice inside this
+  follow_up_after_business_days: 5
+
+# requester (used in the open-records request template, gacrawl tasks): config/private/settings.yaml
+
+data_dir: data                 # the database lives at data/crawl.db (override with GACRAWL_DB)
+state_dir: state

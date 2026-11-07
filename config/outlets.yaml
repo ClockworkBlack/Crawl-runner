@@ -1,0 +1,400 @@
+# News outlets whose reporting counts as "reported" evidence (as opposed to
+# "primary" = official record / the candidate's own channels, and
+# "unverified" = everything else, which lands in the Rumor Mill).
+# Add local papers as you go. Match is by registered domain (and subdomains).
+outlets:
+  # statewide / Atlanta
+  - ajc.com
+  - gpb.org
+  - georgiarecorder.com
+  - 11alive.com
+  - wsbtv.com
+  - fox5atlanta.com
+  - cbsnews.com        # CBS Atlanta (WANF) publishes under cbsnews.com/atlanta
+  - atlantanewsfirst.com
+  - wabe.org
+  - axios.com
+  - saportareport.com
+  - atlantaciviccircle.org
+  - thecurrentga.org
+  - capitol-beat.org
+  - georgiapol.com
+  # regional dailies / weeklies
+  - savannahnow.com
+  - wtoc.com
+  - wsav.com
+  - macon.com
+  - 13wmaz.com
+  - 41nbc.com
+  - augustachronicle.com
+  - wrdw.com
+  - wjbf.com
+  - ledger-enquirer.com
+  - wtvm.com
+  - wrbl.com
+  - onlineathens.com
+  - flagpole.com
+  - gainesvilletimes.com
+  - accesswdun.com
+  - valdostadailytimes.com
+  - wctv.tv
+  - albanyherald.com
+  - walb.com
+  - romenews-tribune.com
+  - daltondailycitizen.com
+  - newnan.com
+  - times-herald.com
+  - mdjonline.com
+  - gwinnettdailypost.com
+  - henryherald.com
+  - rockdalenewtoncitizen.com
+  - claytonnewsdaily.com
+  - thebrunswicknews.com
+  - statesboroherald.com
+  - tiftongazette.com
+  - moultrieobserver.com
+  - thomasvilletimes.com
+  - douglascountysentinel.com
+  - cherokeetribune.com
+  - forsythnews.com
+  - northfultonneighbor.com
+  - appenmedia.com
+  - decaturish.com
+  - reporternewspapers.net
+  - thechampionnewspaper.com
+  - coastalcourier.com
+  - effinghamherald.net
+  - jacksonprogress-argus.com
+  - jacksonheraldtoday.com
+  - mainstreetnews.com
+  - thenewsreporter.com
+  - griffindailynews.com
+  - lagrangenews.com
+  - cordeledispatch.com
+  - americustimesrecorder.com
+  - dawsonnews.com
+  - lumpkincountynews.com
+  - nowhabersham.com
+  - whitecountynews.net
+  - unionsentinel.com
+  - fanninsentinel.com
+  - timescourier.com
+  - theclaytontribune.com
+  - calhountimes.com
+  - polkstandardjournal.com
+  - toccoarecord.com
+  - hartwellsun.com
+  - elberton.com
+  - madisonjournaltoday.com
+  - morgancountycitizen.com
+  - lakeoconeenews.com
+  - theunionrecorder.com
+  - thomastontimes.com
+  - upsonbeacon.com
+  - butlerherald.com
+  - douglasnow.com
+  - thewaycrossjournalherald.com
+  - vidaliaadvance.com
+  - dublincourierherald.com
+  - swainsboroforestblade.com
+  - waynesvillenews.com
+  - ajc.com
+  # wires / national
+  - apnews.com
+  - reuters.com
+  - nytimes.com
+  - washingtonpost.com
+  - wsj.com
+  - politico.com
+  - npr.org
+  - pbs.org
+  - bloomberg.com
+  - usatoday.com
+  - cnn.com
+  - nbcnews.com
+  - abcnews.go.com
+  - foxnews.com
+  - thehill.com
+  - propublica.org
+
+# Never used as a source for candidate research (dropped, not even rumor mill).
+# Project rule: Ballotpedia only when a verifiable primary source stands behind it,
+  # local papers and stations used in Electo's candidate research (added 2026-11-06)
+  - theaugustapress.com
+  - theadvancenews.com
+  - roughdraftatlanta.com
+  - cobbcountycourier.com
+  - eastcobbnews.com
+  - theblacksheartimes.com
+  - gwinnettforum.com
+  - nowgeorgia.com
+  - thecitizen.com
+  - fayette-news.net
+  - covnews.com
+  - tribuneledgernews.com
+  - hhjonline.com
+  - daily-tribune.com
+  - patch.com
+  - lakeoconeenews.us
+  - times-georgian.com
+  - waltontribune.com
+  - wgxa.tv
+  - henryga.news
+  - henrycountytimes.com
+  - thedahloneganugget.com
+  - franklincountycitizen.com
+  - ocgnews.com
+  - news4jax.com
+  - discoverwalker.com
+  - discoverdade.com
+  - timesenterprise.com
+  - wtxl.com
+  - house-press.com
+  - southgatv.com
+  - bryancountynews.com
+  - allongeorgia.com
+  - daltoncitizen.com
+  - wrganews.com
+  - thehartwellsun.com
+  - 921wlhr.com
+  - knowpickens.com
+  - tattnalljournal.net
+  - fultonneighbor.com
+  - redandblack.com
+  - polktoday.com
+  - timesfreepress.com
+  - jcnews.com
+  - wuga.org
+  - atlantajewishtimes.com
+  - valleytimes-news.com
+  - nganews.com
+  - maconmelody.com
+  - wgauradio.com
+  - thepostsearchlight.com
+  - unionrecorder.com
+  - wnegradio.com
+  - griceconnect.com
+  - local3news.com
+  - atlpresscollective.com
+  - thenortheastgeorgian.com
+  - wdef.com
+  - wpganews.com
+  - chattooga1180.com
+  - wgaaradio.com
+  - townscountyherald.net
+  - adelnewstribune.com
+  - thenewsobserver.com
+  - accessnorthga.com
+  - msgrnews.com
+  - fetchyournews.com
+  - barrowjournal.com
+  - wfxl.com
+  - wsbradio.com
+# so cite that primary source instead.
+exclude_domains:
+  - ballotpedia.org
+  - vote-smart.org
+
+# Where each outlet reports from, for Electo's "email the news" picker (gacrawl police media reads each outlet's own
+# contact page for its news-tip address). A place gets its county's own papers (county_outlets), then the outlets of
+# the nearest region (by the region's anchor point), then the three statewide outlets; the statewide three never
+# repeat in a region list. Names are the outlets' own mastheads.
+statewide: [ajc.com, gpb.org, georgiarecorder.com]
+regions:
+  atlanta:
+    name: Metro Atlanta
+    anchor: [33.749, -84.388]
+    outlets: [11alive.com, wsbtv.com, fox5atlanta.com, atlantanewsfirst.com, wabe.org, saportareport.com, atlantaciviccircle.org]
+  athens:
+    name: Athens area
+    anchor: [33.957, -83.376]
+    outlets: [onlineathens.com, flagpole.com, mainstreetnews.com, madisonjournaltoday.com]
+  gainesville:
+    name: Northeast Georgia
+    anchor: [34.298, -83.824]
+    outlets: [gainesvilletimes.com, accesswdun.com, nowhabersham.com, dawsonnews.com]
+  rome:
+    name: Northwest Georgia
+    anchor: [34.257, -85.165]
+    outlets: [romenews-tribune.com, daltondailycitizen.com, calhountimes.com, polkstandardjournal.com]
+  macon:
+    name: Middle Georgia
+    anchor: [32.841, -83.632]
+    outlets: [macon.com, 13wmaz.com, 41nbc.com, theunionrecorder.com]
+  augusta:
+    name: Augusta area
+    anchor: [33.471, -81.975]
+    outlets: [augustachronicle.com, wrdw.com, wjbf.com]
+  columbus:
+    name: Columbus area
+    anchor: [32.461, -84.988]
+    outlets: [ledger-enquirer.com, wtvm.com, wrbl.com, lagrangenews.com]
+  savannah:
+    name: Savannah and the coast
+    anchor: [32.081, -81.091]
+    outlets: [savannahnow.com, wtoc.com, wsav.com, thecurrentga.org, coastalcourier.com, effinghamherald.net]
+  brunswick:
+    name: Southeast Georgia
+    anchor: [31.150, -81.492]
+    outlets: [thebrunswicknews.com, thewaycrossjournalherald.com, coastalcourier.com, thecurrentga.org]
+  statesboro:
+    name: East central Georgia
+    anchor: [32.449, -81.783]
+    outlets: [statesboroherald.com, dublincourierherald.com, vidaliaadvance.com, swainsboroforestblade.com]
+  albany:
+    name: Southwest Georgia
+    anchor: [31.579, -84.156]
+    outlets: [albanyherald.com, walb.com, americustimesrecorder.com, cordeledispatch.com, moultrieobserver.com]
+  valdosta:
+    name: South Georgia
+    anchor: [30.833, -83.279]
+    outlets: [valdostadailytimes.com, wctv.tv, thomasvilletimes.com, tiftongazette.com, douglasnow.com]
+county_outlets:
+  cobb: [mdjonline.com]
+  gwinnett: [gwinnettdailypost.com]
+  dekalb: [decaturish.com, thechampionnewspaper.com]
+  fulton: [appenmedia.com, reporternewspapers.net, northfultonneighbor.com, decaturish.com]
+  cherokee: [cherokeetribune.com]
+  forsyth: [forsythnews.com]
+  henry: [henryherald.com]
+  clayton: [claytonnewsdaily.com]
+  rockdale: [rockdalenewtoncitizen.com]
+  newton: [rockdalenewtoncitizen.com]
+  coweta: [newnan.com, times-herald.com]
+  douglas: [douglascountysentinel.com]
+  spalding: [griffindailynews.com]
+  troup: [lagrangenews.com]
+  butts: [jacksonprogress-argus.com]
+  jackson: [jacksonheraldtoday.com, mainstreetnews.com]
+  dawson: [dawsonnews.com]
+  lumpkin: [lumpkincountynews.com]
+  habersham: [nowhabersham.com]
+  white: [whitecountynews.net]
+  union: [unionsentinel.com]
+  fannin: [fanninsentinel.com]
+  gilmer: [timescourier.com]
+  rabun: [theclaytontribune.com]
+  gordon: [calhountimes.com]
+  polk: [polkstandardjournal.com]
+  stephens: [toccoarecord.com]
+  hart: [hartwellsun.com]
+  elbert: [elberton.com]
+  madison: [madisonjournaltoday.com]
+  morgan: [morgancountycitizen.com]
+  putnam: [lakeoconeenews.com]
+  greene: [lakeoconeenews.com]
+  baldwin: [theunionrecorder.com]
+  upson: [thomastontimes.com, upsonbeacon.com]
+  taylor: [butlerherald.com]
+  coffee: [douglasnow.com]
+  ware: [thewaycrossjournalherald.com]
+  toombs: [vidaliaadvance.com]
+  laurens: [dublincourierherald.com]
+  emanuel: [swainsboroforestblade.com]
+  bulloch: [statesboroherald.com]
+  liberty: [coastalcourier.com]
+  effingham: [effinghamherald.net]
+  glynn: [thebrunswicknews.com]
+  tift: [tiftongazette.com]
+  colquitt: [moultrieobserver.com]
+  thomas: [thomasvilletimes.com]
+  lowndes: [valdostadailytimes.com]
+  dougherty: [albanyherald.com, walb.com]
+  sumter: [americustimesrecorder.com]
+  crisp: [cordeledispatch.com]
+  floyd: [romenews-tribune.com]
+  whitfield: [daltondailycitizen.com]
+  hall: [gainesvilletimes.com, accesswdun.com]
+  clarke: [onlineathens.com, flagpole.com]
+  bibb: [macon.com, 13wmaz.com, 41nbc.com]
+  richmond: [augustachronicle.com, wrdw.com, wjbf.com]
+  muscogee: [ledger-enquirer.com, wtvm.com, wrbl.com]
+  chatham: [savannahnow.com, wtoc.com, wsav.com, thecurrentga.org]
+names:
+  ajc.com: The Atlanta Journal-Constitution
+  gpb.org: Georgia Public Broadcasting
+  georgiarecorder.com: Georgia Recorder
+  11alive.com: 11Alive (WXIA)
+  wsbtv.com: WSB-TV Channel 2
+  fox5atlanta.com: FOX 5 Atlanta
+  atlantanewsfirst.com: Atlanta News First (WANF)
+  wabe.org: WABE
+  saportareport.com: SaportaReport
+  atlantaciviccircle.org: Atlanta Civic Circle
+  thecurrentga.org: The Current
+  onlineathens.com: Athens Banner-Herald
+  flagpole.com: Flagpole
+  mainstreetnews.com: Mainstreet News
+  madisonjournaltoday.com: The Madison County Journal
+  gainesvilletimes.com: The Gainesville Times
+  accesswdun.com: AccessWDUN
+  nowhabersham.com: Now Habersham
+  dawsonnews.com: Dawson County News
+  lumpkincountynews.com: The Dahlonega Nugget
+  whitecountynews.net: White County News
+  unionsentinel.com: Union Sentinel
+  fanninsentinel.com: The News Observer (Fannin)
+  timescourier.com: Times-Courier (Gilmer)
+  theclaytontribune.com: The Clayton Tribune
+  romenews-tribune.com: Rome News-Tribune
+  daltondailycitizen.com: The Daily Citizen-News (Dalton)
+  calhountimes.com: Calhoun Times
+  polkstandardjournal.com: Polk Standard Journal
+  macon.com: The Telegraph (Macon)
+  13wmaz.com: 13WMAZ
+  41nbc.com: 41NBC (WMGT)
+  theunionrecorder.com: The Union-Recorder (Milledgeville)
+  lakeoconeenews.com: Lake Oconee News
+  morgancountycitizen.com: Morgan County Citizen
+  augustachronicle.com: The Augusta Chronicle
+  wrdw.com: WRDW News 12
+  wjbf.com: WJBF NewsChannel 6
+  ledger-enquirer.com: Columbus Ledger-Enquirer
+  wtvm.com: WTVM News Leader 9
+  wrbl.com: WRBL News 3
+  lagrangenews.com: LaGrange Daily News
+  savannahnow.com: Savannah Morning News
+  wtoc.com: WTOC 11
+  wsav.com: WSAV News 3
+  coastalcourier.com: Coastal Courier
+  effinghamherald.net: Effingham Herald
+  thebrunswicknews.com: The Brunswick News
+  thewaycrossjournalherald.com: Waycross Journal-Herald
+  statesboroherald.com: Statesboro Herald
+  dublincourierherald.com: The Courier Herald (Dublin)
+  vidaliaadvance.com: The Advance (Vidalia)
+  swainsboroforestblade.com: The Forest-Blade (Swainsboro)
+  albanyherald.com: The Albany Herald
+  walb.com: WALB News 10
+  americustimesrecorder.com: Americus Times-Recorder
+  cordeledispatch.com: Cordele Dispatch
+  moultrieobserver.com: The Moultrie Observer
+  valdostadailytimes.com: The Valdosta Daily Times
+  wctv.tv: WCTV
+  thomasvilletimes.com: Thomasville Times-Enterprise
+  tiftongazette.com: The Tifton Gazette
+  douglasnow.com: DouglasNow
+  mdjonline.com: Marietta Daily Journal
+  gwinnettdailypost.com: Gwinnett Daily Post
+  decaturish.com: Decaturish
+  thechampionnewspaper.com: The Champion (DeKalb)
+  appenmedia.com: Appen Media
+  reporternewspapers.net: Reporter Newspapers
+  northfultonneighbor.com: North Fulton Neighbor
+  cherokeetribune.com: Cherokee Tribune
+  forsythnews.com: Forsyth County News
+  henryherald.com: Henry Herald
+  claytonnewsdaily.com: Clayton News
+  rockdalenewtoncitizen.com: Rockdale Newton Citizen
+  newnan.com: The Newnan Times-Herald
+  times-herald.com: The Newnan Times-Herald
+  douglascountysentinel.com: Douglas County Sentinel
+  griffindailynews.com: Griffin Daily News
+  jacksonprogress-argus.com: Jackson Progress-Argus
+  jacksonheraldtoday.com: The Jackson Herald
+  toccoarecord.com: The Toccoa Record
+  hartwellsun.com: The Hartwell Sun
+  elberton.com: The Elberton Star
+  thomastontimes.com: The Thomaston Times
+  upsonbeacon.com: The Upson Beacon
+  butlerherald.com: The Butler Herald
