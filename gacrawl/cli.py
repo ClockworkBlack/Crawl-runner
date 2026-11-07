@@ -50,6 +50,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import datetime as dt
 import json
 import os
@@ -947,6 +948,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    import faulthandler
+
+    try:
+        faulthandler.enable()       # a crash in a C extension prints the Python stack instead of a bare "Segmentation fault"
+    except (OSError, ValueError, AttributeError, io.UnsupportedOperation):
+        pass                        # stderr with no file descriptor (tests capture it)
     cfg = config.load()
     {"window": cmd_window, "seed": cmd_seed, "status": cmd_status, "discover": cmd_discover, "run": cmd_run,
      "delta": cmd_delta, "merge": cmd_merge, "search": cmd_search, "tasks": cmd_tasks, "blocked": cmd_blocked,

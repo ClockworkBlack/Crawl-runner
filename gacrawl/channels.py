@@ -687,9 +687,18 @@ def policy_meta(title: str, md: str) -> dict:
     return out
 
 
+BROWSER_LOCK = threading.Lock()   # one headless browser at a time: Playwright's sync API driven from several worker
+                                  # threads at once crashed the whole run (segmentation fault, Nov 7)
+
+
 def _browser_crawl(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext | None = None) -> Iterator[Record]:
     """Headless Chromium for JS-rendered sites (code libraries, SPA city sites).
-    Same robots/rate-limit/frontier rules as everything else."""
+    Same robots/rate-limit/frontier rules as everything else. One browser crawl runs at a time (BROWSER_LOCK)."""
+    with BROWSER_LOCK:
+        yield from _browser_crawl_locked(fetcher, src, max_pages, ctx)
+
+
+def _browser_crawl_locked(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext | None = None) -> Iterator[Record]:
     from playwright.sync_api import sync_playwright
 
     from .fetch import launch_browser

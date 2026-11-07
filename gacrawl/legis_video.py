@@ -236,7 +236,9 @@ def _rendered(fetcher, url: str) -> str:
     fetcher._check_time()
     fetcher._turn(url, fetcher.robots.crawl_delay(url))
     try:
-        with sync_playwright() as p:
+        from .channels import BROWSER_LOCK
+
+        with BROWSER_LOCK, sync_playwright() as p:
             browser = launch_browser(p)
             page = browser.new_page(user_agent=fetcher.user_agent)
             resp = page.goto(url, wait_until="load", timeout=60000)
