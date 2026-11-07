@@ -1,0 +1,45 @@
+name: vimeo-check
+
+# A quick look (by hand) at what Vimeo's API offers for the House's committee videos: how many videos, and for the
+# newest ones whether they have caption files or a download the account allows. Public data only; prints counts.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VIMEO_TOKEN: ${{ secrets.VIMEO_TOKEN }}
+    steps:
+      - name: Ask Vimeo's API
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          tok = os.environ.get("VIMEO_TOKEN", "").strip()
+          if not tok:
+              raise SystemExit("no VIMEO_TOKEN secret")
+          H = {"Authorization": "bearer " + tok, "Accept": "application/vnd.vimeo.*+json;version=3.4", "User-Agent": "GACivicCrawler"}
+          def get(path):
+              req = urllib.request.Request("https://api.vimeo.com" + path, headers=H)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.load(r)
+              except urllib.error.HTTPError as e:
+                  return e.code, {}
+          s, d = get("/users/georgiahouse/videos?per_page=10&sort=date&fields=uri,name,release_time,duration")
+          print("list:", s, "total videos:", d.get("total"))
+          cap = dl = 0
+          for v in d.get("data") or []:
+              vid = v["uri"].rsplit("/", 1)[-1]
+              s1, t = get(f"/videos/{vid}/texttracks")
+              s2, x = get(f"/videos/{vid}?fields=download")
+              n_t = len(t.get("data") or []); n_d = len(x.get("download") or [])
+              cap += bool(n_t); dl += bool(n_d)
+              print(f"{v.get('release_time','')[:10]} {v.get('name','')[:60]!r} {round((v.get('duration') or 0)/60)} min: captions {n_t} (HTTP {s1}), downloads {n_d} (HTTP {s2})")
+          print(f"newest 10: {cap} with captions, {dl} with downloads")
+          PY
