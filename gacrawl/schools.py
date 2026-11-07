@@ -1113,12 +1113,24 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
             meetings[did].append({"d": r.get("published") or "", "title": (r.get("title") or "")[:120], "u": r["url"]})
         else:
             votes[did].append(r)
+    # budget documents: the district's own (its site's documents and pages tagged Budget and taxes) and the state's
+    # funding files (GaDOE allotments, revenues, expenditures: `gacrawl schools budgets`)
+    budget_by_d: dict[str, list] = defaultdict(list)
+    for r in store.iter_query("source_id LIKE 'sd-%:site' AND kind IN ('document','page')"):
+        m = _meta(r)
+        if "Budget and taxes" not in (m.get("topics") or []) and not BUDGET_WORDS.search(r.get("title") or ""):
+            continue
+        budget_by_d[r["source_id"].split(":", 1)[0]].append({"t": (r.get("title") or "")[:160], "u": r["url"], "k": r["kind"],
+                                                             "d": r.get("published") or "", "at": (r.get("fetched_at") or "")[:10]})
+    funding = [{"t": (r.get("title") or "")[:160], "u": r["url"], "on": _meta(r).get("found_on") or "",
+                "at": (r.get("fetched_at") or "")[:10]} for r in store.iter_query("kind='budget_doc'")]
     people_by_d: dict[str, list] = defaultdict(list)
     for p in ppl:
         people_by_d[p["district_id"]].append(p)
     sites_known = json.loads(store.kv_get("schools:sites") or "{}")
     dcode = lambda d: (d.get("st_leaid") or "").split("-")[-1].lstrip("0")  # noqa: E731  "GA-601" -> "601"
     index = {"as_of": reg.get("as_of", ""), "exported_at": _now(), "labels": labels, "stat_sources": stat_urls, "state": {k: v for k, v in st_state.items()},
+             "funding_docs": sorted(funding, key=lambda d: (d["at"], d["t"]), reverse=True)[:150],
              "districts": [], "schools": [], "people": [], "note": "Schools and districts from NCES EDGE (CCD 2024-25, PSS, IPEDS); statistics "
              "from GOSA's downloadable data and GaDOE's CCRPI files; board members, superintendents and principals from the "
              "districts' and schools' own pages (each person's `u` is the page that names them). Every figure is a published "
@@ -1142,11 +1154,13 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
                "board": [p["id"] for p in peo if p["role"] in ("Chair", "Vice Chair", "Member")],
                "superintendent": next((p["id"] for p in peo if p["role"] == "Superintendent"), ""),
                "policies": len(policies.get(did, [])), "meetings": len(meetings.get(did, [])), "votes": len(votes.get(did, [])),
-               "stats": st_d.get(dc, {}), "board_metrics": bm["by_year"], "nces_url": d.get("url", "")}
+               "stats": st_d.get(dc, {}), "board_metrics": bm["by_year"], "nces_url": d.get("url", ""),
+               "budget_docs": len(budget_by_d.get(did, []))}
         index["districts"].append(row)
         detail = {**row, "people": peo, "policy_list": sorted(policies.get(did, []), key=lambda p: (p["code"], p["title"]))[:600],
                   "meeting_list": sorted(meetings.get(did, []), key=lambda m: m["d"], reverse=True)[:120],
                   "member_votes": bm["members"],
+                  "budget_list": sorted(budget_by_d.get(did, []), key=lambda x: (x["d"] or x["at"]), reverse=True)[:40],
                   "school_list": [{**s, "stats": st_s.get((dc, school_key(s["name"])), {}), "website": (sites_known.get(s["id"]) or {}).get("url", ""),
                                    "principal": next((p["id"] for p in peo if p.get("school_id") == s["id"] and p["role"] == "Principal"), "")}
                                   for s in sorted(schools_here, key=lambda s: (s["kind"], s["name"]))]}
