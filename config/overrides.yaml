@@ -3,6 +3,9 @@
 # the useful ones: website, portals (legistar, agenda_center, granicus,
 # civicclerk, ecode360, amlegal), tier (a|b|c), enabled (false to skip), notes.
 jurisdictions:
+  atlanta:
+    # atlantaga.gov refuses the crawler; the Atlanta Police Department's own site, given by the project owner (Nov 7)
+    police_site: https://www.atlantapd.org/
   canton:
     portals: {legistar: https://canton.legistar.com/}
   powder-springs:
