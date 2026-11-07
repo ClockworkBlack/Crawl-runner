@@ -38,7 +38,10 @@ jobs:
               vid = v["uri"].rsplit("/", 1)[-1]
               s1, t = get(f"/videos/{vid}/texttracks")
               s2, x = get(f"/videos/{vid}?fields=download")
-              n_t = len(t.get("data") or []); n_d = len(x.get("download") or [])
+              tt = t.get("data") if isinstance(t, dict) else t
+              dd = x.get("download") if isinstance(x, dict) else x
+              print("   shapes:", type(t).__name__, type(x).__name__, (list(x)[:5] if isinstance(x, dict) else ""))
+              n_t = len(tt or []); n_d = len(dd or [])
               cap += bool(n_t); dl += bool(n_d)
               print(f"{v.get('release_time','')[:10]} {v.get('name','')[:60]!r} {round((v.get('duration') or 0)/60)} min: captions {n_t} (HTTP {s1}), downloads {n_d} (HTTP {s2})")
           print(f"newest 10: {cap} with captions, {dl} with downloads")

@@ -352,7 +352,8 @@ def _vimeo_captions(fetcher, vid: str) -> list[tuple[float, str]]:
     r = fetcher.get(f"{VIMEO_API}/videos/{vid}/texttracks", headers=h, use_cache=False)
     if r.status != 200:
         return []
-    tracks = [t for t in (r.json().get("data") or []) if t.get("link")]
+    j = r.json()
+    tracks = [t for t in ((j.get("data") if isinstance(j, dict) else j) or []) if isinstance(t, dict) and t.get("link")]
     tracks.sort(key=lambda t: (not str(t.get("language") or "").startswith("en"), not t.get("active")))
     for t in tracks[:2]:
         v = fetcher.get(t["link"], use_cache=False)
@@ -368,7 +369,9 @@ def _vimeo_download(fetcher, vid: str) -> str:
     r = fetcher.get(f"{VIMEO_API}/videos/{vid}?fields=download", headers=_vimeo_headers(), use_cache=False)
     if r.status != 200:
         return ""
-    dl = [d for d in (r.json().get("download") or []) if d.get("link") and "video" in str(d.get("type") or "video")]
+    j = r.json()
+    dl = [d for d in ((j.get("download") if isinstance(j, dict) else j) or []) if isinstance(d, dict) and d.get("link")
+          and "video" in str(d.get("type") or "video")]
     dl.sort(key=lambda d: d.get("size") or 1e18)
     return dl[0]["link"] if dl else ""
 
