@@ -192,3 +192,45 @@ def test_coverage_flags_zero_and_shrinking_features(tmp_path):
     assert "General Assembly roll calls" in md and "shrank from 10 to 3" in md
     assert json.loads((tmp_path / "state" / "coverage.json").read_text())["counts"]["agenda_items"] == 3
     store.close()
+
+
+def test_police_news_uses_outlet_apis_when_gdelt_refuses(tmp_path, monkeypatch):
+    import json
+
+    from gacrawl import policing_news as pnm
+
+    (tmp_path / "state").mkdir()
+    (tmp_path / "config").mkdir()
+    (tmp_path / "state" / "wp_outlets.json").write_text(json.dumps({"daltoncitizen.com": {"api": "https://www.daltoncitizen.com/wp-json/"}}))
+    (tmp_path / "config" / "outlets.yaml").write_text("outlets: [daltoncitizen.com]\nstatewide: []\ncounty_outlets: {whitfield: [daltoncitizen.com]}\n")
+
+    class R:
+        def __init__(self, status, body):
+            self.status, self.content, self.url, self.content_type = status, body, "u", "application/json"
+            self.text = body.decode()
+
+        def json(self):
+            return json.loads(self.content)
+
+    post = [{"link": "https://www.daltoncitizen.com/news/man-charged", "date": "2026-11-01T10:00:00",
+             "title": {"rendered": "Man charged after shooting"},
+             "content": {"rendered": "<p>Dalton police said the man was arrested and charged after a shooting on Walnut Avenue in Dalton, Georgia.</p>"}}]
+
+    class F:
+        def get(self, url, params=None, use_cache=True):
+            if "gdeltproject" in url:
+                return R(429, b"Please limit requests to one every 5 seconds")
+            return R(200, json.dumps(post).encode())
+
+        def _sleep(self, s):
+            pass
+
+    store = Store(tmp_path / "data")
+    monkeypatch.setattr("gacrawl.candidates.load_outlets", lambda root: ({"daltoncitizen.com"}, set()))
+    pn = pnm.PoliceNews(F(), store, tmp_path, log=lambda *_: None)
+    j = {"id": "dalton", "name": "Dalton", "kind": "city", "counties": ["Whitfield"]}
+    n = pn.department("dalton", {"found": True, "kind": "police", "name": "Police Department"}, "Dalton", j)
+    assert n == 1 and not pn.gdelt_ok
+    rec = next(store.iter_query("kind='police_incident'"))
+    assert rec["jurisdiction"] == "dalton" and rec["meta"]["department"] == "Dalton Police Department"
+    store.close()

@@ -128,6 +128,13 @@ class PoliceNews:
         self.f, self.store, self.root, self.log = fetcher, store, root, log
         self.outlets, self.exclude = load_outlets(root)
         self.notes: dict = {}
+        self.wp = {}                  # outlet -> its WordPress news API (state/wp_outlets.json, kept by bill reasons)
+        try:
+            w = json.loads((root / "state" / "wp_outlets.json").read_text())
+            self.wp = {d: e["api"] for d, e in w.items() if isinstance(e, dict) and e.get("api")}
+        except (OSError, ValueError):
+            pass
+        self.county_outlets: dict = {}
         self.local = set()            # Georgia outlets: statewide, regional and county papers in config/outlets.yaml
         try:
             from .registry import load_yaml
@@ -138,6 +145,7 @@ class PoliceNews:
                 self.local |= set((r or {}).get("outlets") or [])
             for lst in (o.get("county_outlets") or {}).values():
                 self.local |= set(lst or [])
+            self.county_outlets = {k.lower(): list(v or []) for k, v in (o.get("county_outlets") or {}).items()}
         except Exception:  # noqa: BLE001
             pass
 
@@ -156,16 +164,71 @@ class PoliceNews:
     def search(self, phrases: list[str]) -> list[dict]:
         floor = (dt.date.today() - dt.timedelta(days=WINDOW_DAYS)).isoformat()
         q = (phrases[0] if len(phrases) == 1 else "(" + " OR ".join(phrases) + ")") + " sourcecountry:US sourcelang:english"
-        r = self.f.get(GDELT, params={"query": q, "mode": "artlist", "maxrecords": 100, "format": "json", "sort": "datedesc",
-                                      "startdatetime": floor.replace("-", "") + "000000"}, use_cache=False)
-        if r.status == 200 and r.content.strip().startswith(b"{"):
-            return r.json().get("articles", []) or []
+        # GDELT allows one query per 5 seconds per address, and a GitHub runner's address is shared (the step before
+        # this one queries GDELT too): a 429 is waited out (10, 20, 40 s) before this run gives up on the search;
+        # after three refused searches GDELT is left alone for the rest of the run (the outlets' APIs carry on)
+        if self.notes.get("gdelt_limited", 0) >= 3:
+            raise RateLimited()
+        for attempt in range(4):
+            r = self.f.get(GDELT, params={"query": q, "mode": "artlist", "maxrecords": 100, "format": "json", "sort": "datedesc",
+                                          "startdatetime": floor.replace("-", "") + "000000"}, use_cache=False)
+            if r.status == 200 and r.content.strip().startswith(b"{"):
+                return r.json().get("articles", []) or []
+            limited = r.status == 429 or b"limit requests" in r.content[:300].lower()
+            if not limited:
+                break
+            if attempt < 3:
+                self.notes["gdelt_waits"] = self.notes.get("gdelt_waits", 0) + 1
+                (getattr(self.f, "_sleep", None) or time.sleep)(10 * 2 ** attempt)
         self.notes["gdelt_not_json"] = self.notes.get("gdelt_not_json", 0) + 1
         if self.notes["gdelt_not_json"] == 1:
             self.log(f"  gdelt: HTTP {r.status} {r.content_type}: {r.text[:160]!r}")
-        if r.status == 429 or b"rate" in r.content[:300].lower():
+        if r.status == 429 or b"limit requests" in r.content[:300].lower():
             raise RateLimited()
         return []
+
+    def area_apis(self, j: dict, county: str) -> dict[str, str]:
+        """The Georgia outlets with a WordPress news API that cover this department's area: the county's papers in
+        config/outlets.yaml, and papers named for the county or the city (daltoncitizen.com, valdostadailytimes.com).
+        Their API answers with each story's text, so nothing has to be opened, and it is not GDELT's shared limit."""
+        keys = {re.sub(r"[^a-z]", "", x.lower()) for x in (county, re.sub(r"\s+county$", "", j.get("name") or "", flags=re.I)) if x}
+        out = {}
+        for dom in self.county_outlets.get(county.lower(), []):
+            if dom in self.wp:
+                out[dom] = self.wp[dom]
+        for dom, api in self.wp.items():
+            if any(k and len(k) >= 4 and k in dom.replace("-", "") for k in keys):
+                out[dom] = api
+        return dict(list(out.items())[:4])
+
+    def wp_search(self, phrase: str, apis: dict[str, str]) -> list[dict]:
+        """[{url, title, text, date}] from each outlet's own search, last WINDOW_DAYS days."""
+        from .fetch import OutOfTime
+
+        after = (dt.date.today() - dt.timedelta(days=WINDOW_DAYS)).isoformat() + "T00:00:00"
+        out = []
+        for dom, api in apis.items():
+            try:
+                r = self.f.get(api.rstrip("/") + "/wp/v2/posts", params={"search": phrase, "after": after, "per_page": 20,
+                                                                          "_fields": "link,date,title,content"})
+            except OutOfTime:
+                raise
+            except Exception:  # noqa: BLE001
+                continue
+            if r.status != 200 or not r.content.strip().startswith(b"["):
+                continue
+            try:
+                posts = r.json()
+            except ValueError:
+                continue
+            for p in posts:
+                link = p.get("link") or ""
+                if not link.startswith("http"):
+                    continue
+                _, md = extract.html_to_markdown((p.get("content") or {}).get("rendered") or "", link)
+                title = re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered") or "")
+                out.append({"url": link, "title": title, "text": md or "", "date": (p.get("date") or "")[:10], "outlet": dom})
+        return out
 
     def department(self, jid: str, dept: dict, jname: str, j: dict | None = None) -> int:
         """One query for the department (and its chief); open the trusted hits once; keep the incidents."""
@@ -182,11 +245,16 @@ class PoliceNews:
         phrases = [f'"{phrase}"']
         if dept.get("chief") and dept["chief"].get("name"):
             phrases.append(f'"{dept["chief"]["name"]}"')
-        hits = [a for a in self.search(phrases) if a.get("url") and self.classify(a["url"])]
+        self.gdelt_ok = True
+        try:
+            hits = [a for a in self.search(phrases) if a.get("url") and self.classify(a["url"])]
+        except RateLimited:
+            hits, self.gdelt_ok = [], False
+            self.notes["gdelt_limited"] = self.notes.get("gdelt_limited", 0) + 1
+        n = self._from_outlet_apis(jid, dept, jname, j, phrase, county)
         # stories whose headline names the place first: they are the likeliest to be about this department
         key = phrase.rsplit(" ", 1)[0].split()[0].lower()
         hits.sort(key=lambda a: 0 if key in (a.get("title") or "").lower() else 1)
-        n = 0
         for a in hits[:MAX_HITS]:
             if OTHER_STATES.search(a.get("title") or "") and not re.search(r"\bGeorgia\b|\bGa\.", a.get("title") or ""):
                 continue                                   # the headline is about another state: not opened
@@ -219,6 +287,29 @@ class PoliceNews:
                          evidence=self.classify(r.url) or "reported",
                          meta={"department": dept.get("name"), "department_kind": dept.get("kind"), "outlet": domain_of(r.url),
                                "names": names, "cues": cues, "opened": True, "checked": dt.date.today().isoformat(),
+                               "search": phrase, "v": NEWS_VERSION})
+            n += self.store.add(rec)
+        return n
+
+
+    def _from_outlet_apis(self, jid: str, dept: dict, jname: str, j: dict, phrase: str, county: str) -> int:
+        from .candidates import domain_of
+
+        n = 0
+        for a in self.wp_search(phrase, self.area_apis(j, county)):
+            if self.store.fresh(a["url"], 3650) or domain_of(a["url"]) != a["outlet"] and not domain_of(a["url"]).endswith("." + a["outlet"]):
+                continue
+            text = a["text"]
+            if not _mentions_department(text, dept, jname, phrase) or not CUE.search(text):
+                continue
+            if not in_georgia(a["title"], text, True, jname, county):
+                continue
+            self.store.mark_url(a["url"], 200, f"police:{jid}", "text/html")
+            rec = Record(f"police:{jid}", "police_incident", a["url"], title=a["title"][:200], text=excerpt_of(text, dept.get("name", "")),
+                         published=a["date"] or None, channel="wp_json", jurisdiction=jid, evidence=self.classify(a["url"]) or "reported",
+                         meta={"department": dept.get("name"), "department_kind": dept.get("kind"), "outlet": a["outlet"],
+                               "names": names_in(text), "cues": sorted({m.group(1).lower() for m in CUE.finditer(text)})[:8],
+                               "opened": True, "via": "outlet news API", "checked": dt.date.today().isoformat(),
                                "search": phrase, "v": NEWS_VERSION})
             n += self.store.add(rec)
         return n
@@ -267,7 +358,11 @@ def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None
         except RateLimited:
             log("  gdelt rate-limited this run; the rest wait for the next run")
             break
-        checked[jid] = _now()
+        if not getattr(pn, "gdelt_ok", True) and not pn.wp:
+            log("  gdelt keeps refusing this runner's address and no outlet API is known; the rest wait for the next run")
+            break
+        if getattr(pn, "gdelt_ok", True):
+            checked[jid] = _now()      # a department GDELT refused is searched again next run (outlet APIs found what they could)
         done += 1
         found += n
         if n:
