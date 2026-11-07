@@ -640,6 +640,8 @@ def cmd_legis(cfg, args):
             from .bill_reasons import research
 
             out["reasons"] = research(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], deadline, limit=getattr(args, "max_bills", None))
+        if args.action in ("budgets", "all"):
+            out["budgets"] = schools.budgets(f, config.ROOT, store, deadline=deadline)
         if args.action in ("people", "all"):
             people = legis_people(store, load_candidates(config.ROOT, cfg), config.ROOT)
             p = cfg["state_dir"] / "legis_people.json"
@@ -887,7 +889,7 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
     lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
     lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
-    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "people", "all"])
+    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")
     pb = sub.add_parser("probe"); pb.add_argument("urls", nargs="+"); pb.add_argument("--out", default="probe")

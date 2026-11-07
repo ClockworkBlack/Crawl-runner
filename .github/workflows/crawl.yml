@@ -387,6 +387,7 @@ jobs:
             gacrawl schools stats --max-minutes "$M" || true
           fi
           gacrawl schools sites --max-minutes "$M" || true
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl schools budgets --max-minutes 15 || true; fi
           gacrawl schools people || true    # local: from pages already in the database; feeds tonight's research and export
       - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
         run: |

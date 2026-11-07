@@ -36,6 +36,7 @@ import io
 import json
 from .registry import write_json_atomic
 import re
+import time
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
@@ -1168,3 +1169,91 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
     log(f"schools: {len(index['districts'])} districts, {len(index['schools'])} schools, {len(ppl)} people")
     return {"districts": len(index["districts"]), "schools": len(index["schools"]), "people": len(ppl),
             "stats_series": len(labels), "policies": sum(len(v) for v in policies.values())}
+
+
+# ----------------------------------------------------------------------------- state funding and district budgets
+SRC_BUDGETS = "schools:budgets"
+BUDGET_WORDS = re.compile(r"allotment|qbe|revenue|expenditure|budget|per.pupil|financial|funding|appropriation", re.I)
+
+
+def budgets(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, log=print, deadline: float | None = None) -> dict:
+    """State funding and spending documents from GaDOE's finance pages (config/schools.yaml `budgets`): the pages are
+    rendered (they build their links with scripts), links whose text names allotments, QBE, revenues, expenditures or
+    budgets are followed one level, and every spreadsheet or PDF reached is kept as a `budget_doc` record with its text
+    (so each district's allotment sheet is searchable and the AI can read it). Nothing is built from a URL pattern."""
+    from .ingest import pdf_to_record
+    from .legis_video import _rendered
+
+    conf = cfg or load_config(root)
+    bc = conf.get("budgets") or {}
+    out = {"pages": 0, "files": 0, "new": 0, "errors": []}
+    seen: set[str] = set()
+
+    def timed_out():
+        return deadline is not None and time.monotonic() > deadline
+
+    def links_of(html: str, base: str) -> list[tuple[str, str]]:
+        soup = extract.soup_of(html)
+        res = []
+        for a in soup.find_all("a", href=True):
+            u = urljoin(base, a["href"]).split("#")[0]
+            txt = f"{a.get_text(' ', strip=True)} {urlsplit(u).path.rsplit('/', 1)[-1]}"
+            if BUDGET_WORDS.search(txt):
+                res.append((u, a.get_text(' ', strip=True)[:160]))
+        return res
+
+    def page(url: str) -> str:
+        r = fetcher.get(url)
+        html = r.text if r.status == 200 else ""
+        if not html or not re.search(r'href="[^"]*\.(xlsx?|csv|pdf)', html, re.I):
+            html = _rendered(fetcher, url) or html
+        out["pages"] += 1
+        return html
+
+    for start in bc.get("pages") or []:
+        if timed_out():
+            break
+        try:
+            html = page(start)
+        except Exception as exc:  # noqa: BLE001
+            out["errors"].append(f"{start}: {type(exc).__name__}")
+            continue
+        queue = [(u, t, 0) for u, t in links_of(html, start)]
+        while queue and not timed_out():
+            u, label, depth = queue.pop(0)
+            if u in seen:
+                continue
+            seen.add(u)
+            path = urlsplit(u).path.lower()
+            if re.search(r"\.(xlsx?|csv|pdf)$", path):
+                if store.kv_get(f"schools:budget:{u}") and not bc.get("refresh"):
+                    continue
+                try:
+                    fr = fetcher.get(u)
+                except Exception as exc:  # noqa: BLE001
+                    out["errors"].append(f"{u}: {type(exc).__name__}"[:160])
+                    continue
+                if fr.status != 200 or len(fr.content) > int(bc.get("max_file_bytes") or 40000000):
+                    continue
+                out["files"] += 1
+                meta = {"label": label, "found_on": start, "opened": True, "topics": ["Budget and taxes"]}
+                if path.endswith(".pdf"):
+                    rec = pdf_to_record(fr.content, SRC_BUDGETS, "budget_doc", url=fr.url, title=label or path.rsplit("/", 1)[-1], meta=meta,
+                                        ocr_max_pages=0)
+                else:
+                    rows = parse_xlsx_rows(fr.content) if not path.endswith(".csv") else [r for r in csv.reader(io.StringIO(fr.content.decode("utf-8", "replace")))]
+                    text = "\n".join("\t".join(str(c or "") for c in r) for r in rows[:4000])
+                    rec = Record(SRC_BUDGETS, "budget_doc", fr.url, title=label or path.rsplit("/", 1)[-1], text=text, channel="file",
+                                 jurisdiction="ga", evidence="primary", meta={**meta, "rows": len(rows)})
+                if rec:
+                    rec.evidence = "primary"
+                    out["new"] += store.add(rec)
+                store.kv_set(f"schools:budget:{u}", _now())
+            elif depth < int(bc.get("depth") or 1) and urlsplit(u).netloc.endswith(tuple(bc.get("hosts") or ["gadoe.org"])):
+                try:
+                    queue += [(u2, t2, depth + 1) for u2, t2 in links_of(page(u), u)]
+                except Exception as exc:  # noqa: BLE001
+                    out["errors"].append(f"{u}: {type(exc).__name__}"[:160])
+    store.flush()
+    log(f"budgets: {out['pages']} pages, {out['files']} files, {out['new']} new")
+    return out

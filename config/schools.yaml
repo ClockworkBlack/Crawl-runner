@@ -78,3 +78,14 @@ people:
   seat: "(?:district|post|seat|area|ward)\\s*(\\d+|[A-Z])"
   max_school_sites_per_run: 400        # school home/administration pages read per `schools sites` run
   school_site_pages: 3                 # pages per school: home, then the administration/about/principal page(s)
+
+# State funding and district budgets (`gacrawl schools budgets`): GaDOE's finance pages, rendered; links naming
+# allotments, QBE, revenues, expenditures or budgets followed one level; spreadsheets and PDFs kept as searchable
+# budget_doc records. The same documents the districts themselves post (allotment sheets, adopted budgets) are read
+# by the district-site crawl and tagged "Budget and taxes".
+budgets:
+  pages:
+    - https://gadoe.org/finance-operations/
+  hosts: [gadoe.org]
+  depth: 2
+  max_file_bytes: 40000000
