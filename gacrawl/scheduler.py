@@ -230,10 +230,19 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
         owner = owned.get(str(endpoint or ""))
         return bool(owner) and owner != src["id"]
 
+    def moved(src: dict, hit: dict) -> bool:
+        """The source's website changed since its channel was chosen (a district's archive copy replaced by its own
+        site): the old choice would keep reading the old address until the cache's recheck."""
+        if hit.get("url"):
+            return hit["url"].rstrip("/") != str(src.get("url") or "").rstrip("/")
+        ch, ep = (hit.get("chosen") or {}).get("channel"), str((hit.get("chosen") or {}).get("endpoint") or "")
+        host = lambda u: urlsplit(u).netloc.lower().removeprefix("www.")  # noqa: E731
+        return ch in ("html", "sitemap", "browser") and ep.startswith("http") and host(ep) != host(str(src.get("url") or ""))
+
     def choose(src: dict) -> tuple[dict, list]:
         hit = cache.get(src["id"])
-        if hit and owned_by_other(src, (hit.get("chosen") or {}).get("endpoint")):
-            cache.invalidate(src["id"])     # chosen before the rule below: probe again
+        if hit and (owned_by_other(src, (hit.get("chosen") or {}).get("endpoint")) or moved(src, hit)):
+            cache.invalidate(src["id"])     # chosen before the rules below, or for an address the source no longer has
             hit = None
         if hit:
             return hit["chosen"], hit.get("probes", [])
@@ -249,7 +258,7 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             if "OutOfTime" in notes or "past the deadline" in notes:
                 raise OutOfTime("the probe ran out of time: " + notes[:200])   # not a failure: tried again next run
             raise RuntimeError("no working channel: " + (notes or "nothing answered"))
-        cache.put(src["id"], chosen, probes)
+        cache.put(src["id"], chosen, probes, url=str(src.get("url") or ""))
         hit = cache.get(src["id"])
         return hit["chosen"], hit["probes"]
 

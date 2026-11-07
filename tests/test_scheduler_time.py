@@ -234,3 +234,26 @@ def test_police_news_uses_outlet_apis_when_gdelt_refuses(tmp_path, monkeypatch):
     rec = next(store.iter_query("kind='police_incident'"))
     assert rec["jurisdiction"] == "dalton" and rec["meta"]["department"] == "Dalton Police Department"
     store.close()
+
+
+def test_a_changed_website_is_probed_again(tmp_path, fetcher, monkeypatch):
+    seen = {}
+
+    def probe(f, src):
+        return [Probe("html", True, 1.0, 1, src["url"])]
+
+    def crawl(f, src, chosen, limits, modified_since=None, ctx=None):
+        seen[src["id"]] = chosen["endpoint"]
+        yield Record(src["id"], "page", src["url"], title="x")
+
+    monkeypatch.setattr(channels, "probe_source", probe)
+    monkeypatch.setattr(channels, "crawl", crawl)
+    store, cache, prog = _env(tmp_path)
+    # chosen when the seed had the archive copy; the seed now gives the district's own site
+    cache.put("sd-dekalb:site", Probe("html", True, 1.0, 1, "https://web.archive.org/web/2022/https://www.dekalbschoolsga.org/"), [])
+    src = {"id": "sd-dekalb:site", "url": "https://www.dekalbschoolsga.org/", "tier": "a"}
+    run_sources({"schedule": {"windows": []}}, [src], fetcher, store, cache, prog, time.monotonic() + 30, force=True,
+                workers=1, log=lambda *_: None)
+    assert seen["sd-dekalb:site"] == "https://www.dekalbschoolsga.org/"
+    assert cache.get("sd-dekalb:site")["url"] == "https://www.dekalbschoolsga.org/"
+    store.close()

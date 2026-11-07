@@ -115,11 +115,12 @@ class ChannelCache:
             return None
         return hit
 
-    def put(self, source_id: str, chosen: Probe, probes: list[Probe], save: bool = True):
+    def put(self, source_id: str, chosen: Probe, probes: list[Probe], save: bool = True, url: str = ""):
         self.data[source_id] = {  # dict assignment is atomic; the file write is locked
             "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "chosen": asdict(chosen),
             "probes": [asdict(p) for p in probes],
+            **({"url": url} if url else {}),   # the source's address when probed: a changed website is probed again
         }
         if save:
             self.save()
