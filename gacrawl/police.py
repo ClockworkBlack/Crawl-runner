@@ -33,8 +33,13 @@ SUB_LINK = re.compile(r"\b(chief|command[\s-]*staff|leadership|administration|ab
                       r"stations?|districts?|divisions?|internal[\s-]*affairs|professional[\s-]*standards|"
                       r"complaints?|commendation|records)\b", re.I)
 SKIP_LINK = re.compile(r"\.(pdf|jpg|jpeg|png|gif|mp4|zip)(\?|$)|facebook|twitter|instagram|youtube|nextdoor|linkedin|"
-                       r"calendar|news[\s-]*flash|press|careers?|jobs?|recruit|donate|login|pay[\s-]*(a[\s-]*)?(ticket|fine)",
+                       r"calendar|news[\s-]*flash|newsflash|civicalerts|/news/|/blog|press|careers?|jobs?|recruit|donate|login|"
+                       r"pay[\s-]*(a[\s-]*)?(ticket|fine)|fire[\s-]*marshal",
                        re.I)
+# a link label that is a news headline ("Newnan Police Department Receives Grant...", "Police Department Celebrates
+# Retired Asst. Chief") leads to a story, not to the department's own section
+HEADLINE_LABEL = re.compile(r"\b(receives?|celebrates?|recogni[sz]es?|announces?|welcomes?|honors?|awarded|launch(es)?|"
+                            r"hosts?|joins?|arrests?|seeks?|investigat\w+|reminds?|warns?)\b", re.I)
 TITLE_RX = re.compile(r"\b(Chief of Police|Police Chief|Interim (?:Police )?Chief|Acting (?:Police )?Chief|Deputy Chief|"
                       r"Assistant Chief|Sheriff|Chief Deputy|Director of Public Safety|Public Safety Director|"
                       r"Chief Marshal|Marshal|Commander|Major|Captain|Lieutenant)\b", re.I)
@@ -225,7 +230,11 @@ def police_links(home_html: str, home_url: str, name: str) -> list[tuple[int, st
         href = a["href"]
         if not POLICE_LINK.search(label + " " + href) or SKIP_LINK.search(href) or href.startswith(("mailto:", "tel:", "#")):
             continue
+        if re.search(r"fire\s+marshal", label, re.I) or (len(label.split()) > 6 and HEADLINE_LABEL.search(label)):
+            continue
         u = urljoin(home_url, href).split("#")[0]
+        if not u:
+            continue
         same = _base(_host(u)) == _base(host)
         score = (3 if re.search(r"police|sheriff", label, re.I) else 2 if re.search(r"public safety|marshal", label, re.I) else 1) + (1 if same else 0)
         if re.search(r"\b(department|office|dept)\b", label, re.I):
@@ -237,15 +246,17 @@ def police_links(home_html: str, home_url: str, name: str) -> list[tuple[int, st
     return sorted(out.values(), key=lambda x: -x[0])[:3]
 
 
-def read_department(fetcher, j: dict, website: str, log=print) -> dict | None:
-    """Follow the government's own police link and read that section (at most five requests)."""
+def read_department(fetcher, j: dict, website: str, log=print, direct: bool = False) -> dict | None:
+    """Follow the government's own police link and read that section (at most five requests). With `direct`, the
+    site given is the department's own (config/overrides.yaml `police_site:`, set by hand where the government's
+    site refuses the crawler or links nowhere useful) and is read as the department's page."""
     from .blocked import Blocked
     from .fetch import Disallowed, OutOfTime
 
     r = fetcher.get(website)
     if r.status != 200 or "html" not in r.content_type:
         return None
-    links = police_links(r.text, r.url, j["name"])
+    links = [(9, r.url, f"{place_of(j)} Police")] if direct else police_links(r.text, r.url, j["name"])
     if not links:
         return {"found": False, "checked_at": _now(), "home": r.url}
     dept = None
@@ -263,7 +274,7 @@ def read_department(fetcher, j: dict, website: str, log=print) -> dict | None:
             continue   # another host that never names the place: not this government's department
         P = parse_page(p.text, p.url, website)
         kind = "sheriff" if re.search(r"sheriff", (P["title"] + " " + label), re.I) else "marshal" if re.search(r"marshal", P["title"] + " " + label, re.I) else "police"
-        dept = {"found": True, "kind": kind, "name": P["title"] or label, "url": p.url, "link_label": label,
+        dept = {"found": True, "kind": kind, "name": P["title"] or label, "url": p.url, "link_label": label, "v": POLICE_VERSION,
                 "chief": dict(P["chief"], src=p.url) if P["chief"] else None,
                 "phones": [dict(x, src=p.url) for x in P["phones"]], "emails": [{"address": e, "src": p.url} for e in P["emails"]],
                 "address": {"text": P["address"], "src": p.url} if P["address"] else None,
@@ -316,14 +327,74 @@ def read_department(fetcher, j: dict, website: str, log=print) -> dict | None:
         break
     if dept is None:
         return {"found": False, "checked_at": _now(), "home": r.url}
+    dept["heading"] = dept["name"]
+    dept["name"], dept["name_from"] = department_name(j, dept)
     dept["phones"] = dept["phones"][:12]
     dept["emails"] = dept["emails"][:8]
     dept["precincts"] = dept["precincts"][:30]
     return dept
 
 
+DEPT_WORD = re.compile(r"\b(police|sheriff|marshal|public safety)\b", re.I)
+NOT_A_NAME = re.compile(r"\b(news|flash|notice|welcome|board of commissioners|reports?|file|obtain\w*|online|request|pay|"
+                        r"apply|jail|programs?|services|celebrat\w*|recogni\w*|receives?|grant|honor|loyalty|integrity|"
+                        r"courage|homes|mail|fire)\b", re.I)
+SMALL_WORDS = re.compile(r"\b(Of|And|The|For)\b")
+
+
+def is_fire_marshal(d: dict) -> bool:
+    """A fire marshal's office is not a police department (an early read took Walker County's for one)."""
+    return bool(re.search(r"fire\s+marshal", f"{d.get('heading') or d.get('name') or ''} {d.get('link_label') or ''}", re.I))
+POLICE_VERSION = 2   # bump when department discovery changes: every department is read again
+
+
+def place_of(j: dict) -> str:
+    """'DeKalb County', 'Atlanta', 'Macon-Bibb County': the government's name without 'City of'."""
+    return re.sub(r"^(city|town) of\s+", "", (j.get("name") or "").strip(), flags=re.I)
+
+
+def department_name(j: dict, d: dict) -> tuple[str, str]:
+    """(name, how it was named). The heading of the page read is used when it names the department ("Chatham County
+    Police Department"); a bare heading ("Police Department", "Sheriff's Office") gets the place in front; anything
+    else ("News Flash", "File Police Report Online", "Notice of Change to Mail Services") gives the standard form
+    for the kind of department. The standard form is a label, not a quotation: Electo shows it as such."""
+    title = re.sub(r"\s+", " ", (d.get("heading") or d.get("name") or "")).strip(" -–—|,")
+    title = re.sub(r"\s*[-–—|,]\s*(city of .*|[a-z ]+, georgia|ga|georgia)$", "", title, flags=re.I).strip()
+    kind = d.get("kind") or "police"
+    place = place_of(j)
+    if kind == "sheriff" and j.get("kind") != "county" and j.get("counties"):
+        place = f"{j['counties'][0]} County"      # the sheriff of a consolidated government is the county's (Bibb, not Macon)
+    word = re.sub(r"\s+county$", "", place, flags=re.I).split(",")[0].strip()
+    label = re.sub(r"\s+", " ", d.get("link_label") or "").strip(" -–—|,")
+    for text, how in ((title, "the department's page"), (label, "the link to the department")):
+        if text.isupper() and len(text) > 4:
+            text = SMALL_WORDS.sub(lambda m: m.group(1).lower(), text.title().replace("'S", "'s"))
+        if not text or not DEPT_WORD.search(text) or NOT_A_NAME.search(text) or len(text) > 60:
+            continue
+        if word.lower() in text.lower():
+            return text, how
+        if len(text.split()) <= 4:
+            t = text + (" Department" if text.lower() == "police" else "")
+            t = "Sheriff's Office" if t.lower().replace("’", "'") in ("sheriff", "sheriff office", "sheriff's office") else t
+            return f"{place} {t}", f"the place's name and {how}"
+    std = {"sheriff": f"{place} Sheriff's Office", "marshal": f"{place} Marshal's Office"}.get(kind, f"{place} Police Department")
+    return std, "standard form (the page read gives no name)"
+
+
+def news_phrase(j: dict, d: dict) -> str:
+    """What a news story calls the department: "DeKalb County police", "Atlanta police", "Hall County sheriff".
+    Never the bare page heading: "Police Department" matched every police story in the country."""
+    kind = d.get("kind") or "police"
+    place = place_of(j)
+    if kind == "sheriff" and j.get("kind") != "county" and j.get("counties"):
+        place = f"{j['counties'][0]} County"
+    return f"{place} {'sheriff' if kind == 'sheriff' else 'marshal' if kind == 'marshal' else 'police'}"
+
+
 def _stale(rec: dict | None, days: int) -> bool:
     if not rec:
+        return True
+    if rec.get("found") and rec.get("v") != POLICE_VERSION:
         return True
     try:
         return (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(rec["checked_at"])).days >= days
@@ -347,13 +418,14 @@ def discover_police(fetcher, jurisdictions: list[dict], state_dir: Path, deadlin
             continue
         if only and j["id"] != only:
             continue
-        site = j.get("website") or (disc.get(j["id"]) or {}).get("website")
-        if not site or (not refresh and not _stale(out.get(j["id"]), STALE_DAYS)):
+        site = j.get("police_site") or j.get("website") or (disc.get(j["id"]) or {}).get("website")
+        if not site or (not refresh and not _stale(out.get(j["id"]), STALE_DAYS)
+                        and not (j.get("police_site") and (out.get(j["id"]) or {}).get("url", "").find(j["police_site"].split("//")[-1].strip("/")) < 0)):
             continue
         if deadline and time.monotonic() > deadline:
             break
         try:
-            d = read_department(fetcher, j, site, log)
+            d = read_department(fetcher, j, site, log, direct=bool(j.get("police_site")))
         except OutOfTime:
             break
         except (Disallowed, Blocked, Exception) as exc:  # noqa: BLE001
@@ -467,12 +539,14 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
     depts = []
     for jid, d in police.items():
         j = by_id.get(jid)
-        if not j or not d.get("found"):
+        if not j or not d.get("found") or is_fire_marshal(d):
             continue
+        name, name_from = (d["name"], d.get("name_from")) if d.get("v") == POLICE_VERSION else department_name(j, d)
         depts.append({"jurisdiction": jid, "jurisdiction_name": j["name"], "jurisdiction_kind": j.get("kind"),
                       "county": (j.get("counties") or [None])[0] if j.get("kind") != "county" else j["name"].replace(" County", ""),
-                      **{k: d.get(k) for k in ("kind", "name", "url", "chief", "phones", "emails", "address", "precincts",
-                                              "complaints", "records", "pages", "checked_at")}})
+                      **{k: d.get(k) for k in ("kind", "url", "chief", "phones", "emails", "address", "precincts",
+                                              "complaints", "records", "pages", "checked_at")},
+                      "name": name, "name_from": name_from or "the department's page"})
     (out_dir / "police.json").write_text(json.dumps({
         "note": "Police departments, sheriff's offices and public-safety departments as each government's own site "
                 "presents them: the chief or sheriff with the title printed, phones with the label beside them, emails "

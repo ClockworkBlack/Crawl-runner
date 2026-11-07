@@ -456,9 +456,24 @@ class Store:
             self._maybe_commit(force=True)
         return n
 
-    def purge_source(self, source_id: str) -> dict:
+    def purge_source(self, source_id: str, channel: str | None = None) -> dict:
         """Remove a source entirely: its records (the search index follows by trigger), research mentions that cited
-        them, its cursors and its frontier rows. For a portal that turned out to belong to another place."""
+        them, its cursors and its frontier rows. For a portal that turned out to belong to another place.
+        With `channel`, only the records that came through that channel go (with the mentions that cite their URLs
+        and the source's cursors): a county site that once read the county's Legistar portal a second time keeps
+        its own pages."""
+        if channel:
+            with self._lock:
+                self._begin()
+                out = {"citing_mentions": self.db.execute(
+                    "DELETE FROM records WHERE source_id LIKE 'cand:%' AND json_extract(meta, '$.source')=? AND url IN "
+                    "(SELECT url FROM records WHERE source_id=? AND channel=?)", (source_id, source_id, channel)).rowcount}
+                out["records"] = self.db.execute("DELETE FROM records WHERE source_id=? AND channel=?",
+                                                 (source_id, channel)).rowcount
+                if out["records"]:
+                    self.db.execute("DELETE FROM cursors WHERE source_id=?", (source_id,))
+                self._maybe_commit(force=True)
+            return out
         with self._lock:
             self._begin()
             out = {"records": self.db.execute("DELETE FROM records WHERE source_id=?", (source_id,)).rowcount,

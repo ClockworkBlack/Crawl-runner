@@ -2,9 +2,18 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin as _urljoin
 
 from bs4 import BeautifulSoup, NavigableString, Tag
+
+def urljoin(base: str, href: str) -> str:
+    """urllib's urljoin, but a malformed link ("http://[broken") gives "" instead of a ValueError that used to end
+    a whole source's crawl (co-wilcox: "Invalid IPv6 URL")."""
+    try:
+        return _urljoin(base, href)
+    except ValueError:
+        return ""
+
 
 NOISE = ["script", "style", "noscript", "nav", "footer", "header", "form", "iframe", "svg", "button", "aside"]
 ORDINANCE_HEADING = re.compile(
@@ -215,4 +224,4 @@ def find_api_hints(html: str, base_url: str) -> dict:
 
 def links(html: str, base_url: str) -> list[str]:
     soup = soup_of(html)
-    return list(dict.fromkeys(urljoin(base_url, a["href"]).split("#")[0] for a in soup.find_all("a", href=True)))
+    return [u for u in dict.fromkeys(urljoin(base_url, a["href"]).split("#")[0] for a in soup.find_all("a", href=True)) if u]

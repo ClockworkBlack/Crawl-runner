@@ -43,6 +43,9 @@
   gacrawl schools seed|stats|sites|people|all [--max-minutes M] [--refresh]
                                          every Georgia school, college and district outline (NCES EDGE); GOSA and CCRPI
                                          statistics; school websites; board members, superintendents and principals
+  gacrawl coverage                       what the data holds per Electo feature against the last run (zero or
+                                         shrinking features flagged): data/coverage.md, state/coverage.json
+  gacrawl seed --districts               school districts only: each answering site must be the district's own
 """
 from __future__ import annotations
 
@@ -97,12 +100,14 @@ def cmd_seed(cfg, args):
     deadline = time.monotonic() + float(args.max_minutes) * 60 if args.max_minutes else None
     govs = [j for j in jur if j["kind"] != "school_district"]
     districts = [j for j in jur if j["kind"] == "school_district"]
-    if not args.only or any(j["id"] == args.only for j in govs):
-        seed(fetcher, govs, cfg["state_dir"] / "discovered.json", workers=args.workers or cfg.get("workers", 6),
-             only=args.only, refresh=args.refresh, max_age_days=args.max_age_days, deadline=deadline)
+    # districts first: 180 of them against 700 cities and counties, and a changed district seed should not wait
+    # behind the whole list for its turn
     if districts and (not args.only or any(j["id"] == args.only for j in districts)):
         seed_school_districts(fetcher, districts, cfg["state_dir"] / "discovered.json", workers=args.workers or cfg.get("workers", 6),
                               only=args.only, refresh=args.refresh, max_age_days=args.max_age_days, deadline=deadline)
+    if not getattr(args, "districts", False) and (not args.only or any(j["id"] == args.only for j in govs)):
+        seed(fetcher, govs, cfg["state_dir"] / "discovered.json", workers=args.workers or cfg.get("workers", 6),
+             only=args.only, refresh=args.refresh, max_age_days=args.max_age_days, deadline=deadline)
     cmd_status(cfg, args)
 
 
@@ -172,7 +177,7 @@ def cmd_discover(cfg, args):
 
 
 def cmd_run(cfg, args):
-    from .scheduler import Progress, due, run_sources
+    from .scheduler import Progress, due, owned_endpoints, run_sources
 
     fetcher = config.make_fetcher(cfg)
     cache = channels.ChannelCache(cfg["state_dir"] / "channels.json", cfg.get("recheck_days", 7))
@@ -204,7 +209,8 @@ def cmd_run(cfg, args):
     try:
         summary = run_sources(cfg, srcs, fetcher, store, cache, progress, deadline, force=args.force,
                               workers=args.workers or cfg.get("workers", 4), full=args.full,
-                              slice_minutes=args.slice_minutes or cfg.get("source_slice_minutes"))
+                              slice_minutes=args.slice_minutes or cfg.get("source_slice_minutes"),
+                              owned=owned_endpoints(registry.all_sources(config.ROOT, cfg.get("limits"))))
     finally:
         progress.flush()
         store.close()
@@ -233,6 +239,14 @@ def cmd_purge(cfg, args):
         for e in entries:
             sid = (e or {}).get("source")
             if not sid:
+                continue
+            ch = (e or {}).get("channel")      # only what came through this channel (the source itself stays)
+            if ch:
+                n = store.db.execute("SELECT count(*) FROM records WHERE source_id=? AND channel=?", (sid, ch)).fetchone()[0]
+                if args.dry_run or not n:
+                    out[f"{sid} ({ch})"] = {"records": n, "deleted": False}
+                    continue
+                out[f"{sid} ({ch})"] = {**store.purge_source(sid, channel=ch), "deleted": True}
                 continue
             n = store.db.execute("SELECT count(*) FROM records WHERE source_id=?", (sid,)).fetchone()[0]
             m = store.db.execute("SELECT count(*) FROM records WHERE source_id LIKE 'cand:%' AND "
@@ -694,6 +708,26 @@ def cmd_codeacts(cfg, args):
         store.close()
 
 
+def cmd_coverage(cfg, args):
+    """What the data holds per Electo feature, against the last run: state/coverage.json and data/coverage.md."""
+    import os
+
+    from .coverage import run
+
+    store = config.make_store(cfg)
+    try:
+        out = run(config.ROOT, store)
+    finally:
+        store.close()
+    print(f"coverage: {len(out['zero'])} features at zero, {len(out['shrank'])} shrank since the last run "
+          f"(data/coverage.md{' in the private repository' if os.environ.get('PUBLIC_RUNNER') == 'true' else ''})")
+    if os.environ.get("GITHUB_ACTIONS") and os.environ.get("PUBLIC_RUNNER") != "true":
+        for k in out["zero"]:
+            print(f"::warning title=coverage::{k} is at zero")
+        for k in out["shrank"]:
+            print(f"::warning title=coverage::{k} shrank since the last run")
+
+
 def cmd_summary(cfg, args):
     """A Markdown summary of the run that just finished (the workflow appends it to the job summary)."""
     from .summary import build
@@ -836,7 +870,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("seed"); s.add_argument("--only"); s.add_argument("--refresh", action="store_true")
     s.add_argument("--report", action="store_true", help="write data/seed_gaps.md (no requests): what still has no working site, by cause")
     s.add_argument("--workers", type=int); s.add_argument("--max-age-days", type=float); s.add_argument("--max-minutes", type=float)
+    s.add_argument("--districts", action="store_true", help="school districts only (each runner run: a changed district seed is worked off at once)")
     sub.add_parser("status")
+    sub.add_parser("coverage", help="what the data holds per Electo feature, against the last run (data/coverage.md)")
     pg = sub.add_parser("purge", help="delete the records of the sources listed in config/purge.yaml")
     pg.add_argument("--dry-run", action="store_true")
     d = sub.add_parser("discover"); d.add_argument("--source")
@@ -917,7 +953,8 @@ def main(argv=None):
      "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
-     "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police}[args.cmd](cfg, args)
+     "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
+     "coverage": cmd_coverage}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

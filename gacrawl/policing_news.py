@@ -30,7 +30,7 @@ from .store import Record
 GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
 WINDOW_DAYS = 89
 RECHECK_DAYS = 7
-MAX_HITS = 40
+MAX_HITS = 25          # trusted hits opened per department (headlines naming the place first)
 CUE = re.compile(r"\b(shot|shooting|shoot|killed|death|died|dies|use of force|excessive force|force|tas(?:ed|er)|chokehold|"
                  r"lawsuit|sued|sues|settlement|settle[ds]?|indict(?:ed|ment)|charged|arrest(?:ed)?|fired|terminated|"
                  r"suspended|resign(?:ed|s)?|body[\s-]?cam(?:era)?|dash[\s-]?cam|misconduct|complaint|internal affairs|"
@@ -87,14 +87,38 @@ def excerpt_of(text: str, dept_name: str, width: int = 700) -> str:
     return ("…" if a else "") + t[a: a + width].strip() + ("…" if a + width < len(t) else "")
 
 
-def _mentions_department(text: str, dept: dict, jname: str) -> bool:
-    t = (text or "").lower()
+NEWS_VERSION = 2      # 2: place-qualified searches ("DeKalb County police"), Georgia stories only. Version 1 searched
+                      # the bare page heading ("Police Department") and filed Colorado and Atlanta stories under DeKalb.
+OTHER_STATES = re.compile(r"\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Hawaii|Idaho|"
+                          r"Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|"
+                          r"Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|"
+                          r"North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|"
+                          r"South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b")
+
+
+def _mentions_department(text: str, dept: dict, jname: str, phrase: str = "") -> bool:
+    """The article names this department: its name, or what a story calls it ("DeKalb County police", "Hall County
+    Sheriff's Office", "Atlanta Police Department"). A bare heading ("Police Department") never counts alone."""
+    t = re.sub(r"\s+", " ", (text or "").lower())
     name = (dept.get("name") or "").lower()
-    if name and name in t:
+    place = (phrase or "").rsplit(" ", 1)[0].lower() or jname.lower()
+    if name and place.split()[0] in name and name in t:
         return True
-    place = jname.replace(" county", "").lower()
-    kind = "sheriff" if dept.get("kind") == "sheriff" else "police"
-    return bool(place and place in t and kind in t and re.search(r"\b" + re.escape(place) + r"\b[^.]{0,60}\b" + kind, t))
+    kind = "sheriff" if dept.get("kind") == "sheriff" else "marshal" if dept.get("kind") == "marshal" else "police"
+    return bool(place and re.search(r"\b" + re.escape(place) + r"(?:'s)?\s+(?:county\s+)?" + kind, t))
+
+
+def in_georgia(title: str, text: str, outlet_local: bool, jname: str, county: str = "") -> bool:
+    """A Georgia story: it says Georgia (or Ga.), or names the county, or comes from a Georgia outlet without a
+    headline about another state ("Police identify fallen Colorado officer...", a FOX 5 Atlanta story, was filed
+    under DeKalb). "Columbus police" alone could be Ohio's."""
+    head = title or ""
+    if OTHER_STATES.search(head) and not re.search(r"\bGeorgia\b|\bGa\.", head):
+        return False
+    body = (text or "")[:6000]
+    if re.search(r"\bGeorgia\b|,\s*Ga\.|\bGa\.\s", body) or (county and re.search(r"\b" + re.escape(county) + r"\s+County\b", body)):
+        return True
+    return outlet_local and not OTHER_STATES.search(body[:1500])
 
 
 class PoliceNews:
@@ -104,6 +128,18 @@ class PoliceNews:
         self.f, self.store, self.root, self.log = fetcher, store, root, log
         self.outlets, self.exclude = load_outlets(root)
         self.notes: dict = {}
+        self.local = set()            # Georgia outlets: statewide, regional and county papers in config/outlets.yaml
+        try:
+            from .registry import load_yaml
+
+            o = load_yaml(root / "config" / "outlets.yaml") or {}
+            self.local |= set(o.get("statewide") or [])
+            for r in (o.get("regions") or {}).values():
+                self.local |= set((r or {}).get("outlets") or [])
+            for lst in (o.get("county_outlets") or {}).values():
+                self.local |= set(lst or [])
+        except Exception:  # noqa: BLE001
+            pass
 
     def classify(self, url: str) -> str | None:
         from .candidates import _in, domain_of
@@ -131,19 +167,29 @@ class PoliceNews:
             raise RateLimited()
         return []
 
-    def department(self, jid: str, dept: dict, jname: str) -> int:
+    def department(self, jid: str, dept: dict, jname: str, j: dict | None = None) -> int:
         """One query for the department (and its chief); open the trusted hits once; keep the incidents."""
         from .blocked import Blocked
+        from .candidates import domain_of
         from .fetch import Disallowed, OutOfTime
+        from .police import POLICE_VERSION, department_name, news_phrase
 
-        phrases = [f'"{dept["name"]}"'] if dept.get("name") else []
+        j = j or {"name": jname, "kind": "county" if jname.endswith("County") else "city"}
+        phrase = news_phrase(j, dept)
+        name = dept.get("name") if dept.get("v") == POLICE_VERSION else department_name(j, dept)[0]
+        dept = {**dept, "name": name}
+        county = (j.get("counties") or [""])[0] if j.get("kind") != "county" else jname.replace(" County", "")
+        phrases = [f'"{phrase}"']
         if dept.get("chief") and dept["chief"].get("name"):
             phrases.append(f'"{dept["chief"]["name"]}"')
-        if not phrases:
-            return 0
         hits = [a for a in self.search(phrases) if a.get("url") and self.classify(a["url"])]
+        # stories whose headline names the place first: they are the likeliest to be about this department
+        key = phrase.rsplit(" ", 1)[0].split()[0].lower()
+        hits.sort(key=lambda a: 0 if key in (a.get("title") or "").lower() else 1)
         n = 0
         for a in hits[:MAX_HITS]:
+            if OTHER_STATES.search(a.get("title") or "") and not re.search(r"\bGeorgia\b|\bGa\.", a.get("title") or ""):
+                continue                                   # the headline is about another state: not opened
             url = a["url"]
             if self.store.fresh(url, 3650):
                 continue
@@ -158,19 +204,22 @@ class PoliceNews:
                 continue
             title, md = extract.html_to_markdown(r.text, r.url)
             text = md or ""
-            if not _mentions_department(text, dept, jname) or not CUE.search(text):
+            if not _mentions_department(text, dept, jname, phrase) or not CUE.search(text):
+                continue
+            if not in_georgia(title or a.get("title") or "", text, domain_of(r.url) in self.local or r.url.endswith((".gov", ".ga.us")),
+                              jname, county):
                 continue
             pub = a.get("seendate", "")
             pub = f"{pub[:4]}-{pub[4:6]}-{pub[6:8]}" if len(pub) >= 8 else (extract.page_date(r.text, text) or None)
             names = names_in(text)
             cues = sorted({m.group(1).lower() for m in CUE.finditer(text)})[:8]
-            from .candidates import domain_of
 
             rec = Record(f"police:{jid}", "police_incident", r.url, title=(title or a.get("title") or "")[:200],
                          text=excerpt_of(text, dept.get("name", "")), published=pub, channel="html", jurisdiction=jid,
                          evidence=self.classify(r.url) or "reported",
                          meta={"department": dept.get("name"), "department_kind": dept.get("kind"), "outlet": domain_of(r.url),
-                               "names": names, "cues": cues, "opened": True, "checked": dt.date.today().isoformat()})
+                               "names": names, "cues": cues, "opened": True, "checked": dt.date.today().isoformat(),
+                               "search": phrase, "v": NEWS_VERSION})
             n += self.store.add(rec)
         return n
 
@@ -188,10 +237,22 @@ def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None
     police = json.loads(p.read_text()) if p.exists() else {}
     cp = state_dir / "police_news.json"
     checked = json.loads(cp.read_text()) if cp.exists() else {}
-    pop = {j["id"]: (j.get("population") or 0, j["name"]) for j in jurisdictions(root)}
+    jur = {j["id"]: j for j in jurisdictions(root)}
+    pop = {jid: (j.get("population") or 0, j["name"]) for jid, j in jur.items()}
+    if checked.get("_version") != NEWS_VERSION:
+        # incidents found by the old searches are dropped and every department is searched again (the articles they
+        # came from are unmarked, so the new search may open them again and file them where they belong)
+        gone = store.db.execute("DELETE FROM records WHERE kind='police_incident' AND "
+                                "coalesce(json_extract(meta, '$.v'), 1) < ?", (NEWS_VERSION,)).rowcount
+        store.db.execute("DELETE FROM urls WHERE source_id LIKE 'police:%'")
+        store.flush()
+        checked = {"_version": NEWS_VERSION}
+        log(f"police news v{NEWS_VERSION}: {gone} incidents from the old searches removed; every department is searched again")
     pn = PoliceNews(fetcher, store, root, log)
     done = found = 0
-    order = sorted((jid for jid, d in police.items() if d.get("found")), key=lambda j: -pop.get(j, (0, ""))[0])
+    from .police import is_fire_marshal
+
+    order = sorted((jid for jid, d in police.items() if d.get("found") and not is_fire_marshal(d)), key=lambda j: -pop.get(j, (0, ""))[0])
     for jid in order:
         d = police[jid]
         last = checked.get(jid) or d.get("news_checked_at")
@@ -200,7 +261,7 @@ def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None
         if deadline and time.monotonic() > deadline or (limit and done >= limit):
             break
         try:
-            n = pn.department(jid, d, pop.get(jid, (0, jid))[1])
+            n = pn.department(jid, d, pop.get(jid, (0, jid))[1], jur.get(jid))
         except OutOfTime:
             break
         except RateLimited:

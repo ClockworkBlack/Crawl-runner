@@ -53,10 +53,16 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+ARCHIVED = re.compile(r"^https?://(?:web\.)?archive\.org/web/\d+[a-z_]*/(https?://.+)$", re.I)
+
+
 def _clean_site(url: str | None) -> str | None:
     if not url:
         return None
     url = url.strip()
+    m = ARCHIVED.match(url)
+    if m:
+        url = m.group(1)    # an archived copy of the official site (Wikipedia's DeKalb schools entry): the site it archived
     if not re.match(r"https?://", url):
         url = "https://" + url
     s = urlsplit(url)
@@ -216,6 +222,11 @@ def inspect_site(fetcher: Fetcher, website: str) -> dict:
         return {"site_error": f"HTTP {r.status} {r.content_type}".strip(), "site_error_kind": "http", "site_status": r.status}
     html = r.text
     out["website"] = _clean_site(r.url) or website  # follow redirects to the canonical host
+    out["home_title"], md = extract.html_to_markdown(html, r.url)
+    out["home_title"] = (out["home_title"] or "")[:200]
+    site_name = re.search(r"""<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']{2,120})""", html, re.I)
+    out["home_name"] = site_name.group(1) if site_name else ""
+    out["home_text"] = (md or "")[:3000]
     out["portals"] = find_portals(html, r.url)
     out["feeds"] = extract.find_feed_links(html, r.url)[:5]
     out["hints"] = extract.find_api_hints(html, r.url)
@@ -435,12 +446,14 @@ def variants(url: str, kind: str) -> list[str]:
     return out
 
 
-def resolve_site(fetcher: Fetcher, candidates: list[tuple[str, str]], lazy=None, log=None) -> dict:
+def resolve_site(fetcher: Fetcher, candidates: list[tuple[str, str]], lazy=None, log=None, accept=None) -> dict:
     """Try the candidate sites in order until one answers; `lazy` (a callable giving more (url, source) pairs) is
     asked only when every listed candidate failed. Returns the record fields: website, website_source, and the
     inspection (portals, feeds...) of the site that answered, or the first candidate's error when none did;
     website_candidates lists everything tried with its error; website_alt is the next distinct site, so the
-    registry can fall back to it when the chosen host later refuses the crawler."""
+    registry can fall back to it when the chosen host later refuses the crawler.
+    `accept(url, inspection)` -> None, or why the site that answered is not this jurisdiction's (a newspaper, another
+    district's school): that candidate is passed over like one that failed."""
     tried: list[dict] = []
     seen: set[str] = set()
     queue = [(_clean_site(u), src) for u, src in candidates]
@@ -471,10 +484,17 @@ def resolve_site(fetcher: Fetcher, candidates: list[tuple[str, str]], lazy=None,
         url, source = nxt
         seen.add(_site_key(url))
         ins = inspect_site(fetcher, url)
+        if not ins.get("site_error") and accept is not None:
+            why = accept(ins.get("website") or url, ins)
+            if why:
+                ins = {"site_error": why, "site_error_kind": "not_this_place"}
         if ins.get("site_error"):
             tried.append({"url": url, "source": source, "error": ins["site_error"], "kind": ins.get("site_error_kind")})
             if first_error is None:
-                first_error = {"website": url, "website_source": source, **ins}
+                # a site that answered but is not this place's (a newspaper, another district's school) is never kept
+                # as its website, not even as the failed one: the source would crawl it
+                first_error = ({"website_rejected": url, "website_source": source, **ins}
+                               if ins.get("site_error_kind") == "not_this_place" else {"website": url, "website_source": source, **ins})
             for v in variants(url, ins.get("site_error_kind", "")):
                 if _site_key(v) not in seen and v not in {t["url"] for t in tried}:
                     queue.insert(0, (v, f"{source} ({'https' if v.startswith('https') else 'http'} form)"))
@@ -482,6 +502,8 @@ def resolve_site(fetcher: Fetcher, candidates: list[tuple[str, str]], lazy=None,
                 log(f"  {url} ({source}): {ins.get('site_error_kind')}: {ins['site_error'][:100]}")
             continue
         tried.append({"url": url, "source": source, "error": None})
+        ins.pop("home_text", None)          # read by accept(); not kept in discovered.json
+        ins.pop("home_name", None)
         out = {"website": ins.get("website") or url, "website_source": source, **ins, "website_candidates": tried}
         alt = next((u for u, _ in queue if _host_key(u) != _host_key(out["website"])), None)
         if alt:
@@ -635,7 +657,8 @@ def wikipedia_search_website(fetcher: Fetcher, names: list[str]) -> tuple[str | 
             continue
         for hit in r.json().get("query", {}).get("search", []):
             title = hit.get("title", "")
-            if re.search(r"school", title, re.I) and _alnum_s(name.split(" County")[0]) in _alnum_s(title):
+            place = name.split(" County")[0] + (" County" if " County" in name else "")
+            if DISTRICT_TITLE.search(title) and not ONE_SCHOOL.search(title) and _alnum_s(place) in _alnum_s(title):
                 url = "https://en.wikipedia.org/wiki/" + title.replace(" ", "_")
                 try:
                     web = wikipedia_website(fetcher, url)
@@ -648,6 +671,42 @@ def wikipedia_search_website(fetcher: Fetcher, names: list[str]) -> tuple[str | 
 
 def _alnum_s(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+DISTRICT_SEED_VERSION = 1   # bump when district discovery changes: every district is looked at again
+# a Wikipedia page about a whole district, not one of its schools ("Columbia High School (Decatur, Georgia)" gave
+# Columbia County's district the DeKalb high school's site)
+DISTRICT_TITLE = re.compile(r"\b(school district|school system|county schools|city schools|public schools|board of education|"
+                            r"schools)\b", re.I)
+ONE_SCHOOL = re.compile(r"\b(high|middle|elementary|primary|charter|magnet)\s+school\b|\bacademy\b", re.I)
+NEWS_DOMAIN = re.compile(r"(news|times|herald|journal|gazette|tribune|ledger|chronicle|observer|messenger|courier|"
+                         r"sentinel|telegraph|enterprise)$", re.I)
+NEWS_SITES = {"ajc", "patch", "wsbtv", "11alive", "fox5atlanta", "wtoc", "wjcl", "wrdw", "wtvm", "walb", "wmaz", "gpb", "wabe"}
+
+
+def district_site_ok(d: dict, url: str, ins: dict) -> str | None:
+    """None when the site that answered is plausibly this district's own; else why not. The home page must name the
+    district (its name or an alias in the title, the site name or the opening text, or its county or city with a
+    district word); a site archive, a newspaper's or a TV station's site, or another district's k12.ga.us domain is
+    never it."""
+    host = urlsplit(url).netloc.lower().removeprefix("www.")
+    if "archive.org" in host:
+        return f"{host} is an archive, not the district's site"
+    labels = host.split(".")
+    domain = labels[-2] if len(labels) >= 2 else host
+    if NEWS_DOMAIN.search(domain) or domain in NEWS_SITES:
+        return f"{host} is a news outlet's site, not the district's"
+    place = _alnum_s(d.get("city") or d.get("county") or d["name"].split()[0])
+    m = re.search(r"([a-z0-9-]+)\.k12\.ga\.us$", host)
+    if m and place and place not in _alnum_s(m.group(1)) and _alnum_s(m.group(1)) not in place:
+        # columbiahs.dekalb.k12.ga.us: a school in DeKalb's domain, not Columbia County's district
+        return f"{host} is under another district's domain"
+    hay = _alnum_s(" ".join([ins.get("home_title") or "", ins.get("home_name") or "", (ins.get("home_text") or "")[:1500]]))
+    if any(_alnum_s(n) in hay for n in [d["name"]] + list(d.get("aliases") or []) if n):
+        return None
+    if place and place in hay and re.search(r"schools|schooldistrict|schoolsystem|boardofeducation", hay):
+        return None
+    return f"the home page does not name {d['name']}"
 
 
 def seed_school_districts(fetcher: Fetcher, districts: list[dict], state_path: Path, workers: int = 6,
@@ -666,9 +725,13 @@ def seed_school_districts(fetcher: Fetcher, districts: list[dict], state_path: P
             write_json_atomic(tmp, discovered, indent=1, ensure_ascii=False)
             tmp.replace(state_path)
 
-    todo = [d for d in districts if (not only or d["id"] == only) and due(discovered.get(d["id"]), d, max_age_days, refresh)]
+    todo = [d for d in districts if (not only or d["id"] == only) and
+            (due(discovered.get(d["id"]), d, max_age_days, refresh)
+             or (discovered.get(d["id"]) or {}).get("district_seed_version") != DISTRICT_SEED_VERSION)]
     todo.sort(key=lambda d: -(d.get("population") or 0))
     log(f"seeding {len(todo)} of {len(districts)} school districts")
+    if not todo:
+        return discovered
     wd: list[dict] = []
     try:
         wd = wikidata_school_districts(fetcher)
@@ -692,7 +755,8 @@ def seed_school_districts(fetcher: Fetcher, districts: list[dict], state_path: P
     def one(d: dict):
         if deadline is not None and _time.monotonic() > deadline:
             return d["id"], None
-        rec: dict = {"checked_at": _now(), "seed_version": SEED_VERSION, "portals": {}, "feeds": [], "kind": "school_district"}
+        rec: dict = {"checked_at": _now(), "seed_version": SEED_VERSION, "district_seed_version": DISTRICT_SEED_VERSION,
+                     "portals": {}, "feeds": [], "kind": "school_district"}
         cands: list[tuple[str, str]] = []
         if hand_website(d):
             cands.append((d["website"], "override"))
@@ -707,7 +771,7 @@ def seed_school_districts(fetcher: Fetcher, districts: list[dict], state_path: P
                 return [(web, "wikipedia")]
             return []
 
-        res = resolve_site(fetcher, cands, lazy=more)
+        res = resolve_site(fetcher, cands, lazy=more, accept=lambda url, ins: district_site_ok(d, url, ins))
         rec.update(res)
         if not rec.get("website"):
             rec["website_candidates"] = res.get("website_candidates", [])

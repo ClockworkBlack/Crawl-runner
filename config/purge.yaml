@@ -8,3 +8,11 @@
     never; Franklin and Delaware counties, the Ohio Revised Code). The override in config/overrides.yaml stopped
     crawling it; these records made Electo quarantine every Columbus, Georgia record.
   date: 2026-11-06
+- source: co-dekalb:site
+  channel: api
+  reason: >-
+    The county site's probe found the county's Legistar portal and read it a second time, although co-dekalb:legistar
+    already reads it: 49,333 agenda items, 8,575 matters, 688 meetings, 671 ordinances and 203 officials were stored
+    twice (every research mention citing them has a twin citing co-dekalb:legistar). Only the Legistar copies go;
+    the site's own pages stay, and the scheduler now keeps a site off a portal another source owns.
+  date: 2026-11-07

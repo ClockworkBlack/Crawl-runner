@@ -234,7 +234,10 @@ class Fetcher:
         try:
             self.limiter.wait(url, delay, until=until)
         except SlotPastDeadline as exc:
-            raise OutOfTime(str(exc)) from None
+            own = getattr(getattr(self, "_local", None), "stop_at", None)
+            which = ("this source's time slice" if own is not None and (self.stop_at is None or own < self.stop_at)
+                     else "the run's time budget")
+            raise OutOfTime(f"{exc} ({which})") from None
 
     def _check_time(self) -> None:
         now = time.monotonic()

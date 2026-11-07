@@ -160,6 +160,14 @@ jobs:
             gacrawl seed --max-age-days 30 --max-minutes ${{ vars.SEED_MINUTES || '20' }} --workers 16
           fi
           gacrawl seed --report    # data/seed_gaps.md: what still has no working site, by cause, with override stanzas
+      - name: School district websites (each runner run; nothing to do unless a district is due)
+        if: env.PUBLIC_RUNNER == 'true' && env.WEEKLY != 'true' && inputs.job != 'seed' && inputs.job != 'all'
+        run: |
+          # the district seed checks each answering site really is the district's (not a newspaper, an archive or
+          # another district's school); a change to that check makes every district due, and it is worked off here
+          # instead of waiting for the weekly seed
+          timeout -s INT -k 1m 16m gacrawl seed --districts --max-age-days 30 --max-minutes 15 --workers 16 || true
+          gacrawl seed --report
       - name: Check out Electo (people, councils, profile links, code links)
         id: electo
         if: env.HAS_ELECTO_TOKEN == 'true'
@@ -484,6 +492,12 @@ jobs:
           if [ "$IS_MAIN" = "true" ] && [ "$BACKFILL" = "true" ] && grep -q "go=true" "$GITHUB_OUTPUT.bf" 2>/dev/null; then
             GH_TOKEN="$RUN_TOKEN" gh workflow run -R "${{ github.repository }}" crawl.yml --ref "${{ github.ref_name }}" -f job=backfill && echo "next backfill run queued"
           fi
+      - name: Coverage (what the data holds per Electo feature, against the last run)
+        if: always() && env.IS_MAIN == 'true'
+        run: |
+          # data/coverage.md and state/coverage.json, kept in the private repository; zero or shrinking features are
+          # flagged there (and as warnings on the private repository's own runs)
+          gacrawl coverage || echo "coverage report failed"
       - name: Commit state
         if: always() && env.IS_MAIN == 'true'
         run: |
@@ -494,6 +508,7 @@ jobs:
             state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
             state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/veto_statements.json \
+            state/coverage.json data/coverage.md \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
       - name: Electo is fed from what Crawl holds
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true'

@@ -96,6 +96,12 @@ def stale_reader(src: dict, p: dict, hit: dict | None = None) -> bool:
     return bool(want) and p.get("reader") != want
 
 
+def ran_out_of_time(status: str) -> bool:
+    """A run that only ran out of time (its probe or crawl reached the deadline) is not a failure: the source is
+    not backed off, it simply resumes next run."""
+    return "OutOfTime" in status or "time slice" in status or "time budget" in status or "past the deadline" in status
+
+
 def due(sources: list[dict], progress: Progress, cadence_days: dict | None = None, now: dt.datetime | None = None,
         force: bool = False, cache: "channels.ChannelCache | None" = None, wanted: set[str] | None = None) -> list[dict]:
     """Sources that should run now, in the order a short run should take them:
@@ -115,18 +121,18 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
             last_ok = None                  # completed by an older, shallower reader: due now, from the start
         last_try = dt.datetime.fromisoformat(p["last_run"]) if p.get("last_run") else None
         status = p.get("status", "") or ""
+        failed = status.startswith(("error", "blocked", "stopped")) and not ran_out_of_time(status)
         if not force:
             if last_ok and now - last_ok < cad:
                 continue
             # a source that keeps failing backs off: wait a quarter cadence (at least 6h) between retries
-            if last_try and not last_ok and status.startswith(("error", "blocked", "stopped")) \
-                    and now - last_try < max(dt.timedelta(hours=6), cad / 4):
+            if last_try and not last_ok and failed and now - last_try < max(dt.timedelta(hours=6), cad / 4):
                 continue
             # a blocked or refused host is left alone for a full cadence even after it once worked
             if last_try and status.startswith(("blocked", "stopped")) and now - last_try < cad:
                 continue
         overdue = (now - last_ok) / cad if last_ok else 99.0
-        resume = status.startswith("partial") or (last_try is not None and not last_ok and not status.startswith(("error", "blocked", "stopped")))
+        resume = status.startswith("partial") or (last_try is not None and not last_ok and not failed)
         hit = cache.get(s["id"]) if cache else None
         ch = (hit or {}).get("chosen", {}).get("channel") or s.get("channel") or ""
         ep = (hit or {}).get("chosen", {}).get("endpoint") or s.get("endpoint") or ""
@@ -138,19 +144,43 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
     return [t[1] for t in scored]
 
 
+def _made_progress(msg: str) -> bool:
+    """A part-read source that saw something in its last share is worth another share; one that saw nothing
+    (its host's turns never came in time) is not."""
+    import re
+
+    m = re.search(r"(\d+) new / (\d+) seen", msg)
+    return bool(m) and int(m.group(2)) > 0
+
+
+def owned_endpoints(sources: list[dict]) -> dict[str, str]:
+    """endpoint -> the source configured to read it (legistar:..., civicclerk:..., youtube:..., a feed). A site source
+    whose probe finds one of these leaves it to its owner."""
+    out: dict[str, str] = {}
+    for s in sorted(sources, key=lambda s: s["id"]):
+        ep = str(s.get("endpoint") or "")
+        if s.get("channel") and ep and ep.rstrip("/") != str(s.get("url") or "").rstrip("/"):
+            out.setdefault(ep, s["id"])
+    return out
+
+
 def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, cache: channels.ChannelCache,
                 progress: Progress, deadline: float, force: bool = False, workers: int = 4, log=print,
-                full: bool = False, slice_minutes: float | None = None) -> dict:
+                full: bool = False, slice_minutes: float | None = None, owned: dict[str, str] | None = None) -> dict:
     """Crawl `sources` concurrently inside the time budget.
 
     force          ignore the off-peak window (cadence is handled by `due`)
     full           re-crawl from the beginning of history instead of a delta (also restarts interrupted backfills)
     slice_minutes  one source's share of the run (default: a sixth of the budget, at least 4 minutes); a source
                    that reaches it is marked partial and resumes next run (pages already read are skipped), so a
-                   big archive never keeps the other sources from their turn
+                   big archive never keeps the other sources from their turn. When every source has had its turn
+                   and time is left, the ones stopped by their share carry on (another share each, as long as the
+                   budget lasts): a run no longer ends at minute 8 of 25 with half its sources part-read.
+    owned          endpoint -> source configured to read it (owned_endpoints over all sources, not just this shard)
     A SIGINT (the workflow's watchdog) stops cleanly: sources in progress stop at their next request, nothing
     queued starts, and everything read so far is flushed.
     """
+    owned = owned if owned is not None else owned_endpoints(sources)
     import signal
 
     sch = Schedule.from_config(cfg.get("schedule", {}))
@@ -196,22 +226,44 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
     def may_run(structured: bool, src: dict | None = None) -> bool:
         return pages_ok(src) or (structured and api_anytime)
 
+    def owned_by_other(src: dict, endpoint) -> bool:
+        owner = owned.get(str(endpoint or ""))
+        return bool(owner) and owner != src["id"]
+
     def choose(src: dict) -> tuple[dict, list]:
         hit = cache.get(src["id"])
+        if hit and owned_by_other(src, (hit.get("chosen") or {}).get("endpoint")):
+            cache.invalidate(src["id"])     # chosen before the rule below: probe again
+            hit = None
         if hit:
             return hit["chosen"], hit.get("probes", [])
         if src.get("channel"):
             return {"channel": src["channel"], "endpoint": src.get("endpoint", src["url"])}, []
         probes = channels.probe_source(fetcher, src)
+        # A portal another source already reads (a county site that links to the county's own Legistar source) is
+        # not read a second time through the site: that stored every DeKalb agenda item twice.
+        probes = [p for p in probes if not owned_by_other(src, p.endpoint)]
         chosen = channels.choose(probes)
         if not chosen:
-            raise RuntimeError("no working channel: " + ("; ".join(f"{p.channel}: {p.note}" for p in probes if p.note)
-                                                         or "nothing answered"))
+            notes = "; ".join(f"{p.channel}: {p.note}" for p in probes if p.note)
+            if "OutOfTime" in notes or "past the deadline" in notes:
+                raise OutOfTime("the probe ran out of time: " + notes[:200])   # not a failure: tried again next run
+            raise RuntimeError("no working channel: " + (notes or "nothing answered"))
         cache.put(src["id"], chosen, probes)
         hit = cache.get(src["id"])
         return hit["chosen"], hit["probes"]
 
     def one(src: dict) -> tuple[str, str]:
+        # This source's share of the run starts now and covers its probe too. (It used to be set only after the probe,
+        # so a probe ran under the previous source's spent share on this thread: 185 sources in one run "failed"
+        # their probe with OutOfTime and were then backed off for 6 hours.)
+        fetcher.thread_stop_at = min(deadline, time.monotonic() + slice_s)
+        try:
+            return _one(src)
+        finally:
+            fetcher.thread_stop_at = None
+
+    def _one(src: dict) -> tuple[str, str]:
         sid = src["id"]
         if stop.is_set() or time.monotonic() > deadline:
             return sid, "skipped: run time budget used up"
@@ -254,7 +306,6 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                                     page_revisit_days=float(fr.get("page_revisit_days", 7)))
         new = total = 0
         mode = "delta" if modified_since else ("resume" if ctx.cursors else "full")
-        fetcher.thread_stop_at = min(deadline, time.monotonic() + slice_s)
         try:
             for item in channels.crawl(fetcher, src, chosen, limits, modified_since=modified_since, ctx=ctx):
                 if isinstance(item, channels.Checkpoint):
@@ -306,18 +357,35 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             return sid, f"error ({chosen['channel']}): {type(exc).__name__}: {exc}"[:300]
 
     pool = ThreadPoolExecutor(max_workers=max(1, workers))
-    skipped = 0
+    waiting = 0
+    passes = 0
     try:
-        futures = {pool.submit(one, s): s for s in sources}
-        for fut in as_completed(futures):
-            sid, msg = fut.result()
-            summary[sid] = msg
-            if msg.startswith("skipped: run time budget"):
-                skipped += 1                      # counted, not listed: hundreds of lines said the same thing
-            else:
-                log(f"{sid}: {msg}")
-            if time.monotonic() > deadline:
-                stop.set()
+        batch = list(sources)
+        while batch:
+            passes += 1
+            futures = {pool.submit(one, s): s for s in batch}
+            for fut in as_completed(futures):
+                sid, msg = fut.result()
+                summary[sid] = msg
+                if msg.startswith("skipped: run time budget"):
+                    pass                          # counted below, not listed: hundreds of lines said the same thing
+                elif msg.startswith("waiting for off-peak window"):
+                    waiting += 1 if passes == 1 else 0
+                else:
+                    log(f"{sid}: {msg}")
+                if time.monotonic() > deadline:
+                    stop.set()
+            left = deadline - time.monotonic()
+            if stop.is_set() or left < 120:
+                break
+            # every source has had its turn and time is left: the ones their share stopped carry on
+            by_id = {s["id"]: s for s in batch}
+            batch = [by_id[sid] for sid, m in summary.items()
+                     if sid in by_id and m.startswith("partial") and m.endswith("(time slice)") and _made_progress(m)]
+            if passes >= 8:
+                batch = []
+            if batch:
+                log(f"pass {passes + 1}: {len(batch)} sources stopped by their share carry on ({left / 60:.0f} min left)")
     except KeyboardInterrupt:
         stop.set()
         fetcher.stop_at = time.monotonic()
@@ -331,7 +399,9 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
     for s in sources:
         if s["id"] not in summary and stop.is_set():
             summary[s["id"]] = "skipped: run time budget used up"
-            skipped += 1
+    skipped = sum(1 for m in summary.values() if m.startswith("skipped: run time budget"))
+    if waiting:
+        log(f"{waiting} sources wait for the off-peak window (small towns' sites are read at night)")
     if skipped:
         log(f"{skipped} sources not reached this run (time budget); they keep their place in the order for next time")
     return summary
