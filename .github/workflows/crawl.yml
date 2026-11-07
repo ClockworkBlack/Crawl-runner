@@ -568,6 +568,17 @@ jobs:
           git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
           exit 1
+      - name: Site data for the page's Check for updates (Electo's site-data release)
+        # the page (and the app) fetches newer data files from this release with a read-only token the owner keeps on
+        # the device (Electo tools/site_data.sh): the data reaches readers without a new release of the page
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          cd /tmp/electo-full && git pull -q --rebase --autostash || true
+          [ -f tools/site_data.sh ] && timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
       - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
         if: always() && env.PUBLIC_RUNNER == 'true'
         run: |
