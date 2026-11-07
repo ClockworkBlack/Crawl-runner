@@ -74,5 +74,7 @@ def test_workflows_have_no_duplicate_keys():
         return yaml.SafeLoader.construct_mapping(loader, node, deep)
 
     Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+    from pathlib import Path
+
     for p in (Path(__file__).resolve().parents[1] / ".github" / "workflows").glob("*.yml"):
         yaml.load(p.read_text(), Loader=Strict)

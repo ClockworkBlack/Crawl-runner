@@ -415,10 +415,12 @@ jobs:
           # on the public runner the details (addresses, replies) go only to the tracker kept in the private repository
           Q=/dev/stdout; [ "$PUBLIC_RUNNER" = "true" ] && Q=/dev/null
           gacrawl records contacts --max-minutes "$M" > "$Q" || true
-          gacrawl records check > "$Q" || true
-          gacrawl records follow-up > "$Q" || true
-          gacrawl records send > "$Q" || true
-          gacrawl records deadlines > "$Q" || true   # late replies -> one GitHub issue (you're notified)
+          if [ -n "$ORR_USER" ]; then     # the mailbox: the private repository's records-send run, not the public runner
+            gacrawl records check > "$Q" || true
+            gacrawl records follow-up > "$Q" || true
+            gacrawl records send > "$Q" || true
+            gacrawl records deadlines > "$Q" || true   # late replies -> one GitHub issue (you're notified)
+          fi
           if [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl records status | python3 -c "import sys,json;d=json.load(sys.stdin);print('records requests:',d.get('by_status'),'overdue:',len(d.get('overdue') or []))" || true; else gacrawl records status; fi
       - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
         run: |

@@ -85,6 +85,7 @@ case "$cmd" in
       git clone -q --depth 1 "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data
       for p in "$@"; do
         [ -e "$p" ] || continue
+        case "$p" in data/openrecords*) continue ;; esac   # the tracker is written only by the private repository's mail run
         mkdir -p ".data/$(dirname "$p")"; rm -rf ".data/$p"; cp -r "$p" ".data/$p"
       done
       cd .data
