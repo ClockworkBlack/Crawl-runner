@@ -166,9 +166,13 @@ class RateLimiter:
                 return v
         return self.min_interval
 
+    daytime_factor: float = 1.0     # > 1 while a big site is read by day (scheduler.daytime): gentler than at night
+
     def interval(self, host: str, crawl_delay: float | None = None) -> float:
         st = self._state(host)
         base = max(self.base_interval(host), crawl_delay or 0.0)
+        if self.daytime_factor != 1.0 and host not in self.host_intervals:
+            base *= self.daytime_factor
         return base * st.multiplier
 
     def wait(self, url: str, crawl_delay: float | None = None, until: float | None = None) -> float:

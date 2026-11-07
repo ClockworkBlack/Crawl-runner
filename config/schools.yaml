@@ -52,7 +52,14 @@ gosa:
     fesr_school: {match: "School_FESR_", label: "Financial efficiency (school)", xlsx: true}
     act: {match: "ACT_", label: "ACT composite (average score)", where: {SUBGRP_DESC: "All Students", TEST_CMPNT_TYP_CD: "Composite"},
           level_value: {school: "INSTN_AVG_SCORE_VAL", district: "DSTRCT_AVG_SCORE_VAL", state: "STATE_AVG_SCORE_VAL"}}
-  max_file_bytes: 60000000
+    # Georgia Milestones (EOG grades 3-8, EOC high school): percent proficient or distinguished, all students
+    eog_ela: {match: "EOG_", label: "Milestones EOG English Language Arts (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
+              where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "English Language Arts", ACDMC_LVL: "ALL GRADES"}}
+    eog_math: {match: "EOG_", label: "Milestones EOG Mathematics (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
+               where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "Mathematics", ACDMC_LVL: "ALL GRADES"}}
+    eoc_all: {match: "EOC_", label: "Milestones EOC, all courses (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
+              where: {SUBGROUP_NAME: "All Students", ACDMC_LVL: "ALL GRADES"}, avg: true}
+  max_file_bytes: 150000000
 
 ccrpi:
   page: https://gadoe.org/CCRPI       # links on this page to the CCRPI score files (xlsx/csv) are followed

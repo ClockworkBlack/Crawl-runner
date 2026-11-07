@@ -176,7 +176,7 @@ def sources_for(j: dict, defaults: dict | None = None) -> list[dict]:
     """Expand one jurisdiction into crawl sources (see module docstring)."""
     if j.get("enabled") is False:
         return []
-    base = {"jurisdiction": j["id"], "jurisdiction_name": j["name"], "tier": j["tier"],
+    base = {"jurisdiction": j["id"], "jurisdiction_name": j["name"], "tier": j["tier"], "jurisdiction_kind": j.get("kind") or "",
             "since": (defaults or {}).get("since", "2016-01-01")}
     srcs = []
     p = j.get("portals", {})

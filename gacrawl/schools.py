@@ -426,9 +426,12 @@ def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
     ratio = [_colx(H, x) for x in (s.get("ratio") or [])]
     if s.get("ratio") and None in ratio:
         return []
+    add = [_colx(H, x) for x in (s.get("add") or [])]     # value = these columns added up (proficient + distinguished)
+    if s.get("add") and None in add:
+        return []
     lv = {k: _colx(H, v) for k, v in (s.get("level_value") or {}).items()}
     c_val = _colx(H, s["value"]) if s.get("value") else None
-    if c_val is None and not ratio and not lv:
+    if c_val is None and not ratio and not lv and not add:
         c_val = next((i for i, h in enumerate(H) if re.search(r"PERCENT|_PCT|COUNT|SCORE|RATE", h) and "YEAR" not in h), None)
         if c_val is None:
             return []
@@ -460,6 +463,9 @@ def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
         if ratio:
             num, den = _num(cell(r, ratio[0])), _num(cell(r, ratio[1]))
             v = round(100.0 * num / den, 2) if num is not None and den else None
+        elif add:
+            vals = [_num(cell(r, i)) for i in add]
+            v = round(sum(vals), 1) if all(x is not None for x in vals) else None
         elif lv:
             v = _num(cell(r, lv.get(level)))
         else:
@@ -468,7 +474,7 @@ def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
             continue
         key = (dc, sc if is_school else "", year)
         if key in places:
-            if s.get("sum"):
+            if s.get("sum") or s.get("avg"):
                 places[key]["value"] = round(places[key]["value"] + v, 2)
                 places[key]["rows"] += 1
             continue                      # one value per place: the first matching row
@@ -477,6 +483,8 @@ def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
                        "level": level, "rows": 1}
     out = list(places.values())
     for row in out:
+        if s.get("avg"):
+            row["value"] = round(row["value"] / row["rows"], 1)     # the mean over the matching rows (EOC courses)
         if not s.get("sum"):
             row.pop("rows", None)
     return out
@@ -617,7 +625,11 @@ def stats(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
             out["errors"].append(f"{sid}: HTTP {fr.status} ({len(fr.content)} bytes)")
             continue
         if s.get("xlsx") or url.lower().endswith((".xlsx", ".xls")):
-            parts = [(sid, s.get("label", sid), parse_fesr(parse_xlsx_rows(fr.content), sid))]
+            fesr_rows = parse_fesr(parse_xlsx_rows(fr.content), sid)
+            # the same workbook carries each place's per-pupil spending: its own series, for comparisons
+            ppe_rows = [{**r, "series": sid.replace("fesr", "ppe"), "value": r["per_pupil"]} for r in fesr_rows if r.get("per_pupil") is not None]
+            parts = [(sid, s.get("label", sid), fesr_rows),
+                     (sid.replace("fesr", "ppe"), "Spending per student ($, " + ("district" if "district" in sid else "school") + ")", ppe_rows)]
         else:
             text = fr.content.decode("utf-8", "replace")
             parts = [(o["id"], o.get("label", o["id"]), parse_gosa_csv(text, o["id"], {**s, **o}))
@@ -638,8 +650,13 @@ def stats(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
     if c.get("page") and not timed_out():
         try:
             r = fetcher.get(c["page"])
-            if r.status == 200:
-                soup = extract.soup_of(r.text)
+            html = r.text if r.status == 200 else ""
+            if r.status == 200 and not re.search(r"\.(xlsx?|csv)", html, re.I):
+                from .legis_video import _rendered
+
+                html = _rendered(fetcher, c["page"]) or html     # the page builds its links with scripts
+            if html:
+                soup = extract.soup_of(html)
                 for a in soup.find_all("a", href=True):
                     u = urljoin(r.url, a["href"]).split("#")[0]
                     hay = f"{a.get_text(' ', strip=True)} {urlsplit(u).path.rsplit('/', 1)[-1]}".lower()

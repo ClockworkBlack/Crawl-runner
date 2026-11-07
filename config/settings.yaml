@@ -48,6 +48,13 @@ schedule:
   windows:
     - {days: [mon, tue, wed, thu, fri], start: "23:00", end: "06:00"}
     - {days: [sat, sun], start: "21:00", end: "08:00"}
+  # By day too, at a gentler pace: sites built for traffic. Tier a = counties, consolidated governments and cities of
+  # 10,000 or more; school districts; the state's own sites. Towns' sites (tiers b and c) still wait for the window.
+  daytime:
+    tiers: [a]
+    kinds: [school_district]
+    hosts: [georgia.gov, ga.gov, gadoe.org, gosa.ga.gov, legis.ga.gov, k12.ga.us]
+    slower_by: 2               # the per-host interval doubled by day (3 s -> 6 s between requests to one site)
 
 # How often each jurisdiction is re-crawled, by tier
 # (a = counties, consolidated governments and cities >= 10k; b = 1k-10k; c = under 1k).

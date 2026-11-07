@@ -15,6 +15,7 @@ import datetime as dt
 import json
 from .registry import write_json_atomic
 import threading
+from urllib.parse import urlsplit
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -173,11 +174,27 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
     except ValueError:
         prev_handler = None                 # not the main thread (tests): no handler
 
-    def pages_ok() -> bool:
-        return force or sch.is_good_time()
+    # By day, pages are read only from sites built for traffic (schedule.daytime: large cities and counties,
+    # school districts, state agencies), at a gentler pace; small towns' sites wait for the off-peak window.
+    day_cfg = cfg.get("schedule", {}).get("daytime") or {}
+    day_tiers = set(day_cfg.get("tiers") or [])
+    day_kinds = set(day_cfg.get("kinds") or [])
+    day_hosts = [h.lower() for h in (day_cfg.get("hosts") or [])]
+    if day_cfg.get("slower_by"):
+        fetcher.limiter.daytime_factor = float(day_cfg["slower_by"]) if not sch.is_good_time() else 1.0
 
-    def may_run(structured: bool) -> bool:
-        return pages_ok() or (structured and api_anytime)
+    def by_day(src: dict) -> bool:
+        if not day_cfg:
+            return False
+        host = urlsplit(src.get("url") or "").netloc.lower()
+        return (src.get("tier") in day_tiers or src.get("jurisdiction_kind") in day_kinds
+                or any(host == h or host.endswith("." + h) for h in day_hosts))
+
+    def pages_ok(src: dict | None = None) -> bool:
+        return force or sch.is_good_time() or (src is not None and by_day(src))
+
+    def may_run(structured: bool, src: dict | None = None) -> bool:
+        return pages_ok(src) or (structured and api_anytime)
 
     def choose(src: dict) -> tuple[dict, list]:
         hit = cache.get(src["id"])
@@ -207,7 +224,7 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
         modified_since = None if (full or old_reader) else (p0.get("last_ok") or None)
         if full:
             store.clear_cursors(sid)
-        if not pages_ok():
+        if not pages_ok(src):
             # by day only a source already known to have an API or feed runs; the rest are not even probed (a
             # probe is page traffic too), they wait for the window
             hit = cache.get(sid)
@@ -229,10 +246,10 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             progress.update(sid, status=f"error choosing channel: {exc}"[:300])
             return sid, f"error choosing channel: {exc}"[:300]
         structured = chosen["channel"] in channels.STRUCTURED
-        if not may_run(structured):
+        if not may_run(structured, src):
             progress.update(sid, status="waiting for off-peak window")
             return sid, f"waiting for off-peak window ({chosen['channel']})"
-        ctx = channels.CrawlContext(frontier=store, cursors=store.cursors(sid), pages_ok=pages_ok(), probes=probes,
+        ctx = channels.CrawlContext(frontier=store, cursors=store.cursors(sid), pages_ok=pages_ok(src), probes=probes,
                                     leaf_ttl_days=float(fr.get("document_ttl_days", 3650)),
                                     page_revisit_days=float(fr.get("page_revisit_days", 7)))
         new = total = 0
@@ -253,7 +270,7 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                         item.meta[k] = src[k]
                 total += 1
                 new += store.add(item)
-                if stop.is_set() or time.monotonic() > deadline or not may_run(structured):
+                if stop.is_set() or time.monotonic() > deadline or not may_run(structured, src):
                     store.flush()
                     progress.update(sid, status=f"partial ({chosen['channel']} {mode}): {new} new / {total} seen",
                                     new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"])
