@@ -346,10 +346,11 @@ jobs:
       - name: General Assembly (members, bills, roll calls; per-candidate records)
         run: |
           # legis.ga.gov changes daily in session and signing season (January-May), rarely otherwise
-          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$(date -u +%m)" -le 5 ]; then
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$(date -u +%m)" -le 5 ] || [ "$PUBLIC_RUNNER" = "true" ]; then
             M=${{ vars.LEGIS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
             if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-            gacrawl legis update --max-minutes "$M" || true
+            # public runner: every run, with time for the roll calls (none had been fetched: the bill list used the 6 minutes)
+            if [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl legis update --max-minutes 30 --max-bills 400 || true; else gacrawl legis update --max-minutes "$M" || true; fi
           fi
           gacrawl legis people || true      # local: per-candidate records for tonight's export
       - name: Why bills passed, were vetoed or died (outlets' own news APIs)
@@ -379,6 +380,7 @@ jobs:
           # the registry and the statistics change a few times a year (weekly, NCES EDGE and GOSA/GaDOE data
           # services); school websites and the people pages are read a bounded batch at a time, every night
           M=${{ vars.SCHOOLS_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
+          [ "$PUBLIC_RUNNER" = "true" ] && M=40    # 180 district sites: board, superintendent and school pages
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
             gacrawl schools seed --max-minutes "$M" || true
