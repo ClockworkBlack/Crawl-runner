@@ -308,6 +308,24 @@ the exact letter; `gacrawl records status` shows where every request stands.
   Election Board (robots.txt disallows crawlers), house.ga.gov and senate.ga.gov (they refuse the request), and
   sites that block the crawler (sos.ga.gov pages, eCode360).
 
+## Is the data filling? (`gacrawl coverage`)
+
+After every run the merge job counts, per Electo feature, what the database and the state files hold and compares
+it with the last run: `data/coverage.md` (the report) and `state/coverage.json` (the counts and a short history),
+both kept in the private repository. A feature at zero or one that shrank by more than a tenth is listed first
+under **Needs attention**, with what feeds it (district sites for school board members, legis update for roll
+calls, the police news search for incidents). A drop right after a `config/purge.yaml` entry is expected. The
+**Crawl health** rows count sources read completely, waiting for the off-peak window, refused, and marked failed
+only because they ran out of time (should stay at 0: a source's time share now starts before its probe, and time
+outs are not backed off). Check this report before trusting a feature, instead of auditing the database by hand.
+
+Lessons the report was built from (November 2026): a probe that ran under the previous source's spent time share
+"failed" 185 sources in one run; a county site's probe read the county's Legistar a second time (every DeKalb agenda
+item stored twice); district websites from Wikipedia included an archive copy, a newspaper and another district's
+high school; police department names taken from page headings ("Police Department") matched every police story in
+the country; GDELT refuses shared runner addresses for minutes at a time. Each is fixed at the source and has a test
+in `tests/test_scheduler_time.py`.
+
 ## What needs a human
 
 - **Municode** (most Georgia codes) blocks crawlers: `gacrawl tasks` lists confirmed links to capture by hand
