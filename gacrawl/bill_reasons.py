@@ -50,6 +50,7 @@ LEGIS = "ga:legis"
 RECHECK_DAYS = 60
 OUTLET_RECHECK_DAYS = 7
 PER_OUTLET = 10
+OUTLET_WORKERS = 12     # outlets asked at once for one bill (different hosts)
 CUE = re.compile(r"\b(because|due to|after|amid|opposition|oppos(?:ed|e|ing)|opponents?|critics?|criticiz\w+|concerns?|worr\w+|"
                  r"supporters?|backers?|proponents?|advocates?|argu\w+|said the (?:bill|measure|legislation)|"
                  r"died|dies|dead|stalled|stall|never (?:got|received|came up for) a vote|failed|fail(?:s|ing)?|defeated|"
@@ -211,22 +212,36 @@ class Reasons:
         rx = bill_rx(number)
         after, before = session_window(item["years"])
         n = 0
-        for dom, api in apis.items():
-            url = api.rstrip("/") + "/wp/v2/posts"
-            word = WORDS.get(number[:2], "")
-            q = f"{word} {number.split()[-1]}" if word else number
+        word = WORDS.get(number[:2], "")
+        q = f"{word} {number.split()[-1]}" if word else number
+
+        def ask(dom_api):
+            # one outlet's search; the outlets are different hosts, so they are asked at once (each host still gets
+            # one request at a time at its own pace): 37 outlets one after another took 75 s a bill, 23 bills a run
+            dom, api = dom_api
             try:
-                r = self.f.get(url, params={"search": q, "after": after, "before": before, "per_page": PER_OUTLET,
-                                            "_fields": "link,date,title,content"})
+                r = self.f.get(api.rstrip("/") + "/wp/v2/posts", params={"search": q, "after": after, "before": before,
+                                                                         "per_page": PER_OUTLET, "_fields": "link,date,title,content"})
             except OutOfTime:
                 raise
             except Exception:  # noqa: BLE001
-                continue
+                return dom, None
             if r.status != 200 or not r.content.strip().startswith(b"["):
-                continue
+                return dom, None
             try:
-                posts = r.json()
+                return dom, (r, r.json())
             except ValueError:
+                return dom, None
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max(1, min(OUTLET_WORKERS, len(apis)))) as pool:
+            answers = list(pool.map(ask, apis.items()))
+        for dom, got in answers:
+            if not got:
+                continue
+            r, posts = got
+            if not isinstance(posts, list):
                 continue
             for p in posts[:PER_OUTLET]:
                 link = p.get("link") or ""

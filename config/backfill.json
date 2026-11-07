@@ -36,11 +36,12 @@
     ]
   },
   "runner": {
+    "_why_daytime": "5 shards x 45 minutes by day (Nov 7: a 4-hour cycle crawled sites for only 25 minutes of it; sources stopped by their share now carry on while time is left, so the longer shards get used)",
     "night_shards": 8,
     "night_minutes": 45,
     "crawl_shards": 6,
-    "backfill_shards": 3,
-    "crawl_minutes": 25,
+    "backfill_shards": 5,
+    "crawl_minutes": 45,
     "research_minutes": 200,
     "finance_minutes": 40,
     "police_minutes": 60,
