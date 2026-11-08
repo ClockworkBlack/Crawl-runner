@@ -168,9 +168,20 @@ def _kind_of(s: str) -> str:
 
 
 # ----------------------------------------------------------------------------- CCDR text (PDF)
+FINANCE_PARSE_V = 2      # 2: blank forms and guides refused, a report must name its filer, form text is no donor
+BLANK_FORM = re.compile(r"\b(edition|instructions?|how to (complete|file)|guide(book)?|manual|affidavit|candidate forms|"
+                        r"blank form|sample form|frequently asked|this form (is|must)|qualifying (packet|forms))\b", re.I)
+NOT_A_DONOR = re.compile(r"\b(commission|campaign finance act|edition|piedmont avenue|state ethics|page \d+ of|"
+                         r"instructions?|schedule [a-z]\b|total (contributions|this period))", re.I)
+
+
 def looks_like_finance_report(title: str, url: str, text: str) -> bool:
+    """A filed disclosure report, not the Commission's blank forms, guide or instructions (a city that posts the
+    candidate packet posts those too; read as a report, a form's headings became donors)."""
     s = f"{title} {url}".lower()
     head = (text or "")[:3000].lower()
+    if BLANK_FORM.search(f"{title} {url}") or BLANK_FORM.search(head[:1500]):
+        return False
     if re.search(r"campaign[ _-]?(contribution|finance|disclosure)|contribution[ _-]?disclosure|\bccdr\b", s):
         return True
     return bool(re.search(r"campaign contribution disclosure report|contributions received|itemized contributions", head)
@@ -406,18 +417,24 @@ class Finance:
             for v in c.get("variants") or [c["name"]]:
                 by_name[v.lower()] = c
         out = {"reports": 0, "rows": 0}
+        # a document parsed by an earlier version of the parser is parsed again (its old lines replaced): a fix to
+        # the parser reaches every report already read, not only new ones
         rows = self.store.query("kind='document' AND (meta LIKE '%\"doc_type\": \"finance_report\"%' OR lower(title) LIKE "
-                                "'%contribution%' OR lower(title) LIKE '%disclosure%') AND meta NOT LIKE '%\"finance_parsed\"%'",
-                                limit=limit)
+                                "'%contribution%' OR lower(title) LIKE '%disclosure%') AND "
+                                "coalesce(json_extract(meta,'$.finance_parse_v'),0) < ?", (FINANCE_PARSE_V,), limit=limit)
         for d in rows:
             text = d.get("text") or ""
             meta = dict(d["meta"])
             meta["finance_parsed"] = dt.date.today().isoformat()
+            meta["finance_parse_v"] = FINANCE_PARSE_V
+            self.store.delete_where("kind='contribution' AND url=? AND json_extract(meta,'$.filing_source')="
+                                    "'Campaign Contribution Disclosure Report posted by the jurisdiction'", (d["url"],))
             if looks_like_finance_report(d.get("title") or "", d["url"], text):
                 head = header_of(text)
                 who = head.get("candidate") or head.get("committee") or ""
                 cand = by_name.get(who.lower()) or by_name.get((committee_candidate(who) or "").lower()) if who else None
-                parsed = parse_ccdr_text(text)
+                # a report names its filer; without one the lines cannot be anyone's money (a blank form, a guide)
+                parsed = [r for r in parse_ccdr_text(text) if len(r.get("name") or "") <= 90 and not NOT_A_DONOR.search(r.get("name") or "")] if who else []
                 sid = f"cand:{cand['id']}" if cand else d["source_id"]
                 for row in parsed:
                     rec = contribution_record(sid, d["url"], row, (cand or {}).get("name") or who,
@@ -429,7 +446,7 @@ class Finance:
                         rec.meta["candidate_id"] = cand["id"]
                         if cand.get("electo_key"):
                             rec.meta["electo_key"] = cand["electo_key"]
-                    if self.store.add_new(rec):
+                    if self.store.add(rec):
                         out["rows"] += 1
                 meta["finance_rows"] = len(parsed)
                 meta["finance_filer"] = who
@@ -456,83 +473,169 @@ class Finance:
         except Exception:  # noqa: BLE001
             return None
 
-    def fec_candidate_id(self, c: dict) -> str | None:
-        """The candidate's FEC id: given in config, else looked up once (by name, Georgia) and remembered 90 days."""
-        if c.get("fec_id"):
-            return c["fec_id"]
+    # nicknames campaigns use for the names the FEC files under (Lucy McBath files as "MCBATH, LUCIA KAY")
+    NICK = {"lucy": {"lucia", "lucille"}, "hank": {"henry"}, "jim": {"james"}, "jimmy": {"james"}, "rick": {"richard"},
+            "buddy": {"earl"}, "mike": {"michael"}, "bill": {"william"}, "bob": {"robert"}, "chip": {"charles"},
+            "tom": {"thomas"}, "tony": {"anthony"}, "joe": {"joseph"}, "dan": {"daniel"}, "dave": {"david"},
+            "drew": {"andrew"}, "andy": {"andrew"}, "chuck": {"charles"}, "ted": {"edward", "theodore"}, "pat": {"patrick", "patricia"},
+            "liz": {"elizabeth"}, "beth": {"elizabeth"}, "kathy": {"katherine", "kathleen"}, "jon": {"jonathan"}, "matt": {"matthew"},
+            "greg": {"gregory"}, "ben": {"benjamin"}, "sam": {"samuel"}, "nick": {"nicholas"}, "doug": {"douglas"},
+            "barry": {"barry"}, "vic": {"victor"}, "kelly": {"kelly"}, "tim": {"timothy"}, "steve": {"steven", "stephen"}}
+
+    def fec_candidate_ids(self, c: dict) -> list[str]:
+        """Every FEC candidate id of this person (a House and a Senate run have separate ids): given in config
+        (fec_id / fec_ids), else found once by last name among Georgia candidates and matched on the first name (or
+        its nickname, or a shared first three letters), the district when the office names one, and the office; a
+        name two different people match is left unmatched (logged) rather than guessed. Remembered 30 days."""
+        given = [x for x in ([c.get("fec_id")] + list(c.get("fec_ids") or [])) if x]
+        if given:
+            return list(dict.fromkeys(given))
         office = (c.get("office") or "").lower()
         if not re.search(r"u\.?s\.? (house|senate|representative|congress)|congress", office):
-            return None
-        cache = json.loads(self.store.kv_get("fec_ids") or "{}")
+            return []
+        cache = json.loads(self.store.kv_get("fec_ids2") or "{}")
         hit = cache.get(c["id"])
-        if hit and hit.get("checked", "") >= (dt.date.today() - dt.timedelta(days=90)).isoformat():
-            return hit.get("fec_id") or None
-        d = self._fec("/candidates/search/", {"q": c["name"], "state": "GA", "per_page": 5})
-        found = None
-        for r in (d or {}).get("results", []):
-            if (r.get("name") or "").lower().split(",")[0].strip() == c["name"].split()[-1].lower():
-                found = r.get("candidate_id")
-                break
-        if d is not None:
-            cache[c["id"]] = {"fec_id": found or "", "checked": dt.date.today().isoformat()}
-            self.store.kv_set("fec_ids", json.dumps(cache, separators=(",", ":")))
-        return found
+        if hit and hit.get("checked", "") >= (dt.date.today() - dt.timedelta(days=30)).isoformat():
+            return hit.get("ids") or []
+        parts = [w for w in re.sub(r"[\"'().,]", " ", c["name"]).split() if w.lower() not in ("jr", "sr", "ii", "iii", "iv", "dr", "mr", "ms", "mrs")]
+        if len(parts) < 2:
+            return []
+        last = parts[-1].lower()
+        firsts = {w.lower() for w in parts[:-1]} | {a.split()[0].lower() for a in (c.get("aliases") or []) if a.split()}
+        firsts |= {n for f in list(firsts) for n in self.NICK.get(f, ())}
+        dm = re.search(r"district\s+(\d+)", office)
+        want_district = f"{int(dm.group(1)):02d}" if dm else ""
+        want_office = "S" if "senate" in office and "state senate" not in office else ("H" if re.search(r"house|representative|congress", office) else "")
+        d = self._fec("/candidates/search/", {"q": last, "state": "GA", "per_page": 100})
+        if d is None:
+            return []
+        people: dict[str, dict] = {}
+        for r in d.get("results", []):
+            nm = (r.get("name") or "").upper()
+            if nm.split(",")[0].strip().lower().replace(" ", "") != last.replace("-", "").replace(" ", "") and \
+                    nm.split(",")[0].strip().lower() != last:
+                continue
+            given_names = {w.lower().strip(".'") for w in re.split(r"[\s,]+", nm.split(",", 1)[1] if "," in nm else "") if w}
+            first_ok = bool(firsts & given_names) or any(f[:3] == g[:3] for f in firsts for g in given_names if len(f) >= 3 and len(g) >= 3)
+            if not first_ok:
+                continue
+            score = 1
+            if want_district and r.get("office") == "H" and (r.get("district") or "") == want_district:
+                score += 2
+            if want_office and r.get("office") == want_office:
+                score += 1
+            key = re.sub(r"\b(mr|ms|mrs|dr|jr|sr|iii|ii)\b\.?", "", nm.lower()).strip()
+            P = people.setdefault(key.split(",")[0] + "|" + " ".join(sorted(given_names))[:40], {"ids": [], "score": 0, "name": nm})
+            P["ids"].append(r["candidate_id"])
+            P["score"] = max(P["score"], score)
+        ranked = sorted(people.values(), key=lambda P: -P["score"])
+        ids: list[str] = []
+        if ranked and (len(ranked) == 1 or ranked[0]["score"] > ranked[1]["score"]):
+            ids = sorted(set(ranked[0]["ids"]))
+        elif ranked:
+            self.log(f"  fec {c['id']}: {len(ranked)} FEC candidates match equally ({', '.join(P['name'] for P in ranked[:4])}); "
+                     f"set fec_ids in config/candidates.yaml")
+        cache[c["id"]] = {"ids": ids, "checked": dt.date.today().isoformat(), "fec_name": ranked[0]["name"] if ids else ""}
+        self.store.kv_set("fec_ids2", json.dumps(cache, separators=(",", ":")))
+        return ids
+
+    # the fields of an FEC itemized receipt that decide how it counts (memo lines, earmarks, amendments)
+    FEC_FIELDS = ("sub_id", "transaction_id", "back_reference_transaction_id", "memo_code", "memo_text", "receipt_type",
+                  "receipt_type_full", "line_number", "entity_type", "conduit_name", "conduit_committee_id",
+                  "conduit_committee_name", "file_number", "image_number", "amendment_indicator", "report_type",
+                  "two_year_transaction_period", "contributor_id", "is_individual", "contribution_receipt_amount")
 
     def fec(self, c: dict, since: str, deadline: float | None = None) -> int:
-        """Itemized receipts (schedule A) for each of the candidate's committees. Seek pagination (the API's
-        last_indexes), newest first, stopping at a per-committee cursor: re-runs read only receipts filed since the
-        last one (with a 60-day overlap for late itemizations and amendments)."""
-        cid = self.fec_candidate_id(c)
-        if not cid:
-            return 0
+        """Itemized receipts (schedule A) of every committee of every FEC id of the candidate, with every field
+        that decides how a line counts (memo code, earmark and conduit, amendment, the FEC's own line id). Each line is
+        kept under the FEC's own id for it (committee + transaction id, which an amendment keeps), so a line read again
+        replaces the earlier copy. Seek pagination, newest first, stopping at a per-committee cursor (60 days of
+        overlap). A committee read in full under this scheme drops its lines from before it (read without these
+        fields, so no memo line could be told from a gift). Then the committee's official totals per cycle."""
         n = 0
-        d = self._fec("/committees/", {"candidate_id": cid, "per_page": 20})
-        for com in (d or {}).get("results", []):
-            com_id = com["committee_id"]
-            ck = f"fec:a:{com_id}"
-            cursor = self.store.kv_get(ck)
-            floor = since[:10]
-            if cursor:
-                floor = max(floor, (dt.date.fromisoformat(cursor) - dt.timedelta(days=60)).isoformat())
-            params = {"committee_id": com_id, "per_page": 100, "sort": "-contribution_receipt_date", "min_date": floor}
-            newest = cursor or ""
-            for _ in range(200):
-                if deadline and time.monotonic() > deadline:
-                    break
-                rr = self._fec("/schedules/schedule_a/", params)
-                rows = (rr or {}).get("results", [])
-                for s in rows:
-                    date = (s.get("contribution_receipt_date") or "")[:10] or None
-                    newest = max(newest, date or "")
-                    row = {"name": s.get("contributor_name") or "", "amount": s.get("contribution_receipt_amount"), "date": date,
-                           "employer": s.get("contributor_employer") or "", "occupation": s.get("contributor_occupation") or "",
-                           "city": s.get("contributor_city") or "", "state": s.get("contributor_state") or "",
-                           "kind": "contribution", "line": s.get("sub_id") or ""}
-                    rec = contribution_record(f"cand:{c['id']}", s.get("pdf_url") or f"{FEC}/schedules/schedule_a/?committee_id={com_id}",
-                                              row, c["name"], "candidate", "FEC", jurisdiction=c.get("jurisdiction", ""),
-                                              channel="api")
-                    rec.meta.update({"candidate_id": c["id"], "electo_key": c.get("electo_key"), "committee": com_id,
-                                     "committee_name": com.get("name"), "contributor_committee_id": s.get("contributor_id")
-                                     if (s.get("entity_type") or "") in ("PAC", "COM", "PTY", "ORG") else None,
-                                     # memo lines (memo_code X) repeat money already counted on another line; conduit
-                                     # fields name the platform (WinRed, ActBlue) an earmarked gift passed through
-                                     "memo_code": s.get("memo_code") or "", "receipt_type": s.get("receipt_type") or "",
-                                     "line_number": s.get("line_number") or "", "entity_type": s.get("entity_type") or "",
-                                     "conduit_name": s.get("conduit_name") or "", "conduit_committee_id": s.get("conduit_committee_id") or "",
-                                     "file_number": s.get("file_number") or ""})
-                    if self.store.add_new(rec):
-                        n += 1
-                last = ((rr or {}).get("pagination") or {}).get("last_indexes") or {}
-                if len(rows) < 100 or not last:
-                    break
-                params = {**params, **last}   # next page: seek after the last row returned
-            else:
-                pass
-            if newest:
-                self.store.kv_set(ck, newest)
+        for cid in self.fec_candidate_ids(c):
+            d = self._fec("/committees/", {"candidate_id": cid, "per_page": 20})
+            for com in (d or {}).get("results", []):
+                n += self._fec_committee(c, com, since, deadline)
+                self._fec_totals(com["committee_id"])
         return n
 
-    # ------------------------------------------------------------------ 4. entities over everything in the store
+    def _fec_committee(self, c: dict, com: dict, since: str, deadline: float | None) -> int:
+        com_id = com["committee_id"]
+        ck = f"fec:a2:{com_id}"
+        cursor = self.store.kv_get(ck)
+        floor = since[:10]
+        if cursor:
+            floor = max(floor, (dt.date.fromisoformat(cursor) - dt.timedelta(days=60)).isoformat())
+        params = {"committee_id": com_id, "per_page": 100, "sort": "-contribution_receipt_date", "min_date": floor}
+        newest, n, complete = cursor or "", 0, False
+        for _ in range(2000):
+            if deadline and time.monotonic() > deadline:
+                break
+            rr = self._fec("/schedules/schedule_a/", params)
+            if rr is None:
+                break
+            rows = rr.get("results", [])
+            for s in rows:
+                date = (s.get("contribution_receipt_date") or "")[:10] or None
+                newest = max(newest, date or "")
+                row = {"name": s.get("contributor_name") or "", "amount": s.get("contribution_receipt_amount"), "date": date,
+                       "employer": s.get("contributor_employer") or "", "occupation": s.get("contributor_occupation") or "",
+                       "city": s.get("contributor_city") or "", "state": s.get("contributor_state") or "",
+                       "kind": "contribution", "line": s.get("sub_id") or ""}
+                rec = contribution_record(f"cand:{c['id']}", s.get("pdf_url") or f"{FEC}/schedules/schedule_a/?committee_id={com_id}",
+                                          row, c["name"], "candidate", "FEC", jurisdiction=c.get("jurisdiction", ""), channel="api")
+                tid = s.get("transaction_id") or s.get("sub_id") or ""
+                rec.key = f"fec2|{com_id}|{tid}"
+                rec.meta.update({"candidate_id": c["id"], "electo_key": c.get("electo_key"), "committee": com_id,
+                                 "committee_name": com.get("name"), "fec_v": 2,
+                                 "contributor_committee_id": s.get("contributor_id")
+                                 if (s.get("entity_type") or "") in ("PAC", "COM", "PTY", "ORG", "CCM") else None})
+                rec.meta.update({f: s.get(f) for f in self.FEC_FIELDS if s.get(f) not in (None, "")})
+                old = self.store.get_meta(rec.key)
+                if old is not None:
+                    # read again: the FEC's fields come from this reading (an amendment may change them); what the
+                    # crawler added to the line since (donor, recipient and employer entities) stays
+                    for k, v in old.items():
+                        if k not in rec.meta and k.endswith(("_entity", "_of")):
+                            rec.meta[k] = v
+                if self.store.add(rec):
+                    n += 1
+            last = (rr.get("pagination") or {}).get("last_indexes") or {}
+            if len(rows) < 100 or not last:
+                complete = True
+                break
+            params = {**params, **last}
+        if newest and complete:
+            self.store.kv_set(ck, newest)
+        if complete and not cursor:
+            # this committee is now read in full with the FEC's fields: its lines from the earlier scheme go
+            gone = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
+                                           "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (com_id,))
+            if gone:
+                self.log(f"  fec {com_id}: {gone} lines from before the FEC's fields were kept, replaced")
+        return n
+
+    def _fec_totals(self, com_id: str) -> None:
+        """The committee's official totals per two-year cycle (receipts, contributions, itemized individual gifts,
+        money from other committees), against which what the crawler holds is checked."""
+        T = json.loads(self.store.kv_get("fec_totals") or "{}")
+        e = T.get(com_id) or {}
+        if e.get("checked", "") >= (dt.date.today() - dt.timedelta(days=7)).isoformat():
+            return
+        d = self._fec(f"/committee/{com_id}/totals/", {"per_page": 20})
+        if d is None:
+            return
+        cyc = {}
+        for r in d.get("results", []):
+            cyc[str(r.get("cycle"))] = {k: r.get(k) for k in ("receipts", "contributions", "individual_contributions",
+                                                              "individual_itemized_contributions", "individual_unitemized_contributions",
+                                                              "other_political_committee_contributions", "transfers_from_other_authorized_committee",
+                                                              "contribution_refunds", "coverage_start_date", "coverage_end_date",
+                                                              "disbursements", "committee_name")}
+        T[com_id] = {"checked": dt.date.today().isoformat(), "cycles": cyc}
+        self.store.kv_set("fec_totals", json.dumps(T, separators=(",", ":")))
+
     def resolve_all(self, candidates: list[dict]) -> dict:
         """Give every donor, recipient and organization an entity id (meta.donor_entity / recipient_entity)."""
         for c in candidates:
@@ -846,6 +949,16 @@ class Finance:
     # ------------------------------------------------------------------ run
     def run(self, candidates: list[dict], since: str = "2016-01-01", deadline: float | None = None,
             org_limit: int = 40) -> dict:
+        # the copies of FEC lines and Commission exports candidate research once kept as `connection` records, without
+        # the FEC's memo codes (candidates._connections no longer makes them; money is counted from these records only)
+        junk = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.filing_source')="
+                                       "'Campaign Contribution Disclosure Report posted by the jurisdiction' AND "
+                                       "coalesce(json_extract(meta,'$.recipient'),'')=''")
+        if junk:
+            self.log(f"  finance: {junk} lines read from posted forms that name no filer removed (blank forms and guides)")
+        gone = self.store.delete_where("kind='connection' AND json_extract(meta,'$.type')='contribution'")
+        if gone:
+            self.log(f"  finance: {gone} duplicate money copies from candidate research removed")
         out = {"imported": self.from_imports(candidates)}
         out["documents"] = self.from_documents(candidates)
         fec_n = 0

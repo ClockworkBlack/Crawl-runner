@@ -361,6 +361,18 @@ class Store:
             self._begin()
             return self.db.execute("SELECT 1 FROM records WHERE key=?", (key,)).fetchone() is not None
 
+    def get_meta(self, key: str) -> dict | None:
+        """The meta of the record with this natural key, or None."""
+        with self._lock:
+            self._begin()
+            r = self.db.execute("SELECT meta FROM records WHERE key=?", (key,)).fetchone()
+        if not r:
+            return None
+        try:
+            return json.loads(r[0]) if isinstance(r[0], str) else (r[0] or {})
+        except ValueError:
+            return {}
+
     def add_new(self, rec: Record) -> bool:
         """Insert only when no record has this key; never overwrites (keeps meta added later, e.g. entity ids)."""
         if self.has(rec.natural_key()):

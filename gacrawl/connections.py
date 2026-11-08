@@ -70,7 +70,7 @@ class Graph:
     def edge(self, a: str, b: str, etype: str, src: str, **attrs) -> dict | None:
         if not a or not b or a == b:
             return None
-        key = f"{a}|{b}|{etype}|{attrs.get('date') or ''}|{attrs.get('amount') or ''}|{attrs.get('role') or ''}|{src}"
+        key = f"{a}|{b}|{etype}|{attrs.get('date') or ''}|{attrs.get('amount') or ''}|{attrs.get('role') or ''}|{src}|{attrs.pop('line', '')}"
         if key in self._edge_keys:
             return None
         self._edge_keys.add(key)
@@ -109,9 +109,13 @@ class Graph:
 
 def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None) -> Graph:
     g = Graph(entities)
-    # money
-    for r in store.iter_query("kind='contribution'"):
-        m = r["meta"]
+    # money: every line once, by the shared rules (gacrawl/money.py), so the graph, the profiles' money summaries and
+    # the Donors tab count the same money
+    from .money import lines
+
+    for L in lines(store):
+        m = L["meta"]
+        r = {"url": L["url"]}
         donor, rcp = m.get("donor_entity"), m.get("recipient_entity")
         if not donor:
             continue
@@ -123,9 +127,10 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
                 g.edge(rcp, donor, "paid", r["url"], amount=m.get("amount"), date=m.get("date"), purpose=m.get("purpose"),
                        evidence="primary", filing=m.get("filing_source"), review=bool(m.get("needs_review")))
         elif rcp:
-            g.edge(donor, rcp, "contributed", r["url"], amount=m.get("amount"), date=m.get("date"), kind=m.get("type"),
+            g.edge(donor, rcp, "contributed", r["url"], amount=L["amount"], date=m.get("date"), kind=m.get("type"),
                    evidence="primary", filing=m.get("filing_source"), review=bool(m.get("needs_review")),
-                   employer=m.get("employer"), occupation=m.get("occupation"))
+                   employer=m.get("employer"), occupation=m.get("occupation"),
+                   line=L["rid"], **({"via": L["via"]} if L["via"] else {}), **({"platform": L["platform"]} if L["platform"] else {}))
         if m.get("employer_entity"):
             g.node(m["employer_entity"])
             g.edge(donor, m["employer_entity"], "employed_by", r["url"], evidence="primary")
@@ -429,12 +434,55 @@ def money_for(g: Graph, store: Store, entities: EntityIndex, candidate_id: str, 
     if pats and not g.pattern_index:
         g.index_patterns(pats)
     related = [pats[i] for i in g.pattern_index.get(eid, [])] if pats else []
+    via = defaultdict(float)
+    for e in ins:
+        if e.get("via"):
+            via[e["via"]] += e.get("amount") or 0
+    out_fec = fec_check(store, candidate_id, sum(e.get("amount") or 0 for e in ins if e.get("filing") == "FEC"))
     return {"entity": eid, "total_raised": round(sum(e.get("amount") or 0 for e in ins), 2), "contributions": len(ins),
+            "fec": out_fec, "via": [{"name": k, "total": round(v, 2)} for k, v in sorted(via.items(), key=lambda kv: -kv[1])][:12],
             "total_spent": round(sum(e.get("amount") or 0 for e in outs), 2), "expenditures": len(outs),
             "donors": sorted(by_donor.values(), key=lambda d: -d["total"])[:60],
             "organizations": sorted(orgs, key=lambda d: -d["total"])[:40],
             "employers": [{"employer": k, "total": round(v, 2)} for k, v in sorted(employers.items(), key=lambda kv: -kv[1])[:20]],
             "patterns": related[:40], "sources": sorted({e["src"] for e in ins + outs})[:200]}
+
+
+_COMMITTEES: dict = {}
+SINCE_CYCLE = 2016
+
+
+def fec_check(store: Store, candidate_id: str, itemized_fec: float) -> dict | None:
+    """What the FEC itself reports the candidate's committees raised (every cycle the crawler holds totals for),
+    against the FEC lines the crawler counted. Itemized lines can never add up to more than the committee's receipts,
+    so more than 5% over means lines are counted twice (or belong to another person): check "mismatch", and the
+    page shows no total. Less is normal (gifts under $200 are not itemized). None for a candidate with no FEC
+    committee."""
+    if not _COMMITTEES:
+        with store._lock:
+            rows = store.db.execute("SELECT DISTINCT json_extract(meta,'$.candidate_id') AS c, json_extract(meta,'$.committee') AS k "
+                                    "FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC'").fetchall()
+        for r in rows:
+            if r["c"] and r["k"]:
+                _COMMITTEES.setdefault(r["c"], set()).add(r["k"])
+        _COMMITTEES.setdefault("__loaded__", set())
+    coms = sorted(_COMMITTEES.get(candidate_id) or ())
+    if not coms:
+        return None
+    T = json.loads(store.kv_get("fec_totals") or "{}")
+    receipts, cycles, have = 0.0, set(), 0
+    for k in coms:
+        for cy, t in ((T.get(k) or {}).get("cycles") or {}).items():
+            if int(cy) < SINCE_CYCLE:
+                continue        # before the receipts the crawler reads (2016 on)
+            have += 1
+            receipts += float(t.get("receipts") or 0)
+            cycles.add(int(cy))
+    if not have:
+        return {"committees": coms, "check": "unchecked", "itemized": round(itemized_fec, 2)}
+    check = "mismatch" if itemized_fec > receipts * 1.05 + 100 else "ok"
+    return {"committees": coms, "receipts": round(receipts, 2), "cycles": sorted(cycles), "itemized": round(itemized_fec, 2),
+            "check": check}
 
 
 def export_graph(g: Graph, pats: list[dict], out: Path) -> dict:

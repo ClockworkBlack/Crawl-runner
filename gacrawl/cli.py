@@ -584,7 +584,22 @@ def cmd_finance(cfg, args):
 
     store = config.make_store(cfg)
     try:
-        deadline = time.monotonic() + float(args.max_minutes or 30) * 60
+        # FEC lines read before the FEC's own fields were kept are not counted (gacrawl/money.py) until each
+        # committee is read again: while any remain, the FEC re-read gets up to an hour, people with the most first
+        with store._lock:
+            legacy = store.db.execute(
+                "SELECT json_extract(meta,'$.candidate_id') AS c, count(*) AS n FROM records WHERE kind='contribution' AND "
+                "json_extract(meta,'$.filing_source')='FEC' AND json_extract(meta,'$.committee') IS NOT NULL AND "
+                "json_extract(meta,'$.fec_v') IS NULL GROUP BY c ORDER BY n DESC").fetchall()
+        pending = {r["c"]: r["n"] for r in legacy if r["c"]}
+        minutes = float(args.max_minutes or 30)
+        if pending:
+            minutes = max(minutes, 60.0)
+            print(f"finance: {sum(pending.values())} FEC lines of {len(pending)} people await the re-read with the FEC's fields")
+        elif args.reread_only:
+            print("finance: no FEC lines await a re-read")
+            return
+        deadline = time.monotonic() + minutes * 60
         fin = Finance(config.ROOT, cfg, _fetcher(cfg, deadline), store)
         if args.action == "probe":
             print(json.dumps(fin.probe_commission(), indent=1))
@@ -592,6 +607,10 @@ def cmd_finance(cfg, args):
         cands = load_candidates(config.ROOT, cfg)
         if args.candidate:
             cands = [c for c in cands if c["id"] == args.candidate or c.get("electo_key") == args.candidate]
+        if pending:     # the re-read first, largest first
+            cands.sort(key=lambda c: -pending.get(c["id"], 0))
+        if args.reread_only:
+            cands = [c for c in cands if c["id"] in pending]
         print(json.dumps(fin.run(cands, since=args.since or cfg.get("limits", {}).get("since", "2016-01-01"),
                                  deadline=deadline, org_limit=int(args.org_limit or fin.opts.get("org_limit", 40))), indent=1))
     finally:
@@ -968,6 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
     fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe"])
     fi.add_argument("--candidate"); fi.add_argument("--since"); fi.add_argument("--max-minutes", type=float); fi.add_argument("--org-limit", type=int)
+    fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
     lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "all"])

@@ -284,9 +284,17 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
         m = r.get("meta", {})
         if m.get("type") == "endorsement":
             endorsements.append({"name": m.get("party"), "src": [src(r)]})
-        elif m.get("type") == "contribution":
-            finance.append({"name": m.get("name"), "amount": m.get("amount"), "date": m.get("date"),
-                            "employer": m.get("employer"), "src": [src(r)]})
+    # money: the candidate's contribution lines as the shared rules count them (no memo lines, each line once)
+    from .money import clean
+
+    for L in clean(records.get("contribution", [])):
+        m = L["meta"]
+        if L["type"] == "contribution" and L["amount"] > 0:
+            finance.append({"name": m.get("name"), "amount": L["amount"], "date": m.get("date"), "employer": m.get("employer"),
+                            "via": L["via"], "src": [src({"url": L["url"], "meta": m, "title": m.get("name") or "",
+                                                          "published": L["published"]})]})
+    finance.sort(key=lambda x: -(x["amount"] or 0))
+    finance = finance[:200]
     social = [{"d": d10(r), "text": (r.get("text") or "")[:400], "author": r.get("meta", {}).get("author"),
                "src": [src(r, (r.get("text") or "")[:400])]} for r in records.get("social_mention", [])[:30]]
     leads = [{"t": r.get("title", "")[:200], "u": r.get("url"), "outlet": r.get("meta", {}).get("outlet"),

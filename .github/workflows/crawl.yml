@@ -427,14 +427,16 @@ jobs:
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           gacrawl codeacts --max-minutes "$M" || true   # exits early once every act is read
       - name: Campaign finance and organizations
-        if: needs.prepare.outputs.research == 'true'
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           OPENCORPORATES_API_KEY: ${{ secrets.OPENCORPORATES_API_KEY }}
         run: |
           M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          gacrawl finance --max-minutes "$M" || true
+          # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
+          # otherwise on research runs, as before
+          if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then gacrawl finance --max-minutes "$M" || true
+          else gacrawl finance --reread-only --max-minutes "$M" || true; fi
       - name: Open records requests (replies, follow-ups, new batch)
         env:
           ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}

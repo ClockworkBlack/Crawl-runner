@@ -914,40 +914,11 @@ class Researcher:
 
     # ------------------------------------------------------------------ money and endorsements
     def _connections(self, c, cls, add, since):
-        csv_path = self.root / (c.get("finance_csv") or f"imports/finance/{c['id']}.csv")
-        if csv_path.exists():
-            for row in parse_finance_csv(csv_path):
-                add(Record("", "connection", f"file://{csv_path.name}", title=f"Contribution: {row['name']}",
-                           text=json.dumps(row), published=row.get("date"), channel="import", evidence="primary",
-                           meta={"type": "contribution", **row,
-                                 "filing_source": "Georgia Government Transparency and Campaign Finance Commission export"}))
-        if c.get("fec_id"):
-            key = os.environ.get("FEC_API_KEY", "DEMO_KEY")
-            r = self.f.get(f"{FEC}/committees/", params={"candidate_id": c["fec_id"], "api_key": key}, use_cache=False)
-            for com in (r.json().get("results", []) if r.status == 200 else []):
-                page = 1
-                while page <= 20:
-                    rr = self.f.get(f"{FEC}/schedules/schedule_a/", params={
-                        "committee_id": com["committee_id"], "api_key": key, "per_page": 100, "page": page,
-                        "sort": "-contribution_receipt_date", "min_date": since[:10]}, use_cache=False)
-                    if rr.status != 200:
-                        break
-                    rows = rr.json().get("results", [])
-                    for s in rows:
-                        add(Record("", "connection", s.get("pdf_url") or f"{FEC}/schedules/schedule_a/?committee_id={com['committee_id']}",
-                                   title=f"Contribution: {s.get('contributor_name')}", text=json.dumps({
-                                       "name": s.get("contributor_name"), "amount": s.get("contribution_receipt_amount"),
-                                       "date": s.get("contribution_receipt_date"), "employer": s.get("contributor_employer"),
-                                       "occupation": s.get("contributor_occupation"), "city": s.get("contributor_city"),
-                                       "state": s.get("contributor_state")}),
-                                   published=s.get("contribution_receipt_date"), channel="api", evidence="primary",
-                                   meta={"type": "contribution", "name": s.get("contributor_name"),
-                                         "amount": s.get("contribution_receipt_amount"), "employer": s.get("contributor_employer"),
-                                         "date": s.get("contribution_receipt_date"), "committee": com["committee_id"],
-                                         "filing_source": "FEC", "opened": True}))
-                    if len(rows) < 100:
-                        break
-                    page += 1
+        """Campaign money is collected once, by the finance step (gacrawl finance: FEC receipts with the FEC's own
+        fields, Georgia CCDR filings, the Commission's exports in imports/finance/) and counted by one set of rules
+        (gacrawl/money.py). This step used to read the FEC and the exports a second time into `connection` records,
+        without the memo codes that tell a repeated memo line from a gift; it no longer does."""
+        return
 
 
 def _profile_inputs(root: Path, store: Store | None = None) -> dict:

@@ -29,7 +29,8 @@ from pathlib import Path
 GIFT_CAP = 25000
 # Earmarking platforms: a line "from" one of these is many people's gifts passed through, not one donor. Counted in
 # what the recipient raised, listed as a conduit, kept out of donor rankings and donor geography.
-CONDUITS = {"C00694323": "WinRed", "C00401224": "ActBlue", "C00797670": "AIPAC PAC (earmarked)"}
+CONDUITS = {"C00694323": "WinRed", "C00401224": "ActBlue"}   # a platform's lump line; an earmark through a PAC is the
+                                                             # person's gift, with the PAC named as how it came (via)
 CONDUIT_NAME = re.compile(r"^(winred|actblue|democracy engine|anedot)\b", re.I)
 CONDUIT_LABEL = {"winred": "WinRed", "actblue": "ActBlue", "democracy engine": "Democracy Engine", "anedot": "Anedot"}
 JFC = re.compile(r"\b(victory (fund|committee)|joint fund|jfc)\b", re.I)
@@ -87,33 +88,14 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                                "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": ""}
         return R
 
-    # each candidate's own committees (a transfer between them is not new money)
-    own: dict[str, set] = defaultdict(set)
-    for r in store.iter_query("kind='contribution'"):
-        m = r.get("meta") or {}
-        if m.get("candidate_id") and m.get("committee"):
-            own[m["candidate_id"]].add(m["committee"])
-    seen: set = set()
-    n_memo = n_dup = n_transfer = 0
-    for r in store.iter_query("kind='contribution'"):
-        m = r.get("meta") or {}
-        amt = m.get("amount")
-        if amt is None:
-            continue
-        amt = float(amt)
-        if (m.get("memo_code") or "").upper() == "X":
-            n_memo += 1
-            continue          # a memo line: the money is on another line already
-        # the same line read from two pages of one filing, or from an amendment that repeats it
-        dk = (m.get("committee") or m.get("recipient") or "", _norm(m.get("name") or ""), (m.get("date") or "")[:10], round(amt, 2),
-              m.get("type") or "contribution", m.get("line") or "")
-        if m.get("filing_source") == "FEC" and dk in seen:
-            n_dup += 1
-            continue
-        seen.add(dk)
-        if m.get("candidate_id") and m.get("contributor_committee_id") and m["contributor_committee_id"] in own.get(m["candidate_id"], ()):
-            n_transfer += 1
-            continue          # from another of the candidate's own committees: counted where it was first given
+    # every line once, by the shared rules (gacrawl/money.py): no memo lines, no line twice, no FEC line read before
+    # the FEC's own fields were kept, no transfer between a candidate's own committees
+    from .money import lines
+
+    mstats: dict = {}
+    for L in lines(store, mstats):
+        m, amt = L["meta"], L["amount"]
+        r = {"url": L["url"], "published": L["published"]}
         n_rows += 1
         R = recip_of(m, r)
         t = m.get("type") or "contribution"
@@ -151,8 +133,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             R["small"] += amt
         nm = (m.get("name") or "").strip()
         last = (R["name"].split()[-1] if R["name"] else "").lower()
-        cm = CONDUIT_NAME.match(nm)
-        conduit = CONDUITS.get(m.get("contributor_committee_id") or "") or (cm and CONDUIT_LABEL[cm.group(1).lower()]) or ""
+        if L["via"]:      # one person's gift that passed through a conduit (ActBlue, WinRed, AIPAC PAC ...): theirs, via it
+            R.setdefault("via", defaultdict(float))[L["via"]] += amt
+        conduit = L["platform"]
         if not conduit and (m.get("contributor_committee_id") or m.get("donor_is_org")) and (JFC.search(nm) or (len(last) > 2 and re.search(r"\b" + re.escape(last) + r"\b", nm, re.I))):
             conduit = "Joint fundraising / candidate committees"
         if conduit:
@@ -198,6 +181,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         emp = sorted(R["employers"].items(), key=lambda kv: -kv[1])[:8]
         R["employers"] = [{"name": k, "total": round(v, 2)} for k, v in emp]
         R["sources"] = sorted(R["sources"])
+        if R.get("via"):
+            R["via"] = [{"name": k, "total": round(v, 2)} for k, v in sorted(R["via"].items(), key=lambda kv: -kv[1])][:12]
         if R.get("conduits"):
             R["conduits"] = [{"name": k, "total": round(v, 2)} for k, v in sorted(R["conduits"].items(), key=lambda kv: -kv[1])]
             R["conduit"] = round(R["conduit"], 2)
@@ -231,10 +216,16 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     doc = {"note": "Campaign money as filed: FEC itemized receipts and disbursements for federal candidates, and Georgia "
                    "Campaign Contribution Disclosure Reports the crawler read or that were imported. Each gift is the filer's "
                    "own line (u is the filing it was read from); donors are matched across filings by name and address, "
-                   "which can split one person or merge two with the same name. Gifts that came through an earmarking platform (WinRed, ActBlue) are counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
+                   "which can split one person or merge two with the same name. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
                    "employer, occupation and address. review marks rows parsed from a scanned PDF.",
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
            "by": by_out, "conduits": [{"name": k, "total": round(v, 2)} for k, v in sorted(conduits_total.items(), key=lambda kv: -kv[1])],
-           "skipped": {"memo_lines": n_memo, "duplicate_lines": n_dup, "transfers_between_own_committees": n_transfer}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
+           "hold": ("Federal campaign money (FEC) is being read again with the FEC's own line codes: a check found FEC memo "
+                     "lines counted as gifts (one AIPAC PAC figure was counted 20 times). Federal candidates come back as each "
+                     "campaign is read again; until then their money is left out rather than shown wrong."
+                     if mstats.get("legacy") else ""),
+           "skipped": {"memo_lines": mstats.get("memo", 0), "duplicate_lines": mstats.get("repeat", 0),
+                       "transfers_between_own_committees": mstats.get("transfer", 0),
+                       "fec_lines_awaiting_reread": mstats.get("legacy", 0)}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
     out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return {"rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}

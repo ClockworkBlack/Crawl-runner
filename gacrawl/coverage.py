@@ -38,6 +38,7 @@ FEATURES: list[tuple[str, str, str, str]] = [
     ("Local government", "official_places", "Places with officials", "need"),
     ("Local government", "videos", "Meeting videos", "need"),
     ("Local government", "video_transcripts", "Videos with a transcript", "need"),
+    ("Candidates and donors", "contributions_fec", "Campaign contributions (FEC, with the FEC's own fields)", "need"),
     ("Candidates and donors", "contributions_state", "Campaign contributions (state filings)", "need"),
     ("Candidates and donors", "contributions_local", "Campaign contributions (local filings)", "need"),
     ("Candidates and donors", "statements", "Public statements", "need"),
@@ -93,7 +94,9 @@ def measure(root: Path, store) -> dict[str, int]:
     c["officials"], c["official_places"] = k("official"), places("official")
     c["videos"] = k("video")
     c["video_transcripts"] = _one(db, "SELECT count(*) FROM records WHERE kind='video' AND length(text) > 500")
-    c["contributions_state"] = _one(db, "SELECT count(*) FROM records WHERE kind='contribution' AND jurisdiction=''")
+    c["contributions_fec"] = _one(db, "SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.fec_v')=2")
+    c["contributions_state"] = _one(db, "SELECT count(*) FROM records WHERE kind='contribution' AND jurisdiction='' "
+                                        "AND coalesce(json_extract(meta,'$.filing_source'),'')<>'FEC'")
     c["contributions_local"] = _one(db, "SELECT count(*) FROM records WHERE kind='contribution' AND jurisdiction<>''")
     c["statements"], c["mentions"] = k("statement"), k("mention")
     c["schools"], c["school_stats"] = k("school"), k("school_stat")
@@ -200,6 +203,26 @@ def report(rows: list[dict], when: str, before_when: str | None) -> str:
     return "\n".join(lines)
 
 
+def money_checks(store) -> str:
+    """Campaign money that cannot be trusted yet: federal candidates the FEC lookup could not match (their money is
+    missing), FEC lines read before the FEC's own fields were kept (not counted until re-read), committees whose
+    totals the FEC has not been asked for."""
+    import json
+
+    L = ["", "## Campaign money checks", ""]
+    ids = json.loads(store.kv_get("fec_ids2") or "{}")
+    miss = sorted(k for k, v in ids.items() if not v.get("ids"))
+    L.append(f"- Federal candidates the FEC lookup could not match: **{len(miss)}**" + (": " + ", ".join(miss[:40]) if miss else "")
+             + (" (their federal money is missing; set fec_ids in config/candidates.yaml)" if miss else ""))
+    with store._lock:
+        legacy = store.db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' "
+                                  "AND json_extract(meta,'$.committee') IS NOT NULL AND json_extract(meta,'$.fec_v') IS NULL").fetchone()[0]
+    L.append(f"- FEC lines read before the FEC's own fields were kept, awaiting the re-read (not counted): **{legacy:,}**")
+    tot = json.loads(store.kv_get("fec_totals") or "{}")
+    L.append(f"- Committees with the FEC's official totals on hand (each profile's total is checked against them): **{len(tot)}**")
+    return "\n".join(L) + "\n"
+
+
 def run(root: Path, store, state_path: Path | None = None, out_path: Path | None = None) -> dict:
     state_path = state_path or root / "state" / "coverage.json"
     out_path = out_path or root / "data" / "coverage.md"
@@ -208,7 +231,7 @@ def run(root: Path, store, state_path: Path | None = None, out_path: Path | None
     when = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     rows = compare(now, prev.get("counts") or {})
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(report(rows, when, prev.get("as_of")), encoding="utf-8")
+    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store), encoding="utf-8")
     hist = (prev.get("history") or [])[-47:] + [{"as_of": when, **{k: now[k] for k in ("roll_calls", "board_members", "incidents",
                                                                                           "milestones", "budget_docs", "district_sites_read")}}]
     write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist}, indent=1)
