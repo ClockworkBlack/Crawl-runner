@@ -206,3 +206,65 @@ def click_probe(out: Path, sites=("https://peachfile.ethics.ga.gov/", "https://r
         b.close()
     (out / "clicks.json").write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
     return {"clicks": len(found)}
+
+
+def bulk_probe(out: Path, sites=("https://peachfile.ethics.ga.gov/", "https://recordsearch.ethics.ga.gov/"), log=print) -> dict:
+    """On each system's Download Bulk Data page (reached by clicking its button, as a person would), click the first
+    contribution file's download control and record the API call and the file it gives (name, size, first lines)."""
+    import os
+    from playwright.sync_api import sync_playwright
+
+    out.mkdir(parents=True, exist_ok=True)
+    found = []
+    with sync_playwright() as p:
+        b = p.chromium.launch(channel=os.environ.get("GACRAWL_BROWSER_CHANNEL") or None)
+        for site in sites:
+            ctx = b.new_context(user_agent=os.environ.get("GACRAWL_USER_AGENT") or None, accept_downloads=True)
+            page = ctx.new_page()
+            reqs = []
+            page.on("request", lambda r, reqs=reqs: reqs.append({"method": r.method, "url": r.url, "post": (r.post_data or "")[:1500]})
+                    if "/api/" in r.url else None)
+            rec = {"site": site}
+            try:
+                page.goto(site, wait_until="networkidle", timeout=60000)
+                page.get_by_text("Download Bulk Data", exact=False).first.click(timeout=15000)
+                page.wait_for_timeout(5000)
+                rec["page"] = page.url
+                rec["html"] = page.content()[:60000]
+                n0 = len(reqs)
+                # the first clickable thing in the contributions row: a link, a button or an icon
+                row = page.locator("text=Contributions, Loans and Interest Earned").first
+                target = row.locator("xpath=ancestor::*[self::tr or contains(@class,'row') or contains(@class,'card')][1]")
+                ctl = target.locator("a, button, mat-icon, i, [role=button], select").first
+                rec["control"] = ctl.evaluate("e => e.outerHTML.slice(0, 500)")
+                try:
+                    with page.expect_download(timeout=60000) as dl:
+                        ctl.click(timeout=10000)
+                        page.wait_for_timeout(3000)
+                        opts = page.locator("mat-option, option, [role=option]")
+                        if opts.count():
+                            rec["options"] = [opts.nth(i).inner_text()[:40] for i in range(min(opts.count(), 12))]
+                            opts.first.click()
+                            page.wait_for_timeout(2000)
+                            btn = page.get_by_role("button", name="Download")
+                            if btn.count():
+                                btn.first.click()
+                    d = dl.value
+                    path = out / ("bulk-" + re.sub(r"[^a-z]+", "", site.split("//")[1].split(".")[0]) + "-" + d.suggested_filename)
+                    d.save_as(str(path))
+                    rec["download"] = {"url": d.url, "name": d.suggested_filename, "bytes": path.stat().st_size,
+                                       "head": path.read_bytes()[:1500].decode("utf-8", "replace")}
+                    if path.stat().st_size > 5_000_000:
+                        path.unlink()          # keep only the sample in the record
+                except Exception as e:  # noqa: BLE001
+                    rec["download_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+                rec["requests"] = reqs[n0:]
+            except Exception as e:  # noqa: BLE001
+                rec["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+            found.append(rec)
+            log(f"bulk probe: {site}: {rec.get('download', {}).get('name') or rec.get('download_error') or rec.get('error')}; "
+                f"{len(rec.get('requests', []))} API calls")
+            ctx.close()
+        b.close()
+    (out / "bulk.json").write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
+    return {"sites": len(found)}

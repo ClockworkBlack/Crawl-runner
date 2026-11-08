@@ -828,6 +828,9 @@ def cmd_ethics(cfg, args):
     if args.action == "explore":
         print(json.dumps(ethics.explore(f, Path(args.out or "data/ethics_explore"))))
         return
+    if args.action == "bulk":
+        print(json.dumps(ethics.bulk_probe(Path(args.out or "data/ethics_probe"))))
+        return
     if args.action == "clicks":
         print(json.dumps(ethics.click_probe(Path(args.out or "data/ethics_probe"))))
         return
@@ -1006,7 +1009,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--districts", action="store_true", help="school districts only (each runner run: a changed district seed is worked off at once)")
     sub.add_parser("status")
     et = sub.add_parser("ethics", help="Georgia campaign money from the State Ethics Commission's search site")
-    et.add_argument("action", nargs="?", default="run", choices=["run", "explore", "clicks"])
+    et.add_argument("action", nargs="?", default="run", choices=["run", "explore", "clicks", "bulk"])
     et.add_argument("--out"); et.add_argument("--max-minutes", type=float, default=60)
     da = sub.add_parser("discover-ai", help="the open model's discovery: new people, sites for people and places with none")
     da.add_argument("--max-minutes", type=float, default=30)
