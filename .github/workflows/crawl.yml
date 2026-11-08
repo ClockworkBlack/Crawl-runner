@@ -293,6 +293,18 @@ jobs:
           if [ ${#DELTAS[@]} -gt 0 ]; then gacrawl merge "${DELTAS[@]}" --state "${STATES[@]}"; fi
       # Every step below has a time cap; a test run from a branch uses a short one (a few minutes) so the whole run
       # is a smoke test of about 45 billable minutes, not a night's work.
+      - name: Apply the parallel FEC re-read (fec-reread workflow), before anything reads money
+        continue-on-error: true
+        run: |
+          mkdir -p fecd
+          if gh release download "$DATA_TAG" -p fec-delta.db.zst -p fec-kv.json -D fecd --clobber 2>/dev/null && [ -f fecd/fec-delta.db.zst ]; then
+            zstd -d -q -f fecd/fec-delta.db.zst -o fecd/fec-delta.db
+            gacrawl finance apply --delta fecd/fec-delta.db --kv fecd/fec-kv.json
+            if [ "$IS_MAIN" = "true" ]; then
+              gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
+              gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
+            fi
+          else echo "no parallel FEC re-read waiting"; fi
       - name: Purge sources removed for cause (config/purge.yaml)
         run: gacrawl purge
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)

@@ -578,11 +578,61 @@ def cmd_transcripts(cfg, args):
 
 
 def cmd_finance(cfg, args):
-    """Campaign finance: imports, posted CCDRs, FEC, entity resolution, organization lookups."""
+    """Campaign finance: imports, posted CCDRs, FEC, entity resolution, organization lookups.
+    export-kv / apply: the FEC re-read done by the parallel fec-reread job reaches the main database (its lines as a
+    delta database, its lookups and cursors as a small JSON), and the old lines of every committee it read in full go."""
     from .candidates import load_candidates
     from .finance import Finance
 
     store = config.make_store(cfg)
+    if args.action == "export-kv":
+        try:
+            with store._lock:
+                rows = store.db.execute("SELECT k, v FROM kv WHERE k IN ('fec_ids2','fec_totals') OR k LIKE 'fec:a2:%'").fetchall()
+            Path(args.kv).write_text(json.dumps({r[0]: r[1] for r in rows}))
+            print(f"finance: {len(rows)} FEC lookups and cursors -> {args.kv}")
+        finally:
+            store.close()
+        return
+    if args.action == "export-money":
+        # the Donors tab's donors.json and the profiles (their money summaries), for Electo's money-only import
+        from .donors import export_donors
+        from .profiles import build_profiles, write_profiles
+
+        try:
+            out = Path(args.out or "dist/money")
+            out.mkdir(parents=True, exist_ok=True)
+            cands = load_candidates(config.ROOT, cfg)
+            print(json.dumps({"donors": export_donors(store, config.ROOT, cands, out / "donors.json")}))
+            profiles, _ = build_profiles(config.ROOT, store, cfg)
+            print(json.dumps({"profiles": write_profiles(profiles, out / "profiles", state_dir=cfg["state_dir"])}))
+        finally:
+            store.close()
+        return
+    if args.action == "apply":
+        from .shard import merge_delta
+
+        try:
+            if args.delta and Path(args.delta).exists():
+                print(json.dumps(merge_delta(store, Path(args.delta))))
+            kv = json.loads(Path(args.kv).read_text()) if args.kv and Path(args.kv).exists() else {}
+            for k, v in kv.items():
+                if k in ("fec_ids2", "fec_totals"):
+                    cur = json.loads(store.kv_get(k) or "{}")
+                    cur.update(json.loads(v))           # the parallel job's lookups are the newer ones
+                    store.kv_set(k, json.dumps(cur, separators=(",", ":")))
+                elif k.startswith("fec:a2:") and (store.kv_get(k) or "") < v:
+                    store.kv_set(k, v)
+            gone = 0
+            for k in kv:
+                if k.startswith("fec:a2:"):          # a cursor is set only when the committee was read in full
+                    gone += store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
+                                               "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (k[7:],))
+            store.flush()
+            print(f"finance: the FEC re-read applied; {gone} old lines of re-read committees removed")
+        finally:
+            store.close()
+        return
     try:
         # FEC lines read before the FEC's own fields were kept are not counted (gacrawl/money.py) until each
         # committee is read again: while any remain, the FEC re-read gets up to an hour, people with the most first
@@ -985,7 +1035,8 @@ def build_parser() -> argparse.ArgumentParser:
     po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
     dv = sub.add_parser("derive"); dv.add_argument("--only"); dv.add_argument("--full", action="store_true"); dv.add_argument("--max-minutes", type=float)
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
-    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe"])
+    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money"])
+    fi.add_argument("--delta"); fi.add_argument("--kv"); fi.add_argument("--out")
     fi.add_argument("--candidate"); fi.add_argument("--since"); fi.add_argument("--max-minutes", type=float); fi.add_argument("--org-limit", type=int)
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)

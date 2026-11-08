@@ -1,0 +1,82 @@
+name: fec-reread
+# Campaign money made right without waiting for the crawl: every federal campaign's FEC receipts read again with the
+# FEC line ids and memo codes (gacrawl finance --reread-only), beside the crawl rather than inside it. It works
+# on a copy of the crawl database, so it never races the crawl's own upload; what it read reaches the main database
+# as a delta (fec-delta.db.zst and fec-kv.json in the private crawl-data release), which the crawl merge job
+# applies (gacrawl finance apply) before anything else reads money. Meanwhile the corrected money goes to the site at
+# once: the Donors tab and each profile's money only (Electo tools/money_import.py), nothing else.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fec-reread
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  reread:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: A copy of the crawl database
+        run: bash scripts/ci_db.sh pull
+      - name: Read every federal campaign again from the FEC
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%S > start.txt
+          gacrawl finance --reread-only --max-minutes 300 || echo "the re-read stopped; what it read is kept"
+      - name: Hand it to the crawl (delta and lookups in the private release)
+        run: |
+          START=$(cat start.txt)
+          gacrawl delta --since "$START" --out fec-delta.db
+          gacrawl finance export-kv --kv fec-kv.json
+          zstd -T0 -3 -q -f fec-delta.db -o fec-delta.db.zst
+          gh release upload "$DATA_TAG" fec-delta.db.zst fec-kv.json --clobber
+          echo "uploaded $(du -h fec-delta.db.zst | cut -f1) for the crawl's next merge"
+      - name: The corrected money to the site now (Donors tab and profile money only)
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          set -e
+          gacrawl finance export-money --out "$PWD/dist/money"
+          gacrawl coverage || true
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-money
+          cd /tmp/electo-money
+          CRAWL_BUNDLE="$GITHUB_WORKSPACE/dist/money" python3 -I tools/money_import.py
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add ga/crawl/donors.json ga/crawl/people.json
+          if git diff --cached --quiet; then echo "money unchanged"; else
+            git commit -qm "Campaign money re-read from the FEC: $(date -u +%Y-%m-%dT%H:%MZ)"
+            for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          fi
+          GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+      - name: Keep the coverage report (money checks)
+        if: always()
+        run: |
+          bash scripts/ci_runner.sh push-state "fec re-read $(date -u +%Y-%m-%dT%H:%MZ)" data/coverage.md || true
