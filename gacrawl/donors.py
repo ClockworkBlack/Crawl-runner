@@ -17,6 +17,22 @@ entity ids `gacrawl finance` resolved (the same donor across filings shares one 
   by               totals by donor state, by donor county, by donor city, by recipient party, office and level,
                    by donor kind, by filing source
 There is no demographic data in campaign filings beyond employer, occupation and address, so none is invented.
+
+Beside it, donor_profiles/ (export_donors writes it too): one profile for EVERY donor, not only the capped lists,
+for the pop-up a donor's name opens on the page:
+  dp/XX.json       {donor id: profile}, XX = shard_of(id) (FNV-1a of the id, 128 shards, so the page loads one
+                   small file for one donor): name as filed and other spellings, kind, city/state/county, employer
+                   and occupation as last filed (individuals), totals, gift count, first and last gift, money by year,
+                   every recipient (total, gifts, dates, filing source, one filing link, conduit), the conduits their
+                   gifts passed through, the donor's rank; for an organization or committee, what the registries say
+                   (FEC registration, IRS exempt status, a hand note: each line with its source), its FEC id, connected
+                   organization and website, the recipient row when the committee itself files, and "about" (two
+                   neutral sentences the open model wrote from those opened sources, gacrawl donors-ai; never for a
+                   person)
+  dpi/X.json       the search index, by the first letter of the donor's name: [id, name, kind, total, place,
+                   recipients], largest first
+A person's profile is the filings and nothing else: no street address (filings give one; the profile keeps the
+city), no web search, no model text.
 """
 from __future__ import annotations
 
@@ -37,6 +53,21 @@ JFC = re.compile(r"\b(victory (fund|committee)|joint fund|jfc)\b", re.I)
 ORGISH = re.compile(r"\b(llc|inc|corp|co|company|group|strategies|partners|associates|pac|committee|fund|party|union|association|foundation)\b\.?$|\b(llc|inc|strategies)\b", re.I)
 SPEND_CAP = 8000
 DONOR_CAP = 6000
+SHARDS = 128
+PROFILE_RECIPS = 60          # recipients listed in one profile (the rest summed as "others")
+
+
+def shard_of(did: str) -> str:
+    """FNV-1a (32-bit) of the donor id, mod SHARDS, as two hex digits; the page computes the same (dnShard)."""
+    h = 0x811C9DC5
+    for b in str(did).encode("utf-8"):
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return f"{h % SHARDS:02x}"
+
+
+def index_letter(name: str) -> str:
+    n = _norm(name)
+    return n[0] if n and "a" <= n[0] <= "z" else "_"
 
 
 def _now() -> str:
@@ -171,10 +202,23 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         D = donors.get(did)
         if not D:
             D = donors[did] = {"id": did, "name": G["name"], "kind": kind, "city": G["city"], "state": G["state"], "county": G["county"],
-                               "employer": G["employer"], "total": 0.0, "n": 0, "r": set()}
+                               "employer": G["employer"], "total": 0.0, "n": 0, "r": set(), "_aka": set(), "_years": defaultdict(float),
+                               "_via": defaultdict(float), "_occ": "", "_last": "", "_first": ""}
         D["total"] += amt
         D["n"] += 1
         D["r"].add(R["i"])
+        D["_aka"].add((m.get("name") or "").strip())
+        if d:
+            D["_years"][d[:4]] += amt
+            D["_first"] = min(D["_first"] or d, d)
+            if d >= D["_last"]:           # employer and occupation as last filed
+                D["_last"] = d
+                D["employer"] = (m.get("employer") or D["employer"] or "")[:60]
+                D["_occ"] = (m.get("occupation") or D["_occ"] or "")[:50]
+        if L["via"]:
+            D["_via"][L["via"]] += amt
+            G.setdefault("via", {})
+            G["via"][L["via"]] = G["via"].get(L["via"], 0.0) + amt
 
     rec_list = sorted(recips.values(), key=lambda x: x["i"])
     for R in rec_list:
@@ -197,7 +241,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         s["total"] = round(s["total"], 2)
     multi = [d for d in donors.values() if len(d["r"]) > 1]
     multi.sort(key=lambda d: -d["total"])
-    donor_list = [{**d, "total": round(d["total"], 2), "r": sorted(d["r"])} for d in multi[:DONOR_CAP]]
+    donor_list = [{**{k: v for k, v in d.items() if not k.startswith("_")}, "total": round(d["total"], 2), "r": sorted(d["r"])}
+                  for d in multi[:DONOR_CAP]]
     # totals by dimension (every gift, not only the capped list)
     by: dict[str, dict] = {k: defaultdict(float) for k in ("donor_state", "donor_county", "donor_city", "party", "office", "level", "kind", "source")}
     for g in gifts.values():
@@ -227,5 +272,88 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
            "skipped": {"memo_lines": mstats.get("memo", 0), "duplicate_lines": mstats.get("repeat", 0),
                        "transfers_between_own_committees": mstats.get("transfer", 0),
                        "fec_lines_awaiting_reread": mstats.get("legacy", 0)}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
+    for g in gift_list:
+        if g.get("via"):
+            g["via"] = sorted(g["via"])[:3]
     out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    return {"rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}
+    np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log)
+    return {"profiles": np, "rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}
+
+
+def _orgs(store) -> dict:
+    """entity id -> what the organization registries say (finance.py enrich: FEC registration, IRS data, hand notes),
+    each line with its source; the self-description is left for the model (about), not shown raw."""
+    out = {}
+    for r in store.iter_query("kind='organization'"):
+        m = r.get("meta") or {}
+        eid = m.get("entity_id")
+        if not eid:
+            continue
+        out[eid] = {"org_kind": m.get("org_kind") or "", "fec_id": m.get("fec_id") or "", "ein": m.get("ein") or "",
+                    "connected_org": m.get("connected_org") or "", "website": m.get("website") or "",
+                    "what": [{"t": w["text"], "u": w.get("src") or ""} for w in (m.get("what") or [])
+                             if w.get("basis") != "self-description" and w.get("text")][:5],
+                    "src": [{"t": x.get("t") or "", "u": x.get("u") or ""} for x in (m.get("sources") or []) if x.get("u")][:5]}
+    return out
+
+
+def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: Path, log=print) -> int:
+    """donor_profiles/dp/XX.json and dpi/X.json (see the module docstring)."""
+    import shutil
+
+    orgs = _orgs(store)
+    try:
+        about = json.loads(store.kv_get("donor_about") or "{}")
+    except ValueError:
+        about = {}
+    by_donor: dict[str, list] = defaultdict(list)
+    for g in gifts.values():
+        by_donor[g["donor"]].append(g)
+    rname = {_norm(R["name"]): R["i"] for R in rec_list if R.get("name")}
+    order = sorted(donors.values(), key=lambda d: -d["total"])
+    shards: dict[str, dict] = defaultdict(dict)
+    index: dict[str, list] = defaultdict(list)
+    for rank, D in enumerate(order, 1):
+        gs = sorted(by_donor.get(D["id"], []), key=lambda g: -g["total"])
+        to = []
+        for g in gs[:PROFILE_RECIPS]:
+            R = rec_list[g["r"]]
+            to.append({"r": g["r"], "name": R["name"], "party": R.get("party") or "", "office": R.get("office") or "",
+                       "t": round(g["total"], 2), "n": g["n"], "first": g["first"], "last": g["last"], "fs": g["fs"], "u": g["u"],
+                       **({"via": sorted(g["via"])[:3]} if g.get("via") else {}), **({"review": True} if g.get("review") else {})})
+        rest = gs[PROFILE_RECIPS:]
+        aka = sorted(x for x in D["_aka"] if x and x != D["name"])[:6]
+        P = {"id": D["id"], "name": D["name"], "kind": D["kind"], "city": D["city"], "state": D["state"], "county": D["county"],
+             "total": round(D["total"], 2), "n": D["n"], "first": D["_first"], "last": D["_last"], "rank": rank, "of": len(order),
+             "years": {y: round(v, 2) for y, v in sorted(D["_years"].items())}, "to": to,
+             **({"others": {"recipients": len(rest), "t": round(sum(g["total"] for g in rest), 2)}} if rest else {}),
+             **({"aka": aka} if aka else {}),
+             **({"via": [{"name": k, "t": round(v, 2)} for k, v in sorted(D["_via"].items(), key=lambda kv: -kv[1])]} if D["_via"] else {})}
+        if D["kind"] in ("person", "self"):
+            P.update({"employer": D["employer"], "occupation": D["_occ"]})
+        else:
+            o = orgs.get(D["id"])
+            if o:
+                P["org"] = o
+            a = about.get(D["id"])
+            if a and a.get("t"):
+                P["about"] = a
+            ri = rname.get(_norm(D["name"]))
+            if ri is not None:
+                P["recv"] = ri          # the committee files too: its own receipts are a recipient on the tab
+        shards[shard_of(D["id"])][D["id"]] = P
+        place = ", ".join(x for x in (D["city"], D["state"]) if x)
+        index[index_letter(D["name"])].append([D["id"], D["name"], D["kind"], round(D["total"], 2), place, len(D["r"])])
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    (out_dir / "dp").mkdir(parents=True)
+    (out_dir / "dpi").mkdir()
+    for k in (f"{i:02x}" for i in range(SHARDS)):
+        (out_dir / "dp" / f"{k}.json").write_text(json.dumps(shards.get(k, {}), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    for k, rows in index.items():
+        (out_dir / "dpi" / f"{k}.json").write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    (out_dir / "meta.json").write_text(json.dumps({"donors": len(order), "shards": SHARDS, "generated": _now(),
+                                                  "letters": sorted(index)}, separators=(",", ":")), encoding="utf-8")
+    log(f"donor profiles: {len(order)} donors in {SHARDS} shards; {sum(1 for D in order if D['id'] in orgs)} with registry facts, "
+        f"{sum(1 for D in order if (about.get(D['id']) or {}).get('t'))} with the model's summary")
+    return len(order)

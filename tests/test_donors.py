@@ -40,3 +40,23 @@ def test_export_donors(tmp_path):
     by = {b["k"]: b["t"] for b in d["by"]["party"]}
     assert by == {"D": 5650, "R": 250}
     assert d["by"]["donor_state"][0]["k"] == "DC"
+    # a profile for every donor: one shard file per id, a search index by first letter
+    from gacrawl.donors import shard_of
+    pd = tmp_path / "donor_profiles"
+    meta = json.loads((pd / "meta.json").read_text())
+    assert meta["donors"] == 2 and len(list((pd / "dp").glob("*.json"))) == 128
+    P = json.loads((pd / "dp" / f"{shard_of('d1')}.json").read_text())["d1"]
+    assert P["name"] == "Jane Donor" and P["total"] == 900 and P["n"] == 3 and len(P["to"]) == 2
+    assert P["employer"] == "Acme Inc" and P["occupation"] == "Engineer" and P["years"] == {"2026": 900} and P["rank"] == 2
+    assert "about" not in P and "org" not in P          # a person: the filings only
+    pac = json.loads((pd / "dp" / f"{shard_of('d2')}.json").read_text())["d2"]
+    assert pac["kind"] == "committee" and "employer" not in pac
+    idx = json.loads((pd / "dpi" / "j.json").read_text())
+    assert idx[0][:3] == ["d1", "Jane Donor", "person"]
+
+
+def test_shard_of_matches_the_page():
+    from gacrawl.donors import shard_of
+    # the page's dnShard: FNV-1a 32-bit, % 128 (ga/template.html); values worked out by hand from the algorithm
+    assert shard_of("") == f"{0x811C9DC5 % 128:02x}"
+    assert len({shard_of(f"p{i}") for i in range(2000)}) == 128
