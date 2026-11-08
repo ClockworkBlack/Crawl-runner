@@ -5,7 +5,13 @@ name: fec-reread
 # as a delta (fec-delta.db.zst and fec-kv.json in the private crawl-data release), which the crawl merge job
 # applies (gacrawl finance apply) before anything else reads money. Meanwhile the corrected money goes to the site at
 # once: the Donors tab and each profile's money only (Electo tools/money_import.py), nothing else.
+#
+# A GitHub-hosted job may run 6 hours at most, so one run reads for 5 and hands over what it read. While old FEC lines
+# remain, it starts again by itself every 6 hours (skipping when the last run's delta has not been applied yet, or when
+# nothing is left to read), so the re-read finishes in a few runs without anyone starting them.
 on:
+  schedule:
+    - cron: "40 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -39,9 +45,24 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
+      - name: Is a re-read still needed?
+        id: need
+        run: |
+          if gh release view "$DATA_TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx fec-delta.db.zst; then
+            echo "the last re-read's delta is still waiting for the crawl's merge job: not starting another"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
       - name: A copy of the crawl database
+        if: steps.need.outputs.go == 'true'
         run: bash scripts/ci_db.sh pull
+      - name: Old FEC lines left to read
+        id: left
+        if: steps.need.outputs.go == 'true'
+        run: |
+          n=$(python3 scripts/fec_left.py)
+          echo "old FEC lines left: $n"; echo "n=$n" >> "$GITHUB_OUTPUT"
       - name: Read every federal campaign again from the FEC
+        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0'
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
         run: |
@@ -49,6 +70,7 @@ jobs:
           date -u +%Y-%m-%dT%H:%M:%S > start.txt
           gacrawl finance --reread-only --max-minutes 300 || echo "the re-read stopped; what it read is kept"
       - name: Hand it to the crawl (delta and lookups in the private release)
+        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0'
         run: |
           START=$(cat start.txt)
           gacrawl delta --since "$START" --out fec-delta.db
@@ -57,7 +79,7 @@ jobs:
           gh release upload "$DATA_TAG" fec-delta.db.zst fec-kv.json --clobber
           echo "uploaded $(du -h fec-delta.db.zst | cut -f1) for the crawl's next merge"
       - name: The corrected money to the site now (Donors tab and profile money only)
-        if: env.IS_MAIN == 'true'
+        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0' && (env.IS_MAIN == 'true')
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
@@ -78,6 +100,6 @@ jobs:
           fi
           GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
       - name: Keep the coverage report (money checks)
-        if: always()
+        if: always() && steps.need.outputs.go == 'true'
         run: |
           bash scripts/ci_runner.sh push-state "fec re-read $(date -u +%Y-%m-%dT%H:%MZ)" data/coverage.md || true

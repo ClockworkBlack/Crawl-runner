@@ -498,7 +498,9 @@ class Store:
 
     # ---------------------------------------------------------------- legacy JSONL (v0.1/v0.2 data/<source>/<kind>.jsonl)
     def _import_legacy_jsonl(self):
-        files = [p for p in self.root.glob("*/*.jsonl") if p.parent.name not in ("verified", "rumor_mill")]
+        # only the old record files: not the model's training logs (data/train), probes or other notes kept as JSONL
+        files = [p for p in self.root.glob("*/*.jsonl")
+                 if p.parent.name not in ("verified", "rumor_mill", "train", "openrecords") and not p.parent.name.startswith("ethics")]
         if not files or self.db.execute("SELECT v FROM kv WHERE k='legacy_imported'").fetchone():
             return
         self.db.execute("INSERT OR REPLACE INTO kv VALUES('legacy_imported', 'started')")
@@ -506,7 +508,12 @@ class Store:
             for line in p.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
-                d = json.loads(line)
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(d, dict) or not d.get("source_id") or not d.get("kind"):
+                    continue            # not a record line
                 self.add(Record(d["source_id"], d["kind"], d.get("url", ""), title=d.get("title", ""),
                                 text=d.get("text", ""), markdown=d.get("markdown", ""), published=d.get("published"),
                                 channel=d.get("channel", ""), fetched_at=d.get("fetched_at") or utcnow(),
