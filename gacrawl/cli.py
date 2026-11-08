@@ -383,6 +383,9 @@ def cmd_ordinances(cfg, args):
         if rep["ambiguous"]:
             lines += ["", "**City and county share the name; filed under the county** (rename the folder "
                       "`City of <name>` if it is the city's code):", *[f"- `{x}`" for x in rep["ambiguous"]]]
+        if rep.get("incomplete_downloads"):
+            lines += ["", f"**Downloads with text for under half their sections** ({len(rep['incomplete_downloads'])}; "
+                      "download these codes again):", *[f"- `{x}`" for x in rep["incomplete_downloads"]]]
         if rep["unplaced"]:
             lines += ["", "**Files with no place** (put them in a folder named for the place):", *[f"- `{x}`" for x in rep["unplaced"]]]
         if rep["errors"]:

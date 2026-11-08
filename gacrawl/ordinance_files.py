@@ -38,7 +38,7 @@ from pathlib import Path
 
 import yaml
 
-READER_VERSION = 2          # bump when reading or splitting changes, so every file is read again
+READER_VERSION = 4          # bump when reading or splitting changes, so every file is read again
 DOC_EXT = {".pdf", ".docx", ".html", ".htm", ".txt", ".md"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
 SKIP_NAMES = {"readme.md", "sources.csv", ".gitkeep"}
@@ -57,9 +57,14 @@ def _norm(s: str) -> str:
     return s
 
 
+# governments with a code of ordinances that are not counties or municipalities (state authorities)
+EXTRA_PLACES = [{"id": "jekyll-island-authority", "name": "Jekyll Island Authority", "kind": "authority",
+                 "counties": ["Glynn"], "website": "https://www.jekyllisland.com/authority/"}]
+
+
 def load_places(root: Path) -> list[dict]:
     reg = yaml.safe_load((root / "config" / "jurisdictions.yaml").read_text(encoding="utf-8"))
-    return [j for j in (reg.get("counties") or []) + (reg.get("municipalities") or []) if j.get("id")]
+    return [j for j in (reg.get("counties") or []) + (reg.get("municipalities") or []) if j.get("id")] + EXTRA_PLACES
 
 
 class Places:
@@ -90,6 +95,13 @@ class Places:
         if label in self.by_id:
             return label, False
         k = _norm(label)
+        # "Unified Government of Georgetown-Quitman County Commission", "Consolidated Government of Columbus"
+        k2 = re.sub(r"^(unified|consolidated) government of ", "", k)
+        k2 = re.sub(r" (board of commissioners|county commission|commission|board of aldermen)$", "", k2).strip()
+        if k2 != k:
+            if k2 in self.by_key:
+                return self.by_key[k2], False
+            k = k2
         if k.endswith(" county"):
             return self.by_key.get(k) or self.by_key.get(k[: -len(" county")]), False
         county, other = self.by_key.get(k + " county"), self.by_key.get(k)
@@ -267,6 +279,177 @@ def read_bundle(d: Path) -> dict:
     return {"text": text, "markdown": md, "pages": None, "ocr_pages": [], "mean_confidence": None, "needs_review": [],
             "title_hint": title or (toc_titles[0] if toc_titles and len(toc_titles[0]) > 8 else ""),
             "meta_text": meta_txt + " " + title + " " + " ".join(toc_titles), "url": urls[0] if urls else ""}
+
+
+# ----------------------------------------------------------------------------- Municode exports
+# The downloader's folders are Municode Library exports: toc.json is the code's whole outline (Id, Heading, NodeDepth,
+# Children), nodes/*.json hold the text of each "chunk group" (Docs[]: Id, Title, Content html) and code.html repeats
+# the same text under <h2 id="NODE ID">. A section whose chunk group did not download has no text anywhere; it is kept
+# in the outline (with its Municode link) so the reader can still open it on Municode.
+MUNI = "https://library.municode.com/ga/{client}/codes/{product}"
+INLINE_TAGS = {"b", "i", "u", "em", "strong", "span", "a", "sup", "sub", "small", "font", "abbr", "cite", "code", "s",
+               "strike", "mark", "q", "var"}
+BLOCK_TAGS = {"p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "dt", "dd"}
+
+
+def _ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip()
+
+
+def html_text(frag: str) -> str:
+    """A Municode content fragment -> plain text: one paragraph per line, "(a)" markers joined to their text,
+    table rows as cells separated by " | ", images and scripts dropped."""
+    from lxml import html as LH
+
+    if not frag or not frag.strip():
+        return ""
+    try:
+        root = LH.fragment_fromstring(frag, create_parent="div")
+    except Exception:  # noqa: BLE001
+        return _ws(re.sub(r"<[^>]+>", " ", frag))
+    for bad in root.xpath("//script|//style|//img"):
+        bad.drop_tree()
+    lines: list[str] = []
+    pending = ""
+
+    def push(t: str, cls: str = ""):
+        nonlocal pending
+        t = _ws(t)
+        if not t:
+            return
+        if cls.startswith("incr") and len(t) <= 12:      # "(a)", "1.", "(iv)": the marker of the next paragraph
+            pending = (pending + " " + t).strip()
+            return
+        lines.append((pending + " " + t).strip() if pending else t)
+        pending = ""
+
+    def walk(el):
+        tag = el.tag if isinstance(el.tag, str) else ""
+        if tag == "table":
+            for tr in el.iter("tr"):
+                cells = [_ws(td.text_content()) for td in tr if isinstance(td.tag, str) and td.tag in ("td", "th")]
+                if any(cells):
+                    push(" | ".join(cells))
+            return
+        if tag in BLOCK_TAGS:
+            push(el.text_content(), el.get("class") or "")
+            return
+        # a container: runs of text and inline elements are one line ("Footnotes: --- (<b>1</b>) ---")
+        buf = [el.text or ""]
+        for c in el:
+            ct = c.tag if isinstance(c.tag, str) else ""
+            if ct in INLINE_TAGS:
+                buf += [c.text_content(), c.tail or ""]
+            else:
+                push("".join(buf))
+                if ct != "br":
+                    walk(c)
+                buf = [c.tail or ""]
+        push("".join(buf))
+
+    walk(root)
+    if pending:
+        lines.append(pending)
+    # Municode's footnote marker "Footnotes: --- (1) ---" -> "Footnote 1:"
+    lines = [re.sub(r"^(?:Footnotes:\s*)?-{2,}\s*\(\s*(\d+)\s*\)\s*-{2,}$", r"Footnote \1:", l) for l in lines]
+    return "\n".join(l for l in lines if l != "Footnotes:")
+
+
+def is_municode(d: Path) -> bool:
+    t = d / "toc.json"
+    if not t.exists():
+        return False
+    try:
+        with open(t, encoding="utf-8") as fh:
+            head = fh.read(400)
+    except OSError:
+        return False
+    return '"Heading"' in head and '"Id"' in head
+
+
+def read_municode(d: Path) -> dict:
+    """toc.json + nodes/ (or code.html) -> the code as an outline with text per node."""
+    toc = json.loads((d / "toc.json").read_text(encoding="utf-8-sig"))
+    manifest = _json(d / "manifest.json") if (d / "manifest.json").exists() else {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+    text: dict[str, str] = {}
+    nodes_dir = d / "nodes"
+    if nodes_dir.is_dir():
+        for f in sorted(nodes_dir.glob("*.json")):
+            j = _json(f)
+            for doc in (j.get("Docs") if isinstance(j, dict) else None) or []:
+                nid, c = doc.get("Id"), doc.get("Content") or ""
+                if nid and c and nid not in text:
+                    t = html_text(c)
+                    if t:
+                        text[nid] = t
+    if (d / "code.html").exists():            # anything the nodes lacked
+        h = (d / "code.html").read_text(encoding="utf-8", errors="replace")
+        parts = re.split(r'<h2 id="([^"]+)">', h)
+        for i in range(1, len(parts), 2):
+            nid = parts[i]
+            if nid in text:
+                continue
+            body = parts[i + 1].split("</h2>", 1)[-1]
+            if "chunk-content" in body:
+                t = html_text(body)
+                if t:
+                    text[nid] = t
+    nodes: list[list] = []                    # [id, heading, depth, parent index, text]
+
+    def walk(n, parent, depth):
+        for c in n.get("Children") or []:
+            idx = len(nodes)
+            nodes.append([c.get("Id") or "", _ws(c.get("Heading") or ""), depth, parent, text.get(c.get("Id"), "")])
+            walk(c, idx, depth + 1)
+
+    walk(toc, -1, 1)
+    has_kids = {n[3] for n in nodes}
+    leaves = [i for i in range(len(nodes)) if i not in has_kids]
+    with_text = sum(1 for i in leaves if nodes[i][4])
+    client = manifest.get("client") or ""
+    product = manifest.get("product_name") or toc.get("Heading") or ""
+    return {"nodes": nodes, "client": client, "product": product,
+            "downloaded": (manifest.get("downloaded_at") or "")[:10], "product_id": manifest.get("product_id"),
+            "job_id": manifest.get("job_id"), "leaves": len(leaves), "leaves_with_text": with_text,
+            "text": "\n".join(n[1] + "\n" + n[4] for n in nodes if n[4]),
+            "meta_text": " ".join(str(v) for v in manifest.values()) + " " + (toc.get("Heading") or "")}
+
+
+def municode_url(rel: str) -> str:
+    """The code's Municode Library address from the export's folder names (GA/<client slug>/<product slug>)."""
+    parts = [x for x in rel.split("/") if x]
+    if len(parts) >= 2 and re.fullmatch(r"[a-z0-9_\-.]+", parts[-1]) and re.fullmatch(r"[a-z0-9_\-.]+", parts[-2]):
+        return MUNI.format(client=parts[-2], product=parts[-1])
+    return ""
+
+
+def kind_of_product(product: str) -> str:
+    p = product.lower()
+    if re.search(r"zoning|development|land use|subdivision|ldc|udc|planning", p):
+        return "zoning"
+    if "charter" in p:
+        return "charter"
+    return "code"
+
+
+def _municode_entry(f: Path, rel: str, sha: str, places: "Places") -> tuple[dict, dict]:
+    r = read_municode(f)
+    url = municode_url(rel)
+    title = (r["client"] + " " + r["product"]).strip() or f.name
+    e = {"sha256": sha, "title": title, "kind": kind_of_product(r["product"]), "product": r["product"],
+         "client": r["client"], "downloaded": r["downloaded"], "adopted": "", "pages": None, "chars": len(r["text"]),
+         "sections": sum(1 for n in r["nodes"] if n[4]), "nodes": len(r["nodes"]), "leaves": r["leaves"],
+         "leaves_with_text": r["leaves_with_text"],
+         "coverage": round(r["leaves_with_text"] / r["leaves"], 3) if r["leaves"] else 0.0,
+         "ocr_pages": 0, "mean_confidence": None, "needs_review": [], "structured": True,
+         "file_type": "Municode export (toc.json / nodes / code.html)"}
+    if e["coverage"] < 1:
+        e["needs_review"].append(f"the download has text for {r['leaves_with_text']} of {r['leaves']} sections; "
+                                 "the rest are headings only (open them on Municode or download the code again)")
+    doc = {"nodes": r["nodes"], "sections": [], "text_places": places.from_text(r["meta_text"] + " " + r["text"][:20000]),
+           "hint": (r["meta_text"] + " " + r["text"][:3000])[:4000], "found_url": url}
+    return e, doc
 
 
 def bundle_digest(d: Path) -> str:
@@ -504,7 +687,7 @@ def _build(units, problems, places, srcs, cache, out: Path, log, ocr_budget_s: f
     entries: dict[str, dict] = {}
     report = {"files": sum(1 for k, *_ in units if k == "file"), "saved_codes": sum(1 for k, *_ in units if k == "bundle"),
               "documents": 0, "read": 0, "reused": 0, "duplicates": [], "unplaced": [], "errors": list(problems),
-              "unknown_folders": [], "ambiguous": []}
+              "unknown_folders": [], "ambiguous": [], "incomplete_downloads": []}
     for kind, f, rel in units:
         bundle = kind == "bundle"
         try:
@@ -521,6 +704,14 @@ def _build(units, problems, places, srcs, cache, out: Path, log, ocr_budget_s: f
         if sha in cache:
             e, doc = dict(cache[sha]["entry"]), cache[sha]["doc"]
             report["reused"] += 1
+        elif bundle and is_municode(f):
+            try:
+                e, doc = _municode_entry(f, rel, sha, places)
+            except Exception as exc:  # noqa: BLE001 — one unreadable code never stops the rest
+                report["errors"].append(f"{rel}: {type(exc).__name__}: {exc}")
+                log(f"{rel}: could not read ({type(exc).__name__}: {exc})")
+                continue
+            report["read"] += 1
         else:
             try:
                 info = read_bundle(f) if bundle else read_file(f, data, ocr_budget_s=ocr_budget_s)
@@ -545,6 +736,8 @@ def _build(units, problems, places, srcs, cache, out: Path, log, ocr_budget_s: f
                    "hint": (info.get("meta_text", "") + " " + title + " " + info["text"][:3000])[:4000],
                    "found_url": info.get("url", "")}
             report["read"] += 1
+        if e.get("structured") and (e["leaves"] <= 2 or e["coverage"] < 0.5):
+            report["incomplete_downloads"].append(f"{rel}: text for {e['leaves_with_text']} of {e['leaves']} sections")
         # the place: the first folder on the path that names one, then "<id>__" prefix, sources.csv, the text
         jid, how, unknown = place_of(places, rel, bundle, doc.get("hint", ""))
         if not jid and not bundle and "__" in f.name:
@@ -579,7 +772,9 @@ def _build(units, problems, places, srcs, cache, out: Path, log, ocr_budget_s: f
         (docs_dir / f"{e['id']}.json").write_text(json.dumps({
             "id": e["id"], "jurisdiction": e["jurisdiction"], "place": e["place"], "title": e["title"], "kind": e["kind"],
             "adopted": e["adopted"], "url": e["url"], "files": e["files"], "sections": doc["sections"],
-            "text_places": doc.get("text_places", []), "hint": doc.get("hint", ""), "found_url": doc.get("found_url", "")},
+            "text_places": doc.get("text_places", []), "hint": doc.get("hint", ""), "found_url": doc.get("found_url", ""),
+            **({"nodes": doc["nodes"], "product": e.get("product", ""), "client": e.get("client", ""),
+                "downloaded": e.get("downloaded", "")} if doc.get("nodes") else {})},
             ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         log(f"{rel}: {e['place'] or 'place unknown'} · {e['kind']} · {e['sections']} sections"
             + (" (reused)" if sha in cache else ""))
@@ -636,6 +831,14 @@ Written by `gacrawl ordinances build` in the private Crawl repository whenever a
 heading as printed (Sec. 2-14 ..., ARTICLE IV ...; a long stretch without headings is split into "(part n)"),
 `t` its text with paragraphs separated by blank lines. `text_places` are the registry ids the text names; `hint` and
 `found_url` are what the build read to place the document (a saved code's manifest, title and opening text).
+
+## Municode exports (`structured: true`)
+A Municode Library export (`GA/<client>/<product>/` with `toc.json`, `nodes/`, `code.html`, `manifest.json`) keeps the
+code's whole outline. Its index entry adds `client`, `product`, `downloaded` (date of the download), `nodes`, `leaves`
+(sections with no subsections), `leaves_with_text`, `coverage` (their share) and `url` (its Municode page; a section
+is `url + "?nodeId=" + node id`). Its doc has `nodes: [[node id, heading, depth (1 = top), parent index (-1 = top),
+text]]` in the code's order instead of `sections`; text is plain, one paragraph per line, table rows as
+`cell | cell`, and empty where the download had none (open that section on Municode).
 
 A downloader's saved code (`GA/<county>/code of ordinances/` with `code.html`, `toc.json`, `manifest.json`,
 `nodes/`) is one document, `file_type` "saved code ...", `kind` code (or zoning), its `files` entry is the folder.

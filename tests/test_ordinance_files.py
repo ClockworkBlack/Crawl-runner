@@ -186,4 +186,72 @@ def test_city_folder_wins_when_the_code_says_city():
     assert city and p.resolve_folder("Jackson", "Code of Ordinances of the City of Jackson, Georgia")[0] == city
     assert p.resolve_folder("athens-clarke_county")[0] in ("athens-clarke", "co-clarke")
     assert p.resolve_folder("liberty_county_")[0] == "co-liberty"
+    assert p.resolve_folder("unified_government_of_georgetown_quitman_county_commission")[0] == "georgetown-quitman"
+    assert p.resolve_folder("jekyll_island_authority")[0] == "jekyll-island-authority"
     assert p.resolve_folder("GA") == (None, False) and p.resolve_folder("code of ordinances") == (None, False)
+
+
+def _municode_export(d: Path, client="Acworth", product="Code of Ordinances"):
+    """A small Municode Library export: toc.json outline, one chunk group in nodes/, code.html with the same text."""
+    d.mkdir(parents=True)
+    toc = {"Id": "1", "Heading": product, "NodeDepth": -1, "Children": [
+        {"Id": "CH14", "Heading": "Chapter 14 - ANIMALS AND FOWL", "NodeDepth": 1, "Children": [
+            {"Id": "CH14_S14-1", "Heading": "Sec. 14-1. - Definitions.", "NodeDepth": 2, "Children": []},
+            {"Id": "CH14_S14-2", "Heading": "Sec. 14-2. - Dogs at large.", "NodeDepth": 2, "Children": []}]},
+        {"Id": "CH62", "Heading": "Chapter 62 - PERSONNEL", "NodeDepth": 1, "Children": [
+            {"Id": "CH62_S62-1", "Heading": "Sec. 62-1. - Policy.", "NodeDepth": 2, "Children": []}]}]}
+    (d / "toc.json").write_text(json.dumps(toc))
+    (d / "manifest.json").write_text(json.dumps({"client": client, "product_id": 1, "product_name": product,
+                                                 "job_id": 2, "node_count": 6, "downloaded_at": "2026-11-07T14:40:30"}))
+    (d / "nodes").mkdir()
+    docs = [{"Id": "CH14", "Title": "Chapter 14", "Content": ""},
+            {"Id": "CH14_S14-1", "Title": "Sec. 14-1", "Content": '<div class="chunk-content"><p class="p0">Owner means '
+             'the person who has title to an animal.</p><p class="historynote0">(Code 1983, § 4-2)</p></div>'},
+            {"Id": "CH14_S14-2", "Title": "Sec. 14-2", "Content": '<div class="chunk-content"><p class="incr0">(a)</p>'
+             '<p class="content1">No dog shall run at large.</p><table><tr><td>Offense</td><td>Fine</td></tr>'
+             '<tr><td>First</td><td>$50</td></tr></table></div>'}]
+    (d / "nodes" / "ch14.json").write_text(json.dumps({"Docs": docs}))
+    (d / "code.html").write_text('<html><head><title>x</title></head><body><h2 id="CH14">Chapter 14</h2>'
+                                 '<h2 id="CH62">Chapter 62</h2><h2 id="CH62_S62-1">Sec. 62-1.</h2></body></html>')
+
+
+def test_municode_export_outline_text_links_coverage(tmp_path):
+    root = _project(tmp_path)
+    inbox = root / "imports" / "ordinances"
+    for p in list(inbox.iterdir()):
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    _municode_export(inbox / "GA" / "acworth" / "code_of_ordinances")
+    out = tmp_path / "out"
+    rep = of.build(root, out, log=lambda *_: None)
+    assert rep["documents"] == 1 and not rep["errors"]
+    e = json.loads((out / "index.json").read_text())["documents"][0]
+    assert e["jurisdiction"] == "acworth" and e["structured"] and e["kind"] == "code"
+    assert e["title"] == "Acworth Code of Ordinances" and e["downloaded"] == "2026-11-07"
+    assert e["url"] == "https://library.municode.com/ga/acworth/codes/code_of_ordinances" and e["url_official"]
+    assert (e["leaves"], e["leaves_with_text"]) == (3, 2) and e["coverage"] == 0.667 and e["needs_review"]
+    doc = json.loads((out / "docs" / f"{e['id']}.json").read_text())
+    ids = [n[0] for n in doc["nodes"]]
+    assert ids == ["CH14", "CH14_S14-1", "CH14_S14-2", "CH62", "CH62_S62-1"]
+    n = {x[0]: x for x in doc["nodes"]}
+    assert n["CH14_S14-1"][2] == 2 and n["CH14_S14-1"][3] == 0              # depth, parent index
+    assert n["CH14_S14-2"][4] == "(a) No dog shall run at large.\nOffense | Fine\nFirst | $50"
+    assert n["CH14_S14-1"][4].endswith("(Code 1983, § 4-2)") and n["CH62_S62-1"][4] == ""
+
+
+def test_municode_kind_from_product_and_report_of_thin_downloads(tmp_path):
+    root = _project(tmp_path)
+    inbox = root / "imports" / "ordinances"
+    for p in list(inbox.iterdir()):
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    _municode_export(inbox / "GA" / "douglas_county" / "unified_development_code", "Douglas County", "Unified Development Code")
+    rep = of.build(root, tmp_path / "out", log=lambda *_: None)
+    e = json.loads((tmp_path / "out" / "index.json").read_text())["documents"][0]
+    assert e["jurisdiction"] == "co-douglas" and e["kind"] == "zoning"
+    assert rep["incomplete_downloads"] == []                                  # 2 of 3 is not "thin"
+
+
+def test_html_text_footnotes_and_inline_runs():
+    t = of.html_text('<div class="chunk-content"><p class="p0">Text.</p><div class="footnote-content"><div>Footnotes: </div>'
+                     ' --- (<b>1</b>) --- <p class="refcrossFN"><b>Cross reference— </b> Nuisances.</p></div></div>')
+    assert t == "Text.\nFootnote 1:\nCross reference— Nuisances."
+    assert of.html_text("<div>Some <b>bold</b> text<br>next line<p>para</p>tail</div>") == "Some bold text\nnext line\npara\ntail"
