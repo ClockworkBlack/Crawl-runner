@@ -664,6 +664,13 @@ jobs:
       - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
         if: always() && env.PUBLIC_RUNNER == 'true'
         run: |
-          for id in $(GH_TOKEN="$RUN_TOKEN" gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
-            GH_TOKEN="$RUN_TOKEN" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          # this run's, and any left by an earlier run that never reached this step (a force-cancelled or killed run
+          # skips its own cleanup; the public repository keeps no gathered data for any length of time)
+          GH_TOKEN="$RUN_TOKEN" gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | "\(.id) \(.workflow_run.id)"' | while read -r id run; do
+            if [ "$run" != "${{ github.run_id }}" ]; then
+              st=$(GH_TOKEN="$RUN_TOKEN" gh api "repos/${{ github.repository }}/actions/runs/$run" --jq .status 2>/dev/null || echo completed)
+              [ "$st" = "completed" ] || continue      # another run still working: its attachments are its own
+            fi
+            GH_TOKEN="$RUN_TOKEN" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id (run $run)"
           done

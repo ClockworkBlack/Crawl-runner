@@ -141,12 +141,17 @@ jobs:
               hung = stuck(wf)
               if hung:
                   w, j, s = hung
-                  r = api(f"repos/{runner_repo}/actions/runs/{w['id']}/cancel", runner_tok, "POST")
+                  # force-cancel: a plain cancel waits on the hung step and may never take (Nov 8: 20+ minutes and still
+                  # running). A force-cancelled run skips its own cleanup step, so its attachments are removed here.
+                  r = api(f"repos/{runner_repo}/actions/runs/{w['id']}/force-cancel", runner_tok, "POST")
                   why = f"run {w['id']} was stuck in '{s['name']}' ({j['name']}) for {hours_since(s['started_at']):.1f}h"
-                  if r.get("_error"):
+                  if r.get("_error") and r["_error"] != 409:      # 409: already cancelling
                       problems.append(f"**{wf}**: {why}, and cancelling it failed (HTTP {r['_error']}).")
                   else:
-                      repairs.append(f"{wf}: {why}; cancelled it")
+                      arts = api(f"repos/{runner_repo}/actions/runs/{w['id']}/artifacts", runner_tok)
+                      for a in (arts.get("artifacts") or []) if isinstance(arts, dict) else []:
+                          api(f"repos/{runner_repo}/actions/artifacts/{a['id']}", runner_tok, "DELETE")
+                      repairs.append(f"{wf}: {why}; cancelled it and removed its attachments")
                       restart(wf, "after the stuck run", force=True)   # queues behind the cancellation, then runs
                       continue
               age = last(prefixes)
