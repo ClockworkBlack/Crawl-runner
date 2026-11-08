@@ -438,6 +438,11 @@ jobs:
           M=${{ vars.CODEACTS_MINUTES || '45' }}; [ "$IS_MAIN" != "true" ] && M=3
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           gacrawl codeacts --max-minutes "$M" || true   # exits early once every act is read
+      - name: Federal bills (every U.S. House and Senate bill since 2015, GovInfo Bill Status)
+        run: |
+          # gacrawl/federal_bills.py: the first runs read each Congress from its zip (resumable); then only what changed
+          M=${{ vars.FEDERAL_BILLS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=3
+          gacrawl federal-bills --max-minutes "$M" || true
       - name: Campaign finance and organizations
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
@@ -472,6 +477,11 @@ jobs:
           M=${{ vars.RUMORS_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
           python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed (the donor step installs it); no readings this run"; exit 0; }
           timeout -s INT -k 2m "$((M + 6))m" gacrawl rumors-ai --max-minutes "$M" || echo "rumor readings stopped after $((M + 6)) minutes"
+      - name: Federal bill descriptions by the open model (plain words from the official summary, checked)
+        run: |
+          M=${{ vars.FEDERAL_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
+          python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed; no descriptions this run"; exit 0; }
+          timeout -s INT -k 2m "$((M + 6))m" gacrawl federal-bills --ai --max-minutes "$M" || echo "descriptions stopped after $((M + 6)) minutes"
       - name: Open records requests (replies, follow-ups, new batch)
         env:
           ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}

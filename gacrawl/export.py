@@ -27,6 +27,7 @@ dist/electo/
                                 and principals (each a research candidate with a packet and profile supplement)
   screenshots.json              the Screenshots box: submitted screenshots by ordinances / posts / text, all needs-review
   verified_posts.json           every post in the verified-posts registry, with status and evidence
+  federal_bills/                U.S. House and Senate bills since 2015 by Congress (gacrawl/federal_bills.py), with outlooks
   rumor_mill.json               unverified items, kept apart, each with status + corroboration trail
   rumor_mill_video.json         Rumor Mill - Video: meeting videos from channels not confirmed as official accounts
   blocked.json                  hosts that refused the crawler and the suggested manual route
@@ -328,6 +329,9 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     from .donors import export_donors
 
     donors_counts = export_donors(store, root, cands, out / "donors.json", log=log)
+    from .federal_bills import export_federal
+
+    federal_counts = export_federal(store, out / "federal_bills", log=log)
     n_code_acts = export_code_acts(store, out / "code_acts.json")
     n_legislation = export_legislation(store, out / "legislation.json")
 
@@ -371,6 +375,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         "policing": policing_counts,
         "bill_reasons": reasons_counts,
         "donors": donors_counts,
+        "federal_bills": federal_counts,
         "records_by_kind": dict(total_records), "records_total": store.total(),
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")

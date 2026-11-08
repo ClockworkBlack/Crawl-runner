@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<billStatus><version>3.0.0</version><bill><number>9</number><type>SJRES</type><introducedDate>2023-02-07</introducedDate><congress>118</congress>
+<actions>
+<item><actionDate>2023-09-28</actionDate><text>Failed of passage in Senate over veto: Failed of passage in Senate over veto by Yea-Nay Vote. 47 - 46.</text><type>Veto</type><actionCode>35000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-09-26</actionDate><text>Vetoed by President.</text><type>President</type><actionCode>E30000</actionCode><sourceSystem><code>2</code><name>House floor actions</name></sourceSystem></item>
+<item><actionDate>2023-09-26</actionDate><text>Vetoed by President.</text><type>President</type><actionCode>31000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-09-14</actionDate><text>Presented to President.</text><type>President</type><actionCode>28000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-07-27</actionDate><text>Passed/agreed to in House: On passage Passed by the Yeas and Nays: 221 - 206 (Roll no. 381).</text><type>Floor</type><actionCode>8000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-07-26</actionDate><text>Rules Committee Resolution H. Res. 614 Reported to House.</text><type>Floor</type><actionCode>H1L210</actionCode><sourceSystem><code>2</code><name>House floor actions</name></sourceSystem></item>
+<item><actionDate>2023-05-03</actionDate><text>Passed/agreed to in Senate: Passed Senate without amendment by Yea-Nay Vote. 50 - 48.</text><type>Floor</type><actionCode>17000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-05-03</actionDate><text>Senate Committee on Environment and Public Works discharged by Unanimous Consent.</text><type>Committee</type><actionCode>14500</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+<item><actionDate>2023-02-07</actionDate><text>Introduced in Senate</text><type>IntroReferral</type><actionCode>10000</actionCode><sourceSystem><code>9</code><name>Library of Congress</name></sourceSystem></item>
+</actions>
+<sponsors><item><bioguideId>M001198</bioguideId><fullName>Sen. Marshall, Roger [R-KS]</fullName><party>R</party><state>KS</state></item></sponsors>
+<cosponsors><item><fullName>Sen. Moran, Jerry [R-KS]</fullName><party>R</party><state>KS</state></item><item><fullName>Sen. Ossoff, Jon [D-GA]</fullName><party>D</party><state>GA</state></item>
+<item><fullName>Sen. Gone, Former [D-NY]</fullName><party>D</party><state>NY</state><sponsorshipWithdrawnDate>2023-03-01</sponsorshipWithdrawnDate></item></cosponsors>
+<policyArea><name>Public Lands and Natural Resources</name></policyArea>
+<summaries><summary><versionCode>53</versionCode><actionDate>2023-07-27</actionDate><cdata><text>&lt;p&gt;This joint resolution nullifies the final rule on the &lt;i&gt;lesser prairie-chicken&lt;/i&gt;.&lt;/p&gt;</text></cdata></summary>
+<summary><versionCode>00</versionCode><actionDate>2023-02-07</actionDate><cdata><text>&lt;p&gt;Old summary.&lt;/p&gt;</text></cdata></summary></summaries>
+<title>A joint resolution providing for congressional disapproval of the lesser prairie-chicken rule.</title>
+<latestAction><actionDate>2023-09-28</actionDate><text>Failed of passage in Senate over veto by Yea-Nay Vote. 47 - 46.</text></latestAction>
+</bill></billStatus>

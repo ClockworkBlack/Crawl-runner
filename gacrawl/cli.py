@@ -817,6 +817,22 @@ def cmd_rumors_ai(cfg, args):
     print(json.dumps(run(config.ROOT, cands, time.monotonic() + float(args.max_minutes or 10) * 60)))
 
 
+def cmd_federal_bills(cfg, args):
+    """Every U.S. House and Senate bill and resolution since 2015 (GovInfo Bill Status), or (--ai) the open model's plain
+    descriptions of the ones people look at most."""
+    from . import federal_bills
+
+    store = config.make_store(cfg)
+    try:
+        deadline = time.monotonic() + float(args.max_minutes or 20) * 60
+        if args.ai:
+            print(json.dumps(federal_bills.ai_run(store, config.ROOT, deadline)))
+        else:
+            print(json.dumps(federal_bills.run(_fetcher(cfg, deadline), store, deadline)))
+    finally:
+        store.close()
+
+
 def cmd_discover_ai(cfg, args):
     """The open model's discovery: new people in the news, sites for people and places with none (DuckDuckGo search),
     each page judged by the model and checked; auto-added when as good as accepted links, else data/seed_review.md."""
@@ -1038,6 +1054,9 @@ def build_parser() -> argparse.ArgumentParser:
     dai.add_argument("--max-minutes", type=float, default=20)
     rai = sub.add_parser("rumors-ai", help="the open model's reading of the Rumor Mill items (for Rumor Has It's ratings)")
     rai.add_argument("--max-minutes", type=float, default=10)
+    fbp = sub.add_parser("federal-bills", help="U.S. House and Senate bills since 2015 (GovInfo Bill Status bulk data)")
+    fbp.add_argument("--max-minutes", type=float, default=20)
+    fbp.add_argument("--ai", action="store_true", help="the open model's plain descriptions instead of reading")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
@@ -1131,7 +1150,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "ethics": cmd_ethics}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "federal-bills": cmd_federal_bills, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
