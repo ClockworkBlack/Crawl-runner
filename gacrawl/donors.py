@@ -293,8 +293,38 @@ def _orgs(store) -> dict:
                     "connected_org": m.get("connected_org") or "", "website": m.get("website") or "",
                     "what": [{"t": w["text"], "u": w.get("src") or ""} for w in (m.get("what") or [])
                              if w.get("basis") != "self-description" and w.get("text")][:5],
+                    # the people behind it, as its own filings and pages list them (treasurer and custodian of records on
+                    # its FEC registration, officers its own site names), each with the page it came from
+                    "people": [{"name": o["name"], "role": o.get("role") or "", "u": o.get("src") or ""}
+                               for o in (m.get("officers") or []) if o.get("name") and str(o.get("src", "")).startswith("http")][:8],
                     "src": [{"t": x.get("t") or "", "u": x.get("u") or ""} for x in (m.get("sources") or []) if x.get("u")][:5]}
     return out
+
+
+def _money(v: float) -> str:
+    return f"${v:,.0f}"
+
+
+def summary_of(P: dict) -> str:
+    """One plain sentence from the profile's own figures (no model): who, how much, to whom, when, by party."""
+    to = P.get("to") or []
+    nrec = len(to) + (P.get("others") or {}).get("recipients", 0)
+    by_party: dict[str, float] = defaultdict(float)
+    for t in to:
+        p = (t.get("party") or "").upper()[:1]
+        by_party["Democrats" if p == "D" else "Republicans" if p == "R" else "others"] += t["t"]
+    who = {"person": "This donor", "self": "This candidate", "org": "This organization", "committee": "This committee"}.get(P["kind"], "This donor")
+    yrs = (P.get("first") or "")[:4], (P.get("last") or "")[:4]
+    when = f" from {yrs[0]} to {yrs[1]}" if yrs[0] and yrs[1] and yrs[0] != yrs[1] else (f" in {yrs[0]}" if yrs[0] else "")
+    s = f"{who} gave {_money(P['total'])} in {P['n']} gift{'s' if P['n'] != 1 else ''} to {nrec} recipient{'s' if nrec != 1 else ''}{when}"
+    if to:
+        s += f"; the most, {_money(to[0]['t'])}, to {to[0]['name']}"
+    parts = [f"{_money(v)} to {k}" for k, v in sorted(by_party.items(), key=lambda kv: -kv[1]) if v > 0]
+    if len(parts) > 1:
+        s += " (" + ", ".join(parts) + ")"
+    if P.get("via"):
+        s += f". {_money(sum(v['t'] for v in P['via']))} of it passed through " + ", ".join(v["name"] for v in P["via"][:3])
+    return s + "."
 
 
 def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: Path, log=print) -> int:
@@ -341,6 +371,7 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
             ri = rname.get(_norm(D["name"]))
             if ri is not None:
                 P["recv"] = ri          # the committee files too: its own receipts are a recipient on the tab
+        P["summary"] = summary_of(P)
         shards[shard_of(D["id"])][D["id"]] = P
         place = ", ".join(x for x in (D["city"], D["state"]) if x)
         index[index_letter(D["name"])].append([D["id"], D["name"], D["kind"], round(D["total"], 2), place, len(D["r"])])

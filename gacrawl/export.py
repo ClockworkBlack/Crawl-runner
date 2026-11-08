@@ -342,7 +342,9 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     # ---- posts, rumors, blocked
     posts = Registry(root / "data" / "verified").posts()
     (out / "verified_posts.json").write_text(json.dumps(posts, ensure_ascii=False, indent=1), encoding="utf-8")
-    (out / "rumor_mill.json").write_text(json.dumps(rumors, ensure_ascii=False, indent=1), encoding="utf-8")
+    # the outlet's own text is kept only for the model's reading (gacrawl/rumors_ai.py), never published
+    pub = [{**r, "meta": {k: v for k, v in (r.get("meta") or {}).items() if k != "text"}} for r in rumors]
+    (out / "rumor_mill.json").write_text(json.dumps(pub, ensure_ascii=False, indent=1), encoding="utf-8")
     from .rumor_video import VideoRumorMill
 
     rumor_videos = VideoRumorMill(root).all()

@@ -239,6 +239,8 @@ class RumorMill:
                 row["last_seen"] = utcnow()
                 row["claim"] = row["claim"] or claim[:1000]
                 row["opened"] = row.get("opened", False) or opened
+                if meta and meta.get("text") and not (row.get("meta") or {}).get("text"):
+                    row.setdefault("meta", {})["text"] = meta["text"]      # for the model's reading; never exported
             else:
                 row = {"id": f"r{len(rows) + 1:05d}", "candidate_id": candidate_id, "url": url, "domain": domain_of(url),
                        "claim": claim[:1000], "origin": origin, "author": author, "status": "unverified",
@@ -351,7 +353,8 @@ class Researcher:
             rec.evidence = rec.evidence or cls.classify(rec.url)
             if rec.evidence == "unverified":
                 self.rumors.add(c["id"], rec.url, rec.title or rec.text[:300], origin=rec.kind, seen_at=rec.published,
-                                author=rec.meta.get("author", ""), meta={"via": rec.channel},
+                                author=rec.meta.get("author", ""),
+                                meta={"via": rec.channel, "text": re.sub(r"\s+", " ", rec.text or "")[:3000]},
                                 opened=bool(rec.meta.get("opened")))
                 counts["rumor_mill"] = counts.get("rumor_mill", 0) + 1
                 return

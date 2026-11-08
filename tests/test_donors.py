@@ -60,3 +60,12 @@ def test_shard_of_matches_the_page():
     # the page's dnShard: FNV-1a 32-bit, % 128 (ga/template.html); values worked out by hand from the algorithm
     assert shard_of("") == f"{0x811C9DC5 % 128:02x}"
     assert len({shard_of(f"p{i}") for i in range(2000)}) == 128
+
+
+def test_summary_sentence():
+    from gacrawl.donors import summary_of
+    s = summary_of({"kind": "person", "total": 900, "n": 3, "first": "2024-03-01", "last": "2026-01-01",
+                    "to": [{"name": "Ann Able", "party": "D", "t": 650}, {"name": "Bob Baker", "party": "R", "t": 250}],
+                    "via": [{"name": "ActBlue", "t": 150}]})
+    assert s == ("This donor gave $900 in 3 gifts to 2 recipients from 2024 to 2026; the most, $650, to Ann Able "
+                 "($650 to Democrats, $250 to Republicans). $150 of it passed through ActBlue.")

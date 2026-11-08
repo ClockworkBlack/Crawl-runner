@@ -808,6 +808,15 @@ def cmd_donors_ai(cfg, args):
         store.close()
 
 
+def cmd_rumors_ai(cfg, args):
+    """The open model's reading of each Rumor Mill item (is the person named, what it rests on), for the rating."""
+    from .candidates import load_candidates
+    from .rumors_ai import run
+
+    cands = load_candidates(config.ROOT, cfg)
+    print(json.dumps(run(config.ROOT, cands, time.monotonic() + float(args.max_minutes or 10) * 60)))
+
+
 def cmd_discover_ai(cfg, args):
     """The open model's discovery: new people in the news, sites for people and places with none (DuckDuckGo search),
     each page judged by the model and checked; auto-added when as good as accepted links, else data/seed_review.md."""
@@ -1027,6 +1036,8 @@ def build_parser() -> argparse.ArgumentParser:
     da.add_argument("--decisions-only", help="only apply the owner's decisions in this copy of data/seed_review.md")
     dai = sub.add_parser("donors-ai", help="the open model's summaries of organizations that gave money (donor profiles)")
     dai.add_argument("--max-minutes", type=float, default=20)
+    rai = sub.add_parser("rumors-ai", help="the open model's reading of the Rumor Mill items (for Rumor Has It's ratings)")
+    rai.add_argument("--max-minutes", type=float, default=10)
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
@@ -1120,7 +1131,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "ethics": cmd_ethics}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
