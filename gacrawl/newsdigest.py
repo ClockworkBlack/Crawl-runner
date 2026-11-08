@@ -87,7 +87,8 @@ REPORT = re.compile(r"\b(arrest|booking|jail) (report|log)s?\b|\bnewsletter\b", 
 STATEWIDE = re.compile(r"\b(kemp|raffensperger|bottoms|gold dome|general assembly|state capitol|gov\.?-elect|"
                        r"lieutenant governor|state house|state senate|public service commission)\b", re.I)
 AMBIGUOUS = {"washington", "lincoln", "jackson", "franklin", "union", "columbia", "georgia", "america", "early", "price",
-             "lumber city", "jefferson", "madison", "monroe", "clay", "grant", "lee", "hart", "berlin", "milan", "rome"}
+             "lumber city", "jefferson", "madison", "monroe", "clay", "grant", "lee", "hart", "berlin", "milan", "rome",
+             "perry", "douglas", "baker", "warwick", "allen", "riddleville", "white", "young", "harris", "smith"}
 _PLACES: list = []
 
 
@@ -99,8 +100,12 @@ def _places():
         names = set()
         try:
             for j in jurisdictions(Path(__file__).resolve().parent.parent):
-                n = re.sub(r"^(city|town) of\s+|\s+(county|city|town|consolidated government|unified government)$", "",
-                           (j.get("name") or "").strip(), flags=re.I).strip()
+                # counties keep "County" (Miller, Taylor, Cook ... are surnames too); cities drop "City of"
+                if j.get("kind") not in ("city", "town", "municipality", "consolidated"):
+                    n = (j.get("name") or "").strip() if j.get("kind") == "county" else ""
+                else:
+                    n = re.sub(r"^(city|town) of\s+|\s+(city|town|consolidated government|unified government)$", "",
+                               (j.get("name") or "").strip(), flags=re.I).strip()
                 if len(n) >= 4 and n.lower() not in AMBIGUOUS:
                     names.add(re.escape(n))
         except Exception:  # noqa: BLE001

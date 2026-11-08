@@ -42,19 +42,7 @@ jobs:
       - run: pip install -q -e .
       - name: Political news (outlets' news APIs and feeds, the last ten days)
         run: |
-          timeout -s INT -k 1m 12m gacrawl news --max-minutes 10 || echo "news stopped after 12 minutes"
-          mkdir -p dist/news
-          python3 - <<'PY'
-          from pathlib import Path
-          from gacrawl import config
-          from gacrawl.newsdigest import export_news
-          cfg = config.load()
-          store = config.make_store(cfg)
-          try:
-              print("news digest:", export_news(store, Path("dist/news/news.json")))
-          finally:
-              store.close()
-          PY
+          timeout -s INT -k 1m 12m gacrawl news --max-minutes 10 --export dist/news/news.json || echo "news stopped after 12 minutes"
       - name: Electo's News tab and the public site
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
         env:

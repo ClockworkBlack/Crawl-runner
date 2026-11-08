@@ -717,6 +717,12 @@ def cmd_news(cfg, args):
     try:
         deadline = time.monotonic() + float(args.max_minutes or 6) * 60
         stats = Digest(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"]).run(deadline)
+        if getattr(args, "export", None):
+            from .newsdigest import export_news
+
+            out = Path(args.export)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            stats["export"] = export_news(store, out)
     finally:
         store.close()
     print(json.dumps({"news": stats}))
@@ -888,6 +894,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
+    nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
     sub.add_parser("coverage", help="what the data holds per Electo feature, against the last run (data/coverage.md)")
     pg = sub.add_parser("purge", help="delete the records of the sources listed in config/purge.yaml")
     pg.add_argument("--dry-run", action="store_true")
