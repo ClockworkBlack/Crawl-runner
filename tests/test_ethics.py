@@ -48,3 +48,15 @@ def test_amended_report_replaces_older(tmp_path):
     assert ethics.drop_superseded(s) == 1
     keys = {r["key"] for r in s.iter_query("kind='contribution'")}
     assert keys == {"ga2|efile|2", "ga2|efile|3"}
+
+
+def test_committee_and_nickname_matching():
+    idx = ethics.candidate_index(CANDS + [{"id": "blake-tillery", "name": "Blake Tillery"}, {"id": "chris-carr", "name": "Chris Carr"}])
+    r = ethics.record_of("efile", t(filerName="Friends of Blake Tillery", filerTypeCode="CC", filerTypeDesc="Candidate Committee",
+                                   candidateFirstName="", candidateLastName=""), idx)
+    assert r.meta["candidate_id"] == "blake-tillery"
+    r = ethics.record_of("efile", t(filerName="Carr, Christopher M", candidateFirstName="Christopher", candidateLastName="Carr"), idx)
+    assert r.meta["candidate_id"] == "chris-carr"
+    r = ethics.record_of("efile", t(filerName="WBJ Leadership Committee, Inc.", filerTypeDesc="Leadership Committee",
+                                   candidateFirstName="", candidateLastName=""), idx)
+    assert "candidate_id" not in r.meta

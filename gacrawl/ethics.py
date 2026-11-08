@@ -183,17 +183,48 @@ def _nm(s: str) -> str:
     return re.sub(r"[^a-z]+", " ", (s or "").lower()).strip()
 
 
+def _firsts(first: str) -> set[str]:
+    from .finance import Finance
+
+    nick = dict(Finance.NICK, chris={"christopher"}, jen={"jennifer"}, josh={"joshua"}, ron={"ronald"}, don={"donald"},
+                ed={"edward"}, al={"albert", "alan"}, larry={"lawrence"}, jerry={"gerald"}, terry={"terrence"})
+    out = {first} | set(nick.get(first, ()))
+    out |= {k for k, v in nick.items() if first in v}
+    return out
+
+
 def candidate_index(candidates) -> dict:
-    """'first last' -> candidate, for names that only one Electo candidate carries (state and local offices)."""
+    """'first last' -> candidate (with nicknames both ways: Chris / Christopher), for names that only one Electo
+    candidate carries (state and local offices)."""
     idx: dict[str, list] = {}
     for c in candidates:
         for v in {c.get("name", ""), *(c.get("variants") or []), *(c.get("aliases") or [])}:
-            w = _nm(v).split()
+            w = [x for x in _nm(v).split() if x not in ("jr", "sr", "ii", "iii", "iv")]
             if len(w) >= 2:
-                for k in {f"{w[0]} {w[-1]}"}:
+                for f in _firsts(w[0]):
+                    k = f"{f} {w[-1]}"
                     if c not in idx.setdefault(k, []):
                         idx[k].append(c)
     return {k: v[0] for k, v in idx.items() if len(v) == 1}
+
+
+def match(t: dict, cands: dict):
+    """The Electo candidate a filing belongs to: the filer's own name when the filer is a candidate, or a full name
+    inside a campaign committee's name ("Friends of Blake Tillery"), when exactly one candidate carries it."""
+    w = _who(t)
+    if w:
+        ws = w.split()
+        c = cands.get(w) or cands.get(f"{ws[0]} {ws[-1]}")
+        if c:
+            return c
+    ft = (t.get("filerTypeDesc") or t.get("filerTypeCode") or "").lower()
+    if "leadership" in ft or "independent" in ft or "party" in ft:
+        return None
+    words = [x for x in _nm(t.get("filerName") or "").split() if x not in ("jr", "sr", "ii", "iii")]
+    hits = {cands[f"{a} {b}"]["id"]: cands[f"{a} {b}"] for a, b in zip(words, words[1:]) if f"{a} {b}" in cands}
+    hits.update({cands[f"{a} {c}"]["id"]: cands[f"{a} {c}"] for a, b, c in zip(words, words[1:], words[2:])
+                 if len(b) <= 2 and f"{a} {c}" in cands})     # a middle initial
+    return next(iter(hits.values())) if len(hits) == 1 else None
 
 
 def _who(t: dict) -> str:
@@ -237,7 +268,7 @@ def record_of(system: str, t: dict, cands: dict):
     d = (t.get("transactionDate") or "")[:10]
     if re.match(r"\d\d/\d\d/\d{4}", d):
         d = f"{d[6:10]}-{d[0:2]}-{d[3:5]}"
-    c = cands.get(_who(t))
+    c = match(t, cands)
     recipient = c["name"] if c else (t.get("filerName") or "").strip()
     row = {"name": "" if unitem else name, "amount": float(t["transactionAmount"]), "date": d, "kind": kind,
            "employer": t.get("payeeEmployer") or "", "occupation": t.get("payeeOccupation") or "",
@@ -309,7 +340,9 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
 
     cands = candidate_index([c for c in candidates if "federal" not in (c.get("levels") or [])])
     st = {"added": 0, "pages": 0, "skipped": 0, "years": {}}
-    for system, base in SYSTEMS.items():
+    end = deadline
+    for i, (system, base) in enumerate(SYSTEMS.items()):
+        deadline = time.monotonic() + (end - time.monotonic()) / (len(SYSTEMS) - i)    # each system its share
         ys = years(fetcher, base, log)
         sh = shape(fetcher, system, base, ys[0], log)
         if not sh:
