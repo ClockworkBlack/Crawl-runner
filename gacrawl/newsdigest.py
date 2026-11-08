@@ -65,9 +65,75 @@ def _excerpt(t: str, n: int = 2, cap: int = 320) -> str:
     return out[:cap].rstrip() + ("…" if len(out) > cap else "")
 
 
-def keep(title: str, text: str) -> bool:
+# government itself: what a story must be about (crime, crashes and court sentences alone are not political news)
+CIVIC = re.compile(
+    r"\b(legislat\w*|general assembly|state house|state senate|state rep\w*|senators?|lawmakers?|governor|kemp|"
+    r"lieutenant governor|attorney general|secretary of state|raffensperger|elections?|ballots?|voters?|voting|"
+    r"runoff|recount|campaign\w*|candidates?|primary|council\w*|commission(ers?)?|mayor\w*|city manager|"
+    r"county manager|school board|board of education|superintendent|budget\w*|millage|property tax\w*|tax rollback|"
+    r"sales tax|splost|tspl?ost|e-?splost|ordinance\w*|zoning|rezon\w*|referendum|annexation|"
+    r"congress\w*|public service commission|ethics|audit\w*|appropriat\w*|democrat\w*|republican\w*|gop|"
+    r"medicaid|transition team|special session|executive order|redistrict\w*|state agency|regulations?)\b", re.I)
+CRIME = re.compile(r"\b(arrest\w*|charged|killed|killing|murder\w*|shot|shooting|stabb\w*|crash\w*|wreck|overturn\w*|"
+                   r"sentenced|gets (life|\d+ years)|years in prison|dui|drunk driv\w*|robber\w*|burglar\w*|missing|"
+                   r"fire\b|blaze|obituar\w*|arrest report|booking)\b", re.I)
+GOV_TITLE = re.compile(r"\b(council|commission|board|legislat|lawmaker|governor|kemp|mayor|sheriff election|election|"
+                       r"vote|ballot|budget|tax|ordinance|policy|state house|state senate|race|approv|contract)\w*", re.I)
+LOCAL = re.compile(r"\b(council\w*|commission(ers?)?|board of (education|elections|commissioners)|school board|mayor|"
+                   r"city|town|county|millage)\b", re.I)
+REPORT = re.compile(r"\b(arrest|booking|jail) (report|log)s?\b|\bnewsletter\b", re.I)
+
+
+STATEWIDE = re.compile(r"\b(kemp|raffensperger|bottoms|gold dome|general assembly|state capitol|gov\.?-elect|"
+                       r"lieutenant governor|state house|state senate|public service commission)\b", re.I)
+AMBIGUOUS = {"washington", "lincoln", "jackson", "franklin", "union", "columbia", "georgia", "america", "early", "price",
+             "lumber city", "jefferson", "madison", "monroe", "clay", "grant", "lee", "hart", "berlin", "milan", "rome"}
+_PLACES: list = []
+
+
+def _places():
+    """Every Georgia county and city in config/jurisdictions.yaml (Rochelle, Tucker, Brookhaven ...) as one pattern."""
+    if not _PLACES:
+        from .registry import jurisdictions
+
+        names = set()
+        try:
+            for j in jurisdictions(Path(__file__).resolve().parent.parent):
+                n = re.sub(r"^(city|town) of\s+|\s+(county|city|town|consolidated government|unified government)$", "",
+                           (j.get("name") or "").strip(), flags=re.I).strip()
+                if len(n) >= 4 and n.lower() not in AMBIGUOUS:
+                    names.add(re.escape(n))
+        except Exception:  # noqa: BLE001
+            names = set()
+        _PLACES.append(re.compile(r"\b(" + "|".join(sorted(names, key=len, reverse=True)) + r")\b") if names else None)
+    return _PLACES[0]
+
+
+def in_georgia(title: str, text: str) -> bool:
     hay = f"{title} {text[:1500]}"
-    return bool(POLITICS.search(hay)) and bool(GEORGIA.search(hay) or POLITICS.search(title))
+    pl = _places()
+    return bool(GEORGIA.search(hay) or STATEWIDE.search(hay) or LOCAL.search(title) or (pl and pl.search(hay)))
+
+
+def _other_state(title: str) -> bool:
+    from .policing_news import OTHER_STATES
+
+    return bool(OTHER_STATES.search(title)) and not GEORGIA.search(title)
+
+
+def keep(title: str, text: str) -> bool:
+    """Georgia government and politics: a civic subject in the headline, or in the excerpt when the headline is not a
+    crime or accident report; never a story whose headline is about another state, national sports or travel."""
+    hay = f"{title} {text[:1500]}"
+    if _other_state(title) or re.search(r"\b(NCAA|NFL|NBA|MLB|SEC|Amtrak|recipe|weather)\b", title):
+        return False
+    if REPORT.search(title) or (CRIME.search(title) and not GOV_TITLE.search(title)):
+        return False
+    if not (CIVIC.search(title) or CIVIC.search(text[:600])):
+        return False
+    # every outlet is a Georgia outlet, so a local body in the headline (a council, a commission, a board) is local;
+    # otherwise the story must name a Georgia place (a national wire story about Washington or another state is not this tab's)
+    return in_georgia(title, text)
 
 
 def tags_of(title: str, text: str) -> list[str]:
@@ -182,6 +248,8 @@ def export_news(store, out_path: Path) -> dict:
     for r in store.iter_query("kind='news_item'"):
         d = (r.get("published") or "")[:10]
         if not d or d < floor:
+            continue
+        if not keep(r.get("title") or "", r.get("text") or ""):
             continue
         key = re.sub(r"\W+", " ", (r.get("title") or "").lower()).strip()
         if key in seen:

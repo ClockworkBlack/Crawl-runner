@@ -31,3 +31,13 @@ def test_export(tmp_path):
     c = nd.export_news(s, out)
     j = json.loads(out.read_text())
     assert c["items"] == 1 and j["items"][0]["s"] == "Ex News" and j["items"][0]["d"] == d and j["updated"]
+
+
+def test_crime_national_and_local():
+    assert not nd.keep("Walker County Sheriff Arrest Report 11/7/2026", "")
+    assert not nd.keep("Drunk driver gets 10 years for killing YMCA worker in Augusta", "")
+    assert not nd.keep("Texas' School Voucher Program Could Be Extinct, Says Democratic Lawmaker", "")
+    assert not nd.keep("Stephen Miller replaces chief of staff after GOP midterm losses", "The White House said Friday.")
+    assert nd.keep("Missing memory card temporarily changed apparent outcome in state House race", "")
+    assert nd.keep("Rochelle adopts budget; tax hearings set before millage vote", "The council met Monday.")
+    assert nd.keep("Kemp declines special session to limit executive powers", "")
