@@ -1,0 +1,159 @@
+# Watchdog: keeps the whole chain hands-off. Runs in the PUBLIC runner repository only (free minutes), every three
+# hours. It checks that each part of the chain has done its work recently and repairs what it can on its own:
+#   - the crawl, police and news runs have left fresh commits (else it starts that workflow again, once, if none is
+#     already queued or running)
+#   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news)
+#   - the tokens the chain depends on are not about to expire (it cannot renew them; it warns two weeks ahead)
+# Anything it can't fix, or that stays broken after a restart, goes into one "Watchdog" issue in the private Crawl
+# repository (GitHub emails you); the issue closes itself once everything is healthy again. No Claude needed.
+name: watchdog
+on:
+  schedule:
+    - cron: "53 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN }}
+      SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      RUNNER_TOKEN: ${{ github.token }}
+      RUNNER_REPO: ${{ github.repository }}
+      DATA_REPO: ClockworkBlack/Crawl
+      SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+      # how old (hours) each sign of life may get before the watchdog acts
+      MAX_CRAWL_H: ${{ vars.WATCH_CRAWL_HOURS || '30' }}
+      MAX_POLICE_H: ${{ vars.WATCH_POLICE_HOURS || '30' }}
+      MAX_NEWS_H: ${{ vars.WATCH_NEWS_HOURS || '8' }}
+      MAX_SITE_H: ${{ vars.WATCH_SITE_HOURS || '8' }}
+    steps:
+      - name: Check the chain and repair what can be repaired
+        run: |
+          python3 - <<'PY'
+          import datetime as dt, json, os, urllib.request, urllib.error
+
+          now = dt.datetime.now(dt.timezone.utc)
+          problems, repairs = [], []
+
+          def api(path, token, method="GET", body=None, headers_out=None):
+              req = urllib.request.Request("https://api.github.com/" + path, method=method,
+                                           data=json.dumps(body).encode() if body is not None else None)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("User-Agent", "crawl-watchdog")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      if headers_out is not None:
+                          headers_out.update(r.headers)
+                      txt = r.read()
+                      return json.loads(txt) if txt else {}
+              except urllib.error.HTTPError as e:
+                  return {"_error": e.code, "_msg": e.read()[:300].decode(errors="replace")}
+              except Exception as e:
+                  return {"_error": type(e).__name__}
+
+          def hours_since(iso):
+              return (now - dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))).total_seconds() / 3600
+
+          # 1. tokens: valid, and not expiring within 14 days
+          for name in ("DATA_TOKEN", "ELECTO_TOKEN", "SITE_TOKEN"):
+              tok = os.environ.get(name, "")
+              if not tok:
+                  continue
+              h = {}
+              r = api("rate_limit", tok, headers_out=h)
+              if isinstance(r, dict) and r.get("_error") in (401, 403):
+                  problems.append(f"**{name} no longer works** (HTTP {r['_error']}). Make a new token and replace the secret; the chain stops moving data until then.")
+                  continue
+              exp = h.get("github-authentication-token-expiration")
+              if exp:
+                  left = (dt.datetime.strptime(exp[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.timezone.utc) - now).days
+                  if left < 14:
+                      problems.append(f"**{name} expires in {left} days** ({exp}). Renew it (or make a new one) and update the secret before then.")
+
+          data_tok = os.environ["DATA_TOKEN"]
+          runner_tok = os.environ["RUNNER_TOKEN"]
+          data_repo, runner_repo = os.environ["DATA_REPO"], os.environ["RUNNER_REPO"]
+
+          # 2. last commit whose message starts with a prefix, in the private data repo
+          commits = api(f"repos/{data_repo}/commits?per_page=100", data_tok)
+          if not isinstance(commits, list):
+              problems.append(f"Couldn't read the private Crawl repository ({commits.get('_error')}); check DATA_TOKEN.")
+              commits = []
+
+          def last(prefixes):
+              for c in commits:
+                  msg = c["commit"]["message"].split("\n")[0].lower()
+                  if any(msg.startswith(p) for p in prefixes):
+                      return hours_since(c["commit"]["committer"]["date"])
+              return None
+
+          def busy(workflow):
+              r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/runs?per_page=5", runner_tok)
+              return any(w["status"] in ("queued", "in_progress", "waiting", "pending", "requested")
+                         for w in (r.get("workflow_runs") or []))
+
+          def restart(workflow, why):
+              if busy(workflow):
+                  repairs.append(f"{workflow}: {why}, but a run is already going; leaving it be")
+                  return
+              r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/dispatches", runner_tok, "POST", {"ref": "main"})
+              if r.get("_error"):
+                  problems.append(f"{workflow}: {why}, and restarting it failed (HTTP {r['_error']}).")
+              else:
+                  repairs.append(f"{workflow}: {why}; started it again")
+
+          checks = [("crawl.yml", ["crawl:"], float(os.environ["MAX_CRAWL_H"])),
+                    ("police.yml", ["police:", "police data:"], float(os.environ["MAX_POLICE_H"]))]
+          for wf, prefixes, max_h in checks:
+              age = last(prefixes)
+              if age is None or age > max_h:
+                  why = "no run in the last 100 commits" if age is None else f"last data {age:.0f}h ago"
+                  restart(wf, why)
+                  if age is not None and age > max_h * 2:
+                      problems.append(f"**{wf}** hasn't delivered data in {age:.0f} hours, even after restarts. Its logs are in logs/runner/ in the private Crawl repository.")
+
+          # 3. the public site / feed
+          site_tok = os.environ.get("SITE_TOKEN") or data_tok
+          sc = api(f"repos/{os.environ['SITE_DATA_REPO']}/commits?per_page=1", site_tok)
+          if isinstance(sc, list) and sc:
+              age = hours_since(sc[0]["commit"]["committer"]["date"])
+              if age > float(os.environ["MAX_SITE_H"]):
+                  restart("news.yml", f"public site last updated {age:.0f}h ago")
+                  restart("publish-site.yml", f"public site last updated {age:.0f}h ago")
+                  if age > float(os.environ["MAX_SITE_H"]) * 3:
+                      problems.append(f"**The public site** hasn't been updated in {age:.0f} hours, even after restarts.")
+          else:
+              problems.append(f"Couldn't read {os.environ['SITE_DATA_REPO']} ({sc.get('_error') if isinstance(sc, dict) else 'empty'}); check the site token.")
+
+          # 4. report: one issue in the private repo, opened/updated on problems, closed when healthy
+          print("\n".join(["repairs:"] + repairs + ["problems:"] + problems))
+          issues = api(f"repos/{data_repo}/issues?state=open&labels=watchdog&per_page=5", data_tok)
+          open_issue = issues[0] if isinstance(issues, list) and issues else None
+          stamp = now.strftime("%Y-%m-%d %H:%M UTC")
+          if problems:
+              body = (f"Checked {stamp}.\n\n**Needs you:**\n" + "\n".join(f"- {p}" for p in problems)
+                      + ("\n\n**Repaired automatically:**\n" + "\n".join(f"- {r}" for r in repairs) if repairs else "")
+                      + "\n\nThis issue closes itself once everything is healthy.")
+              if open_issue:
+                  api(f"repos/{data_repo}/issues/{open_issue['number']}", data_tok, "PATCH", {"body": body})
+              else:
+                  api(f"repos/{data_repo}/issues", data_tok, "POST",
+                      {"title": "Watchdog: the chain needs attention", "body": body, "labels": ["watchdog"]})
+          elif open_issue:
+              api(f"repos/{data_repo}/issues/{open_issue['number']}/comments", data_tok, "POST",
+                  {"body": f"Healthy again as of {stamp}." + ("\n\n" + "\n".join(f"- {r}" for r in repairs) if repairs else "")})
+              api(f"repos/{data_repo}/issues/{open_issue['number']}", data_tok, "PATCH", {"state": "closed"})
+          PY

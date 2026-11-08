@@ -84,6 +84,8 @@ env:
 
 jobs:
   prepare:
+    # the private repository never starts its own scheduled runs (the public runner runs them, config/runner.json)
+    if: github.event_name != 'schedule' || github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 80
     outputs:
