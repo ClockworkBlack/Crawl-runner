@@ -106,51 +106,45 @@ PB = re.compile(r"__doPostBack\('([^']+)','([^']*)'\)")
 FOLLOW = re.compile(r"(?i)view|detail|report|contribut|itemi|schedule|disclosure|ccdr")
 
 
+ONCLICK_TBD = re.compile(r"onGridViewRowSelected\('([^']+)'")
+
+
 def explore(fetcher, out: Path, last: str = "Burns", first: str = "Jon", log=print) -> dict:
-    """Save what the site answers for one known filer: the name search, the candidate page its View button opens,
-    the newest report in each of the candidate page's report tables, and the contribution parts of those reports."""
+    """Save the newer e-filed report pages for one known filer: the name search, the candidate page, the first
+    e-filed report (the address its View link opens, from the page itself) and whatever that page links to."""
     out.mkdir(parents=True, exist_ok=True)
     seen: list[dict] = []
 
     def keep(tag: str, r):
         p = out / f"{len(seen):02d}-{tag}.html"
-        p.write_bytes(r.content if "pdf" in (r.content_type or "") else r.text.encode("utf-8"))
-        s = summary(r.text, r.url) if "html" in (r.content_type or "") else {"url": r.url}
-        s.update({"file": p.name, "status": r.status, "tag": tag, "type": r.content_type})
-        seen.append(s)
-        log(f"ethics explore: {tag}: HTTP {r.status} {r.content_type} {r.url}")
-        return s
+        p.write_bytes(r.content)
+        seen.append({"file": p.name, "status": r.status, "tag": tag, "type": r.content_type, "url": r.url})
+        log(f"ethics explore: {tag}: HTTP {r.status} {r.content_type} {r.url} ({len(r.content)} bytes)")
 
-    def press(page, rx, n=1):
-        got = []
-        for m in PB.finditer(page.text):
-            if re.search(rx, m.group(1)) and m.group(1) not in [g[0] for g in got]:
-                got.append((m.group(1), m.group(2)))
-        return got[:n]
-
-    keep("contrib-form", fetcher.get(CONTRIB_SEARCH, use_cache=False))
     r = submit(fetcher, NAME_SEARCH, {"txtLast": last, "txtFirst": first}, button="Search")
-    keep("name-result", r)
-    for t, a in press(r, r"lnkView"):
-        cand = postback(fetcher, r.text, r.url, t, a)
-        keep("candidate", cand)
-        for grid in (r"dgReport_TBD_Efiled\$ctl02\$", r"dgReports\$ctl02\$"):
-            for t2, a2 in press(cand, grid):
-                rep = postback(fetcher, cand.text, cand.url, t2, a2)
-                keep("report-" + ("efiled" if "TBD" in grid else "older"), rep)
-                if "html" not in (rep.content_type or ""):
-                    continue
-                for t3, a3 in press(rep, r"(?i)contrib|schedule|itemi|detail|view", 3):
-                    keep("report-part", postback(fetcher, rep.text, rep.url, t3, a3))
-                soup = extract.soup_of(rep.text)
-                for a in soup.find_all("a", href=True)[:200]:
-                    h = urljoin(rep.url, a["href"])
-                    if re.search(r"(?i)contrib|schedule|itemi|\.pdf", h + " " + a.get_text()) and "media.ethics.ga.gov" in h \
-                            and not re.search(r"(?i)By(Name|Office|Contributions|Expenditures)", h):
-                        keep("report-link", fetcher.get(h, use_cache=False))
-                        break
+    m = next((m for m in PB.finditer(r.text) if "lnkView" in m.group(1)), None)
+    if not m:
+        return {"pages": 0}
+    res = postback(fetcher, r.text, r.url, m.group(1), m.group(2))
+    m2 = next((m for m in PB.finditer(res.text) if "lnkView" in m.group(1) or "View" in m.group(1)), None)
+    cand = postback(fetcher, res.text, res.url, m2.group(1), m2.group(2)) if m2 else res
+    keep("candidate", cand)
+    tbd = ONCLICK_TBD.findall(cand.text)
+    for rel in tbd[:2]:
+        rr = fetcher.get(urljoin(cand.url, rel), use_cache=False)
+        keep("efiled", rr)
+        if "html" in (rr.content_type or ""):
+            soup = extract.soup_of(rr.text)
+            for a in soup.find_all(["a", "iframe", "frame", "embed", "object"])[:80]:
+                h = a.get("href") or a.get("src") or a.get("data") or ""
+                if h and not h.startswith(("javascript", "#", "mailto")):
+                    u = urljoin(rr.url, h)
+                    if "ethics.ga.gov" in u and not re.search(r"(?i)By(Name|Office|Contributions|Expenditures)|ReportLog|ReportSummary|theethics|\.css|\.js|WebResource|images/", u):
+                        keep("efiled-link", fetcher.get(u, use_cache=False))
+            for m3 in list(PB.finditer(rr.text))[:3]:
+                keep("efiled-pb", postback(fetcher, rr.text, rr.url, m3.group(1), m3.group(2)))
     (out / "index.json").write_text(json.dumps(seen, indent=1, ensure_ascii=False), encoding="utf-8")
-    return {"pages": len(seen), "out": str(out)}
+    return {"pages": len(seen), "efiled_reports_listed": len(tbd)}
 
 
 def run(fetcher, store, root, candidates, deadline) -> dict:
