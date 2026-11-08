@@ -94,8 +94,21 @@ def summary(html: str, url: str) -> dict:
             "postbacks": postbacks[:40], "tables": tables[:8], "text": extract.main_text(html)[:1500]}
 
 
-def explore(fetcher, out: Path, names=(("Burns", "Jon"), ("Kemp", "Brian")), log=print) -> dict:
-    """Save what the search pages answer for a few known filers, to build the parser on the real pages."""
+def postback(fetcher, html: str, url: str, target: str, argument: str = ""):
+    """Press a link the page wires to __doPostBack(target, argument): its own form sent back with that event."""
+    F = form_of(html, url)
+    data = dict(F["fields"])
+    data["__EVENTTARGET"], data["__EVENTARGUMENT"] = target, argument
+    return fetcher.post(F["action"], data=data, headers={"Referer": url})
+
+
+PB = re.compile(r"__doPostBack\('([^']+)','([^']*)'\)")
+FOLLOW = re.compile(r"(?i)view|detail|report|contribut|itemi|schedule|disclosure|ccdr")
+
+
+def explore(fetcher, out: Path, names=(("Burns", "Jon"), ("Kemp", "Brian")), log=print, max_pages: int = 14) -> dict:
+    """Save what the search pages answer for a few known filers, following the result's View buttons and the
+    report and contribution links behind them, to build the parser on the real pages."""
     out.mkdir(parents=True, exist_ok=True)
     seen: list[dict] = []
 
@@ -105,25 +118,47 @@ def explore(fetcher, out: Path, names=(("Burns", "Jon"), ("Kemp", "Brian")), log
         s = summary(r.text, r.url)
         s.update({"file": p.name, "status": r.status, "tag": tag})
         seen.append(s)
-        log(f"ethics explore: {tag}: HTTP {r.status} {r.url} ({len(s['links'])} links, {len(s['postbacks'])} postbacks, "
-            f"{len(s['tables'])} tables)")
+        log(f"ethics explore: {tag}: HTTP {r.status} {r.url} ({len(s['postbacks'])} postbacks, {len(s['tables'])} tables)")
         return s
 
-    keep("report-log", fetcher.get(REPORT_LOG, use_cache=False))
-    for last, first in names:
+    for u, tag in ((CONTRIB_SEARCH, "contrib-form"), (NAME_SEARCH, "name-form")):
+        keep(tag, fetcher.get(u, use_cache=False))
+    for last, first in names[:1]:
         r = submit(fetcher, NAME_SEARCH, {"txtLast": last, "txtFirst": first}, button="Search")
-        s = keep(f"name-{last}", r)
-        # the first link or postback on the results that leads on (a candidate's page), then its first report
-        nxt = [l for l in s["links"] if re.search(r"(?i)name|cand|filer|report|view", l["href"])
-               and l["href"] not in (NAME_SEARCH,) and "ByName" not in l["href"]][:2]
-        for l in nxt:
-            r2 = fetcher.get(l["href"], use_cache=False)
-            s2 = keep(f"cand-{last}", r2)
-            reps = [x for x in s2["links"] if re.search(r"(?i)report|ccdr|view|detail", x["href"])][:2]
-            for x in reps:
-                keep(f"report-{last}", fetcher.get(x["href"], use_cache=False))
-        r = submit(fetcher, CONTRIB_SEARCH, {"txtCandidateName": f"{first} {last}", "txtCandLast": last}, button="Search")
-        keep(f"contrib-{last}", r)
+        keep(f"name-{last}", r)
+        frontier, n, done = [(r, 0)], 0, set()
+        while frontier and n < max_pages:
+            page, depth = frontier.pop(0)
+            if depth >= 4:
+                continue
+            soup = extract.soup_of(page.text)
+            nav = {a.get("href") for a in soup.select("table a[href]") if "ctl00_" not in (a.get("id") or "")}
+            # what to press: postback links and plain links whose text says view, report, contribution ...
+            acts = []
+            for a in soup.find_all("a", href=True):
+                t, h = a.get_text(" ", strip=True), a["href"]
+                m = PB.search(h)
+                if m and (FOLLOW.search(t) or FOLLOW.search(m.group(1))):
+                    acts.append(("pb", m.group(1), m.group(2), t))
+                elif h.lower().endswith(".pdf") or (not m and FOLLOW.search(t) and "media.ethics.ga.gov" in urljoin(page.url, h)
+                                                     and not re.search(r"(?i)by(name|office|contribution|expenditure)|reportlog|main search|maps", urljoin(page.url, h))):
+                    acts.append(("get", urljoin(page.url, h), "", t))
+            for kind, a1, a2, t in acts[:3]:
+                key = (kind, a1, a2)
+                if key in done:
+                    continue
+                done.add(key)
+                try:
+                    r2 = postback(fetcher, page.text, page.url, a1, a2) if kind == "pb" else fetcher.get(a1, use_cache=False)
+                except Exception as e:  # noqa: BLE001
+                    log(f"ethics explore: {t[:30]}: {type(e).__name__}: {str(e)[:80]}")
+                    continue
+                n += 1
+                if "pdf" in (r2.content_type or ""):
+                    log(f"ethics explore: {t[:30]}: a PDF ({len(r2.content)} bytes) {r2.url}")
+                    continue
+                keep(f"d{depth + 1}-{re.sub(r'[^a-z]+', '', t.lower())[:16]}", r2)
+                frontier.append((r2, depth + 1))
     (out / "index.json").write_text(json.dumps(seen, indent=1, ensure_ascii=False), encoding="utf-8")
     return {"pages": len(seen), "out": str(out)}
 
