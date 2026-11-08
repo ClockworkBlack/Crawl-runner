@@ -30,6 +30,11 @@ http:
     # query API); the shared ArcGIS host has no robots.txt at all (/robots.txt answers 403 "Invalid URL"), which the
     # crawler would otherwise read as "disallow everything"
     - services1.arcgis.com/ua5sjt3lwtpigjyd/arcgis/rest/services
+    # Georgia's campaign finance systems (EFile 2022-2025, PeachFile 2026 on): the public JSON API their own
+    # Contributions search and Download Data pages call; robots.txt on these API hosts answers 401. Approved by the
+    # owner on Nov 7, 2026 (gacrawl/ethics.py)
+    - api-peachfile.ethics.ga.gov/api
+    - api-recordsearch.ethics.ga.gov/api
   host_timeouts:               # read timeouts for services that are slow to answer but do answer
     api.gdeltproject.org: 120  # a news search can take a minute or more (30 s timed out every query)
   space_after_answer:          # hosts whose spacing counts from the end of the previous answer
