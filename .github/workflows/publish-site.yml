@@ -1,0 +1,50 @@
+name: publish-site
+# Keeps the public site (GitHub Pages from electo-data) on Electo's newest commit. The data runs (news every three
+# hours, the crawl's merge job) publish at their end; this catches everything else (a change to the page itself, an
+# import, a profile run): every 20 minutes it compares Electo's main with the commit the site was last built from
+# (electo-data main/current.json) and, when they differ, rebuilds and publishes (Electo tools/site_data.sh). Nothing
+# changed costs one small request.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-site
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Has Electo changed since the site was built?
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          head=$(gh api "repos/$ELECTO_REPO/commits/main" --jq .sha)
+          built=$(curl -fsS "https://raw.githubusercontent.com/$SITE_DATA_REPO/main/current.json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('commit',''))" || echo "")
+          echo "Electo main: $head; site built from: ${built:-nothing}"
+          if [ -n "$built" ] && [ "${head#"$built"}" != "$head" ]; then echo "site is current"; echo "go=false" >> "$GITHUB_OUTPUT"
+          else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: Rebuild and publish the site
+        if: steps.check.outputs.go == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-site
+          cd /tmp/electo-site
+          GH_TOKEN="$SITE_TOKEN" timeout 30m bash tools/site_data.sh
