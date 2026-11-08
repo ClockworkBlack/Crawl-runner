@@ -128,3 +128,20 @@ def test_new_person_needs_three_outlets_same_office(tmp_path):
     from gacrawl.discover_ai import accepted
     d.finish()
     assert any(x["target"] == "Mo Ivory" for x in accepted(tmp_path / "state"))
+
+
+def test_scope_keeps_to_georgia_officials_and_candidates():
+    from gacrawl.discover_ai import scope_check
+    ga = {"fulton", "fulton county", "savannah", "city of savannah", "washington", "washington county"}
+    assert scope_check("Fulton County Commission chair", "Fulton County", ga)[0] == "ok"
+    assert scope_check("state senator", "Georgia", ga)[0] == "ok"
+    assert scope_check("city council candidate", "Savannah, GA", ga)[0] == "ok"
+    assert scope_check("county commissioner", "Washington County", ga)[0] == "ok"      # a Georgia county, not the state
+    assert scope_check("Georgia GOP chair", "Georgia", ga)[0] == "out"                 # party official
+    assert scope_check("campaign manager", "Atlanta", ga)[0] == "out"
+    assert scope_check("vice president", "", ga)[0] == "out"
+    assert scope_check("governor", "Ohio", ga)[0] == "out"                             # another state
+    assert scope_check("mayor", "Charlotte, North Carolina", ga)[0] == "out"
+    assert scope_check("activist", "Atlanta", ga)[0] == "out"
+    assert scope_check("", "Atlanta", ga)[0] == "out"                                  # no office named
+    assert scope_check("mayor", "Smallville", ga)[0] == "wait"                         # unknown place: owner decides

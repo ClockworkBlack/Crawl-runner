@@ -90,6 +90,50 @@ def _office_words(office: str) -> set[str]:
     return w
 
 
+# Scope (the owner's rule): a new person is only someone who holds, won, lost or seeks a government office in Georgia.
+# Party officials, staff, consultants, activists and federal officials from elsewhere are not candidates or officials
+# Electo covers, and a place outside Georgia is out of scope: such names are dropped, never listed or added.
+ROLE_OUT = ("party", "gop", "spokes", "aide", "staffer", "chief of staff", "consultant", "lobbyist", "activist",
+            "strategist", "donor", "white house", "u.s. president", "president of the united states", "vice president",
+            "presidential", "cabinet", "ambassador", "press secretary", "campaign manager", "pastor", "ceo", "executive director")
+OTHER_STATES = {"alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida",
+                "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland",
+                "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada",
+                "new hampshire", "new jersey", "new mexico", "new york", "north carolina", "north dakota", "ohio", "oklahoma",
+                "oregon", "pennsylvania", "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah",
+                "vermont", "virginia", "washington", "west virginia", "wisconsin", "wyoming", "district of columbia", "d.c.",
+                "puerto rico"}
+GA_WHOLE = {"", "georgia", "ga", "statewide", "state of georgia", "georgia statewide"}
+
+
+def _place_key(place: str) -> str:
+    p = _norm(place).rstrip(".")
+    for suf in (", georgia", ", ga", " georgia", " ga"):
+        if p.endswith(suf) and p != suf.strip(", "):
+            p = p[: -len(suf)].strip(" ,")
+    return p
+
+
+def scope_check(office: str, place: str, ga_places: set[str] | None) -> tuple[str, str]:
+    """('out', why): never list or add; ('wait', why): in scope but not clearly, so the owner decides; ('ok', '')."""
+    o = _norm(office)
+    words = _office_words(office) - {"chair", "lieutenant"}
+    if any(r in o for r in ROLE_OUT):
+        return "out", "not a government office Electo covers"
+    if not words:
+        return "out", "no government office named"
+    raw = _norm(place)
+    tail = raw.rsplit(",", 1)[-1].strip(" .")
+    pk = _place_key(place)
+    in_ga = pk in GA_WHOLE or (ga_places is not None and pk in ga_places)
+    if not in_ga and (tail in OTHER_STATES or pk in OTHER_STATES or any(f"{st} " in o and "georgia" not in o
+                                                                         for st in OTHER_STATES if len(st) > 6)):
+        return "out", "outside Georgia"
+    if not in_ga:
+        return "wait", f"place \"{place}\" is not one Electo knows in Georgia"
+    return "ok", ""
+
+
 def _gov(d: str) -> bool:
     return d.endswith((".gov", ".ga.us", ".mil")) or d.endswith(".ga.gov")
 
@@ -148,7 +192,44 @@ class Discovery:
         for it in self.st["items"].values():
             if it.get("kind") == "new_person":
                 self.known.add(_norm(it.get("target", "")))
-        self.stats = {"searches": 0, "opened": 0, "judged": 0, "auto": 0, "pending": 0, "dropped": 0, "people": 0}
+        self.stats = {"searches": 0, "opened": 0, "judged": 0, "auto": 0, "pending": 0, "dropped": 0, "people": 0,
+                      "out_of_scope": 0}
+        self._ga = None
+        self.rescope()
+
+    def ga_places(self) -> set[str] | None:
+        """Georgia's counties, cities, towns and school districts as Electo knows them (None when the list can't load)."""
+        if self._ga is None:
+            try:
+                from .registry import jurisdictions
+
+                g = set()
+                for j in jurisdictions(self.root):
+                    nm = _norm(j.get("name", ""))
+                    if not nm:
+                        continue
+                    g.add(nm)
+                    if j.get("kind") == "county":
+                        g.add(nm + " county" if not nm.endswith(" county") else nm)
+                        g.add(nm.removesuffix(" county"))
+                    else:
+                        g.update({"city of " + nm, "town of " + nm})
+                self._ga = g
+            except Exception:  # noqa: BLE001
+                self._ga = set()
+        return self._ga or None
+
+    def rescope(self) -> None:
+        """Apply the scope rule to people found before it: out of scope -> never used; added on their own but not clearly
+        in Georgia -> back to waiting. The owner's own approvals and rejections are left alone."""
+        for it in self.st["items"].values():
+            if it.get("kind") != "new_person" or it.get("status") not in ("pending", "auto"):
+                continue
+            how, why = scope_check(it.get("office", ""), it.get("place", ""), self.ga_places())
+            if how == "out":
+                it["status"], it["why"] = "out_of_scope", why
+            elif how == "wait" and it["status"] == "auto":
+                it["status"], it["why"] = "pending", why
 
     # ------------------------------------------------------------ the owner's decisions
     def apply_decisions(self, path: Path | None = None) -> int:
@@ -248,6 +329,12 @@ class Discovery:
                 if it is None:
                     if _norm(g["name"]) in self.known:
                         continue          # Electo already has this person
+                    how, why = scope_check(g["office"], g["place"], self.ga_places())
+                    if how == "out":
+                        self.stats["out_of_scope"] += 1
+                        self.llm.log(self.log_p, {"task": "decision", "kind": "new_person", "decision": "out_of_scope",
+                                                  "target": g["name"], "office": g["office"], "place": g["place"], "why": why})
+                        continue          # not someone Electo covers: never listed, never added
                     it = self.st["items"][iid] = {"id": iid, "kind": "new_person", "target": g["name"], "office": g["office"],
                                                   "place": g["place"], "url": g["story"], "title": g["story_title"],
                                                   "quote": "", "status": "pending", "at": _now(), "why": "named in the news",
@@ -269,6 +356,15 @@ class Discovery:
         them in the same kind of office (their office descriptions share a defining word: commission, council,
         senate, house, mayor ...); until then, and whenever the outlets disagree, they wait for approval."""
         if it.get("status") != "pending":
+            return
+        src = it.get("sources") or []
+        office = it.get("office") or next((x.get("office") for x in src if x.get("office")), "")
+        place = it.get("place") or next((x.get("place") for x in src if x.get("place")), "")
+        how, why = scope_check(office, place, self.ga_places())
+        if how != "ok":
+            it["why"] = why
+            if how == "out":
+                it["status"] = "out_of_scope"
             return
         by = {}
         for x in it.get("sources") or []:
