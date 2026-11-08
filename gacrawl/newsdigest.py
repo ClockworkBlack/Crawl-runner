@@ -81,6 +81,11 @@ GOV_TITLE = re.compile(r"\b(council|commission|board|legislat|lawmaker|governor|
                        r"vote|ballot|budget|tax|ordinance|policy|state house|state senate|race|approv|contract)\w*", re.I)
 LOCAL = re.compile(r"\b(council\w*|commission(ers?)?|board of (education|elections|commissioners)|school board|mayor|"
                    r"city|town|county|millage)\b", re.I)
+NOT_NEWS = re.compile(r"\b(restaurants?|favorite|recipes?|things to do|this weekend|ends season|playoffs?|football|basketball|"
+                      r"baseball|soccer|softball|volleyball|touchdown|quarterback|fundraising campaign|"
+                      r"news quiz|quiz|horoscope|obituar\w*|my five|at your service)\b", re.I)
+NATIONAL = re.compile(r"\b(Trump|White House|Oval Office|Pentagon|D\.C\.|Washington|Vance|Cruz|DeSantis|Biden|Harris|"
+                      r"Supreme Court|federal (?:health )?policy|midterm (?:voters|losses))\b")
 REPORT = re.compile(r"\b(arrest|booking|jail) (report|log)s?\b|\bnewsletter\b", re.I)
 
 
@@ -125,12 +130,36 @@ BIG = {"atlanta": ["Fulton", "DeKalb"], "savannah": ["Chatham"], "augusta": ["Ri
        "cherokee": ["Cherokee"], "forsyth": ["Forsyth"], "chatham": ["Chatham"]}
 
 
+_AFTER_OK = {"city", "county", "council", "mayor", "police", "commission", "commissioners", "board", "schools", "school",
+             "high", "elementary", "middle", "road", "street", "avenue", "ga", "georgia", "area", "residents", "voters",
+             "officials", "fire", "public", "planning", "downtown", "municipal", "elections", "election", "city's"}
+_BEFORE_OK = {"in", "of", "at", "from", "to", "near", "and", "the", "for", "city", "town", "downtown", "north", "south",
+              "east", "west", "around", "outside", "across"}
+
+
+def _in_a_name(hay: str, a: int, b: int) -> bool:
+    """Is the place name at hay[a:b] part of a person's name: next to another capitalized word that is not a
+    place word ("Jason Collins", "Butler Smith", "Mayor Tom Reynolds")?"""
+    before = re.findall(r"([A-Za-z.'’]+)\W*$", hay[max(0, a - 30):a])
+    after = re.findall(r"^\W*([A-Za-z.'’]+)", hay[b:b + 30])
+    pb = before[0] if before else ""
+    na = after[0] if after else ""
+    cap = lambda w: bool(re.match(r"^[A-Z][a-z]+\.?$", w))
+    if pb and cap(pb) and pb.lower().strip(".") not in _BEFORE_OK and not hay[max(0, a - 2):a].strip(" ").endswith((",", ".")):
+        return True
+    if na and cap(na) and na.lower() not in _AFTER_OK and not re.match(r"^\W*[,;:.]", hay[b:b + 3]):
+        return True
+    return False
+
+
 def counties_of(title: str, text: str) -> list[str]:
     """The Georgia counties a story names: a county by name ("Wilcox County"), a city by name (its county)."""
     hay = f"{title} {text[:2500]}"
     pl = _places()
     out: list[str] = []
     for m in (pl.finditer(hay) if pl else []):
+        if not m.group(0).lower().endswith(" county") and _in_a_name(hay, m.start(), m.end()):
+            continue      # "Jason Collins", "Butler Smith": a surname, not the town
         for c in _COUNTY_OF.get(m.group(0).lower(), []):
             if c not in out:
                 out.append(c)
@@ -160,6 +189,10 @@ def keep(title: str, text: str) -> bool:
     hay = f"{title} {text[:1500]}"
     if _other_state(title) or re.search(r"\b(NCAA|NFL|NBA|MLB|SEC|Amtrak|recipe|weather)\b", title):
         return False
+    if NOT_NEWS.search(title) or not re.search(r"[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}", title):
+        return False      # lifestyle, sports, newsletter headers ("👋 At your service"), headlines under three words
+    if NATIONAL.search(title) and not (GEORGIA.search(title) or STATEWIDE.search(title)):
+        return False      # Washington's news, unless the headline ties it to Georgia
     if REPORT.search(title) or (CRIME.search(title) and not GOV_TITLE.search(title)):
         return False
     if not (CIVIC.search(title) or CIVIC.search(text[:600])):

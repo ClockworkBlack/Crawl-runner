@@ -41,3 +41,11 @@ def test_crime_national_and_local():
     assert nd.keep("Missing memory card temporarily changed apparent outcome in state House race", "")
     assert nd.keep("Rochelle adopts budget; tax hearings set before millage vote", "The council met Monday.")
     assert nd.keep("Kemp declines special session to limit executive powers", "")
+
+
+def test_surname_is_not_a_town_and_lifestyle_is_out():
+    assert nd.counties_of("Jason Collins named to the board", "") == []
+    assert nd.counties_of("Collins council approves budget", "") == ["Tattnall"]
+    assert not nd.keep("My Five: Tucker Mayor's favorite local restaurants", "")
+    assert not nd.keep("Still focused on D.C. projects, Trump signs order preserving Oval Office", "The county said.")
+    assert nd.keep("Election Season and Business Confidence: Reading the Room in Cobb County", "The commission met.")
