@@ -127,6 +127,20 @@ def load_candidates(root: Path, cfg: dict | None = None, include_electo: bool = 
         for k in ("websites", "social", "aliases"):  # union list fields
             merged[k] = list(dict.fromkeys((base.get(k) or []) + (c.get(k) or [])))
         out[c["id"]] = merged
+    # what the open model's discovery added on its own or the owner approved (gacrawl/discover_ai.py): campaign sites
+    # for people with none, and new people named in the news (approved ones only)
+    from .discover_ai import accepted
+
+    for x in accepted(root / "state"):
+        if x.get("kind") == "campaign_site" and x.get("target") in out:
+            c = out[x["target"]]
+            c["websites"] = list(dict.fromkeys((c.get("websites") or []) + [x["url"]]))
+        elif x.get("kind") == "new_person" and x.get("status") == "approved":
+            cid = _slug(x["target"])
+            if cid not in out:
+                out[cid] = {"id": cid, "name": x["target"], "office": x.get("office") or "", "aliases": [], "websites": [],
+                            "social": [], "jurisdictions": [], "counties": [], "levels": [], "found_in": x.get("url"),
+                            "priority": True, "last_race_date": (x.get("at") or "")[:10]}
     for c in out.values():
         for k in ("aliases", "websites", "social", "news_feeds", "jurisdictions", "profile_urls"):
             c.setdefault(k, [])

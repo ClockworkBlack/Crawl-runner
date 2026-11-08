@@ -192,8 +192,22 @@ outlets:
   - wsbradio.com
 # so cite that primary source instead.
 exclude_domains:
+  # never used, never opened, never cited (the project's rules): Ballotpedia, AI-generated summary portals and Sway
+  # groups; also people-search and wiki-mirror sites, which only repackage other pages
   - ballotpedia.org
   - vote-smart.org
+  - sway.co
+  - swayvote.com
+  - perplexity.ai
+  - grokipedia.com
+  - you.com
+  - wikiwand.com
+  - everybodywiki.com
+  - whitepages.com
+  - spokeo.com
+  - radaris.com
+  - fastpeoplesearch.com
+  - truthfinder.com
 
 # Where each outlet reports from, for Electo's "email the news" picker (gacrawl police media reads each outlet's own
 # contact page for its news-tip address). A place gets its county's own papers (county_outlets), then the outlets of

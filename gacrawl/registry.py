@@ -134,6 +134,9 @@ def jurisdictions(root: Path) -> list[dict]:
     blocked = {h: v for h, v in load_json(root / "state" / "blocked.json").items()
                if isinstance(v, dict) and (v.get("last_seen") or "") > cutoff}
     codes = electo_codes(root)
+    from .discover_ai import accepted
+
+    found = {x["target"]: x for x in accepted(root / "state") if x.get("kind") == "place_site"}
     out = []
     for j in (reg.get("counties", []) + reg.get("municipalities", []) + school_districts(root)):
         j = dict(j)
@@ -148,6 +151,8 @@ def jurisdictions(root: Path) -> list[dict]:
             j["website"], j["website_source"] = e["website_hint"], "electo (official page Electo opened)"
         if e.get("website_hint"):
             j["website_hint"] = e["website_hint"]      # a candidate for the seed when the directories' listings fail
+        if not j.get("website") and j["id"] in found:     # found by the open model's discovery (a .gov site naming the place)
+            j["website"], j["website_source"] = found[j["id"]]["url"], "discovery (" + found[j["id"]]["status"] + ")"
         o = overrides.get(j["id"], {}) or {}
         j["portals"] = {**j["portals"], **(o.pop("portals", {}) or {})}
         j.update(o)

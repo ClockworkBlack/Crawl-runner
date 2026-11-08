@@ -1,0 +1,76 @@
+name: publish-model
+# Puts the open model the runner uses (Qwen3-8B, 4-bit GGUF, from the official Qwen/Qwen3-8B-GGUF repository on
+# Hugging Face) up for download in the public electo-data repository, release "qwen3-8b". A release file may be at
+# most 2 GB, so the model (about 5 GB) is cut into parts; joining them gives the original file back, byte for byte
+# (SHA256SUMS lists both). Qwen3 is released under the Apache License 2.0, which allows passing it on with its
+# license; the license file goes with it. Run it by hand (Actions -> publish-model -> Run workflow), and again when a
+# fine-tuned model replaces it.
+on:
+  workflow_dispatch:
+    inputs:
+      quant:
+        description: "which 4-bit file of Qwen/Qwen3-8B-GGUF"
+        default: "Q4_K_M"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: The model (the runner's cached copy when there is one)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: Download, cut into parts, checksums
+        env:
+          QUANT: ${{ inputs.quant || 'Q4_K_M' }}
+        run: |
+          pip install -q huggingface_hub
+          mkdir -p out
+          python3 - <<'PY'
+          import os, shutil
+          from huggingface_hub import hf_hub_download, list_repo_files
+          repo, q = "Qwen/Qwen3-8B-GGUF", os.environ["QUANT"]
+          files = list_repo_files(repo)
+          gg = [f for f in files if f.endswith(".gguf") and q.lower() in f.lower()][0]
+          src = hf_hub_download(repo, gg)
+          shutil.copyfile(src, "model.gguf"); open("out/NAME", "w").write(gg)
+          for lic in ("LICENSE", "LICENSE.txt", "README.md"):
+              if lic in files:
+                  shutil.copyfile(hf_hub_download(repo, lic), "out/" + ("Qwen3-" + lic if lic != "README.md" else "Qwen3-8B-GGUF-README.md"))
+          PY
+          N=$(cat out/NAME); rm out/NAME
+          sha256sum model.gguf | sed "s/model.gguf/$N/" > out/SHA256SUMS
+          split -b 1900M -d -a 2 model.gguf "out/$N.part"
+          (cd out && sha256sum "$N".part* >> SHA256SUMS)
+          cat > out/HOW-TO-JOIN.txt <<EOF
+          $N, the open model Electo's crawler uses (Qwen3-8B by the Qwen team, 4-bit GGUF), in parts of at most 1.9 GB
+          (GitHub's limit per release file). Download every part, then join them in order:
+
+            macOS / Linux:   cat $N.part* > $N
+            Windows (cmd):   copy /b $N.part00 + $N.part01 + $N.part02 $N     (list every part, in order)
+
+          Check it:  sha256sum $N   (macOS: shasum -a 256 $N)  must match the first line of SHA256SUMS.
+          Run it with llama.cpp, LM Studio, Ollama (ollama create, from a Modelfile naming the file) or any GGUF runner.
+          Source: https://huggingface.co/Qwen/Qwen3-8B-GGUF   License: Apache License 2.0 (Qwen3-LICENSE).
+          EOF
+          sed -i 's/^          //' out/HOW-TO-JOIN.txt
+          ls -la out; cat out/SHA256SUMS
+      - name: Release "qwen3-8b" in the public electo-data repository
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          N=$(head -1 out/SHA256SUMS | awk '{print $2}')
+          NOTES="The open AI model Electo's crawler runs: Qwen3-8B (Qwen team), 4-bit GGUF ($N), from the official Qwen/Qwen3-8B-GGUF repository, unchanged. Download every part and join them (HOW-TO-JOIN.txt); SHA256SUMS checks the result. Apache License 2.0 (Qwen3-LICENSE). A fine-tuned model trained on the crawler's checked work will be added here later."
+          gh release view qwen3-8b -R "$REPO" >/dev/null 2>&1 || gh release create qwen3-8b -R "$REPO" --latest=false --title "Qwen3-8B (the crawler's open model)" --notes "$NOTES"
+          gh release edit qwen3-8b -R "$REPO" --notes "$NOTES" >/dev/null
+          gh release upload qwen3-8b -R "$REPO" --clobber out/*
+          echo "published: https://github.com/$REPO/releases/tag/qwen3-8b"

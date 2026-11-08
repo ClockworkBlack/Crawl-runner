@@ -374,6 +374,22 @@ jobs:
           # config/outlets.yaml (their WordPress news APIs, else the feeds their home pages link to)
           M=${{ vars.NEWS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
           timeout -s INT -k 1m "$((M + 2))m" gacrawl news --max-minutes "$M" || echo "news stopped after $((M + 2)) minutes"
+      - name: The open model for discovery (Qwen3-8B, 4-bit; kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: Discovery by the open model (new people in the news; sites for people and places with none)
+        env:
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+        run: |
+          # gacrawl/discover_ai.py: Brave search (inside its free monthly credit), pages opened by the crawler's own
+          # fetcher, judged by the model and checked; added on their own when as good as links Electo already accepts,
+          # else listed in data/seed_review.md for the owner's approval
+          M=${{ vars.DISCOVER_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=3
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || { echo "llama.cpp did not install; no discovery this run"; exit 0; }
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl discover-ai --max-minutes "$M" || echo "discovery stopped after $((M + 8)) minutes"
       - name: Committee hearing video (each bill's committee steps, then the official recordings of those days)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
@@ -504,6 +520,16 @@ jobs:
           # data/coverage.md and state/coverage.json, kept in the private repository; zero or shrinking features are
           # flagged there (and as warnings on the private repository's own runs)
           gacrawl coverage || echo "coverage report failed"
+      - name: The owner's latest review decisions (data/seed_review.md may have been edited during this run)
+        if: env.IS_MAIN == 'true'
+        continue-on-error: true
+        run: |
+          if [ "$PUBLIC_RUNNER" = "true" ]; then
+            GH_TOKEN="$DATA_TOKEN" gh api "repos/$DATA_REPO/contents/data/seed_review.md" -H "Accept: application/vnd.github.raw" > /tmp/seed_review.md 2>/dev/null || exit 0
+          else
+            git fetch -q origin && git show "origin/${{ github.ref_name }}:data/seed_review.md" > /tmp/seed_review.md 2>/dev/null || exit 0
+          fi
+          gacrawl discover-ai --decisions-only /tmp/seed_review.md
       - name: Commit state
         if: always() && env.IS_MAIN == 'true'
         run: |
@@ -513,8 +539,8 @@ jobs:
           bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
             state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
-            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/veto_statements.json \
-            state/coverage.json data/coverage.md \
+            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
+            state/coverage.json data/coverage.md data/seed_review.md data/train \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
       - name: Electo is fed from what Crawl holds
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true'

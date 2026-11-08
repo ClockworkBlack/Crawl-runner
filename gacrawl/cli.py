@@ -728,6 +728,29 @@ def cmd_news(cfg, args):
     print(json.dumps({"news": stats}))
 
 
+def cmd_discover_ai(cfg, args):
+    """The open model's discovery: new people in the news, sites for people and places with none (Brave search),
+    each page judged by the model and checked; auto-added when as good as accepted links, else data/seed_review.md."""
+    from .candidates import load_outlets
+    from .discover_ai import Discovery
+    from .websearch import Search
+
+    store = config.make_store(cfg)
+    try:
+        deadline = time.monotonic() + float(args.max_minutes or 30) * 60
+        _, exclude = load_outlets(config.ROOT)
+        d = Discovery(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], Search(cfg["state_dir"], exclude))
+        if args.decisions_only:
+            n = d.apply_decisions(Path(args.decisions_only))
+            d.finish()
+            print(json.dumps({"discover": {"decisions": n}}))
+            return
+        stats = d.run(deadline)
+    finally:
+        store.close()
+    print(json.dumps({"discover": stats}))
+
+
 def cmd_coverage(cfg, args):
     """What the data holds per Electo feature, against the last run: state/coverage.json and data/coverage.md."""
     import os
@@ -892,6 +915,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--workers", type=int); s.add_argument("--max-age-days", type=float); s.add_argument("--max-minutes", type=float)
     s.add_argument("--districts", action="store_true", help="school districts only (each runner run: a changed district seed is worked off at once)")
     sub.add_parser("status")
+    da = sub.add_parser("discover-ai", help="the open model's discovery: new people, sites for people and places with none")
+    da.add_argument("--max-minutes", type=float, default=30)
+    da.add_argument("--decisions-only", help="only apply the owner's decisions in this copy of data/seed_review.md")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
@@ -983,7 +1009,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
