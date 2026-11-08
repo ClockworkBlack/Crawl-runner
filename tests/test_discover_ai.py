@@ -108,3 +108,23 @@ def test_decisions_apply_and_take_back(tmp_path):
     f.write_text("- [x] `aaaaaaaaaa` campaign site\n- [r] `bbbbbbbbbb` campaign site\n")
     assert d.apply_decisions(f) == 2
     assert d.st["items"]["aaaaaaaaaa"]["status"] == "approved" and d.st["items"]["bbbbbbbbbb"]["status"] == "rejected"
+
+
+def test_new_person_needs_three_outlets_same_office(tmp_path):
+    d = make(tmp_path, {}, {})
+    d.outlets = {"ajc.com", "wabe.org", "11alive.com", "gpb.org"}
+    it = {"id": "cccccccccc", "kind": "new_person", "target": "Mo Ivory", "status": "pending", "sources": []}
+    d.st["items"]["cccccccccc"] = it
+    for o, office in (("ajc.com", "Fulton County Commission chair"), ("wabe.org", "chair of the Fulton County Commission")):
+        it["sources"].append({"o": o, "u": "https://" + o + "/x", "office": office})
+    d._auto_person(it)
+    assert it["status"] == "pending" and "2 trusted outlets" in it["why"]
+    it["sources"].append({"o": "11alive.com", "u": "https://11alive.com/x", "office": "state senator"})
+    d._auto_person(it)
+    assert it["status"] == "pending" and "not in the same office" in it["why"]
+    it["sources"][-1]["office"] = "Fulton County commissioner"
+    d._auto_person(it)
+    assert it["status"] == "auto"
+    from gacrawl.discover_ai import accepted
+    d.finish()
+    assert any(x["target"] == "Mo Ivory" for x in accepted(tmp_path / "state"))

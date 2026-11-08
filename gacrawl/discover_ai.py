@@ -4,7 +4,9 @@ already accepts, or listed for the owner's approval.
 
 What it looks for, most useful first:
   people     names in the news the crawler collected (gacrawl news) that Electo does not know yet: the model lists the
-             people a story names with their office and place; a new one is proposed (approval only)
+             people a story names with their office and place (a name counts only when the story spells it so); a new
+             person is added on their own once 3 different trusted outlets name them in the same kind of office, and
+             waits for approval until then
   sites      candidates with no website (recent races first) and places with no website listed: their campaign site,
              official pages and trusted outlets' stories about them
 How:
@@ -23,7 +25,7 @@ How:
                - an official page: a .gov / .ga.us (or the place's own) site naming the person: kept as a primary record
                - a news story from a trusted outlet (config/outlets.yaml) naming the person: kept as a reported record
                - a place's website: a .gov / .ga.us site whose title names the place
-             everything else that passes the checks waits in data/seed_review.md for approval, and new people always do
+             everything else that passes the checks waits in data/seed_review.md for approval
 Approve or reject in data/seed_review.md (private Crawl repository): change "[ ]" to "[x]" to approve or to "[r]" to
 reject; the next run applies it. Results: state/ai_seeds.json (candidates.py and registry.py read the accepted ones),
 records in the store, and every model call in data/train/discover_log.jsonl for training later.
@@ -41,6 +43,11 @@ from . import extract
 from .store import Record
 
 SOURCE = "ai:discover"
+AUTO_OUTLETS = 3        # a new person named by this many different trusted outlets, in the same office, is added
+OFFICE_WORDS = ("governor", "lieutenant", "attorney general", "secretary of state", "superintendent", "commissioner",
+                "commission", "council", "mayor", "senate", "senator", "house", "representative", "congress", "sheriff",
+                "judge", "justice", "district attorney", "solicitor", "clerk", "coroner", "tax commissioner",
+                "board of education", "school board", "public service commission", "chair", "probate", "magistrate")
 VERSION = 1
 RETRY_DAYS = 30
 SOCIAL = ("facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com", "youtube.com", "linkedin.com", "threads.net",
@@ -60,6 +67,27 @@ def _id(*parts) -> str:
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").replace("’", "'").replace("“", '"').replace("”", '"')).strip().lower()
+
+
+def _dom(u: str) -> str:
+    from .candidates import domain_of
+
+    return domain_of(u)
+
+
+def _office_words(office: str) -> set[str]:
+    """The defining words of an office as a story states it ("Fulton County Commission chair" -> commission, chair)."""
+    o = (office or "").lower()
+    w = {k for k in OFFICE_WORDS if k in o}
+    if "senator" in w or "senate" in w:
+        w |= {"senate"}; w.discard("senator")
+    if "representative" in w:
+        w |= {"house"}; w.discard("representative")
+    if "commissioner" in w:
+        w |= {"commission"}; w.discard("commissioner")
+    if "school board" in w:
+        w |= {"board of education"}; w.discard("school board")
+    return w
 
 
 def _gov(d: str) -> bool:
@@ -208,23 +236,55 @@ class Discovery:
                 if nm.lower() not in hay.lower():
                     continue      # a name the story does not spell that way
                 got.append({"name": nm, "office": str(d.get("office") or "")[:120], "place": str(d.get("place") or "")[:60],
-                            "story": r["url"], "story_title": r.get("title") or "", "outlet": (r.get("meta") or {}).get("outlet_name", "")
-                            if isinstance(r.get("meta"), dict) else ""})
+                            "story": r["url"], "story_title": r.get("title") or "",
+                            "outlet": ((r.get("meta") or {}) if isinstance(r.get("meta"), dict) else {}).get("outlet")
+                            or _dom(r["url"])})
             self.llm.log(self.log_p, {"task": "news_people", "input": msgs, "output": out, "kept": got})
             for r in part:
                 self.st["tried"]["n:" + r["url"]] = dt.date.today().isoformat()
             for g in got:
-                if _norm(g["name"]) in self.known:
-                    continue
-                self.known.add(_norm(g["name"]))
                 iid = _id("new_person", _norm(g["name"]))
-                if iid not in self.st["items"]:
-                    self.st["items"][iid] = {"id": iid, "kind": "new_person", "target": g["name"], "office": g["office"],
-                                             "place": g["place"], "url": g["story"], "title": g["story_title"],
-                                             "quote": "", "status": "pending", "at": _now(), "why": "named in the news"}
+                it = self.st["items"].get(iid)
+                if it is None:
+                    if _norm(g["name"]) in self.known:
+                        continue          # Electo already has this person
+                    it = self.st["items"][iid] = {"id": iid, "kind": "new_person", "target": g["name"], "office": g["office"],
+                                                  "place": g["place"], "url": g["story"], "title": g["story_title"],
+                                                  "quote": "", "status": "pending", "at": _now(), "why": "named in the news",
+                                                  "sources": []}
+                    self.known.add(_norm(g["name"]))
                     self.stats["people"] += 1; self.stats["pending"] += 1
                     found.append(g)
+                src = it.setdefault("sources", [])
+                if g["outlet"] in self.outlets_set() and not any(x["u"] == g["story"] for x in src):
+                    src.append({"o": g["outlet"], "u": g["story"], "office": g["office"], "place": g["place"]})
+                self._auto_person(it)
         return found
+
+    def outlets_set(self) -> set:
+        return {o.lower() for o in self.outlets}
+
+    def _auto_person(self, it: dict) -> None:
+        """A new person is added on their own once AUTO_OUTLETS different trusted outlets (config/outlets.yaml) name
+        them in the same kind of office (their office descriptions share a defining word: commission, council,
+        senate, house, mayor ...); until then, and whenever the outlets disagree, they wait for approval."""
+        if it.get("status") != "pending":
+            return
+        by = {}
+        for x in it.get("sources") or []:
+            by.setdefault(x["o"], set()).update(_office_words(x.get("office", "")))
+        if len(by) < AUTO_OUTLETS:
+            it["why"] = f"named by {len(by)} trusted outlet{'' if len(by) == 1 else 's'} so far ({AUTO_OUTLETS} add a person on their own)"
+            return
+        common = set.intersection(*by.values()) if by else set()
+        if not common:
+            it["why"] = f"{len(by)} trusted outlets name them, but not in the same office"
+            return
+        it["status"] = "auto"
+        it["why"] = f"{len(by)} trusted outlets name them as {', '.join(sorted(common))}: " + ", ".join(sorted(by))
+        self.stats["auto"] += 1; self.stats["pending"] -= 1
+        self.llm.log(self.log_p, {"task": "decision", "item": it["id"], "kind": "new_person", "decision": "auto",
+                                  "target": it["target"], "sources": it.get("sources")})
 
     # ------------------------------------------------------------ one page: open, judge, check, decide
     def _open(self, url: str):
@@ -387,13 +447,13 @@ class Discovery:
             who = x.get("name") or x.get("target")
             L.append(f"- [ ] `{x['id']}` **{label.get(x['kind'], x['kind'])}** · {who}"
                      + (f" ({x['office']}" + (f", {x['place']}" if x.get("place") else "") + ")" if x.get("office") else "")
-                     + f" · {x['url']}" + (f" · \"{x['quote'][:200]}\"" if x.get("quote") else "")
+                     + f" · {x.get('url', '')}" + (f" · \"{x['quote'][:200]}\"" if x.get("quote") else "")
                      + (f" · {x['title'][:120]}" if x.get("title") and x["kind"] == "new_person" else "")
                      + (f" · why it waits: {x['why']}" if x.get("why") else ""))
         L += ["", f"## Added on their own, newest first ({sum(1 for x in items if x['status'] == 'auto')} in all)", "",
               "The same kind and quality as links Electo already accepts. To take one back, change `[x]` to `[r]`.", ""]
         for x in auto:
-            L.append(f"- [x] `{x['id']}` {label.get(x['kind'], x['kind'])} · {x.get('name') or x.get('target')} · {x['url']}")
+            L.append(f"- [x] `{x['id']}` {label.get(x['kind'], x['kind'])} · {x.get('name') or x.get('target')} · {x.get('url', '')}" + (f" · {x['why']}" if x.get('kind') == 'new_person' and x.get('why') else ""))
         self.review_p.parent.mkdir(parents=True, exist_ok=True)
         self.review_p.write_text("\n".join(L) + "\n", encoding="utf-8")
 

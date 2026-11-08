@@ -135,7 +135,7 @@ def load_candidates(root: Path, cfg: dict | None = None, include_electo: bool = 
         if x.get("kind") == "campaign_site" and x.get("target") in out:
             c = out[x["target"]]
             c["websites"] = list(dict.fromkeys((c.get("websites") or []) + [x["url"]]))
-        elif x.get("kind") == "new_person" and x.get("status") == "approved":
+        elif x.get("kind") == "new_person":     # approved, or named by 3 trusted outlets in the same office
             cid = _slug(x["target"])
             if cid not in out:
                 out[cid] = {"id": cid, "name": x["target"], "office": x.get("office") or "", "aliases": [], "websites": [],
