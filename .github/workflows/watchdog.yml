@@ -38,6 +38,7 @@ jobs:
       MAX_POLICE_H: ${{ vars.WATCH_POLICE_HOURS || '30' }}
       MAX_NEWS_H: ${{ vars.WATCH_NEWS_HOURS || '8' }}
       MAX_SITE_H: ${{ vars.WATCH_SITE_HOURS || '8' }}
+      MAX_STEP_H: ${{ vars.WATCH_STEP_HOURS || '4' }}    # longest any one step may run (candidate research on the runner is 200 min)
     steps:
       - name: Check the chain and repair what can be repaired
         run: |
@@ -100,13 +101,31 @@ jobs:
                       return hours_since(c["commit"]["committer"]["date"])
               return None
 
-          def busy(workflow):
+          def runs(workflow):
               r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/runs?per_page=5", runner_tok)
-              return any(w["status"] in ("queued", "in_progress", "waiting", "pending", "requested")
-                         for w in (r.get("workflow_runs") or []))
+              return r.get("workflow_runs") or [] if isinstance(r, dict) else []
 
-          def restart(workflow, why):
-              if busy(workflow):
+          def busy(workflow):
+              return any(w["status"] in ("queued", "in_progress", "waiting", "pending", "requested") for w in runs(workflow))
+
+          def stuck(workflow):
+              """A run whose current step has been going longer than any step is allowed to (MAX_STEP_H). A busy run
+              used to count as healthy; on Nov 8 one step without a time cap hung the merge job for hours, the backfill
+              chain stopped with it, and nothing noticed until the job's own timeout."""
+              for w in runs(workflow):
+                  if w["status"] != "in_progress":
+                      continue
+                  jobs = api(f"repos/{runner_repo}/actions/runs/{w['id']}/jobs?per_page=50", runner_tok)
+                  for j in (jobs.get("jobs") or []) if isinstance(jobs, dict) else []:
+                      if j.get("status") != "in_progress":
+                          continue
+                      for s in j.get("steps") or []:
+                          if s.get("status") == "in_progress" and s.get("started_at") and hours_since(s["started_at"]) > MAX_STEP_H:
+                              return w, j, s
+              return None
+
+          def restart(workflow, why, force=False):
+              if not force and busy(workflow):
                   repairs.append(f"{workflow}: {why}, but a run is already going; leaving it be")
                   return
               r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/dispatches", runner_tok, "POST", {"ref": "main"})
@@ -115,15 +134,33 @@ jobs:
               else:
                   repairs.append(f"{workflow}: {why}; started it again")
 
+          MAX_STEP_H = float(os.environ["MAX_STEP_H"])
           checks = [("crawl.yml", ["crawl:"], float(os.environ["MAX_CRAWL_H"])),
                     ("police.yml", ["police:", "police data:"], float(os.environ["MAX_POLICE_H"]))]
           for wf, prefixes, max_h in checks:
+              hung = stuck(wf)
+              if hung:
+                  w, j, s = hung
+                  r = api(f"repos/{runner_repo}/actions/runs/{w['id']}/cancel", runner_tok, "POST")
+                  why = f"run {w['id']} was stuck in '{s['name']}' ({j['name']}) for {hours_since(s['started_at']):.1f}h"
+                  if r.get("_error"):
+                      problems.append(f"**{wf}**: {why}, and cancelling it failed (HTTP {r['_error']}).")
+                  else:
+                      repairs.append(f"{wf}: {why}; cancelled it")
+                      restart(wf, "after the stuck run", force=True)   # queues behind the cancellation, then runs
+                      continue
               age = last(prefixes)
               if age is None or age > max_h:
                   why = "no run in the last 100 commits" if age is None else f"last data {age:.0f}h ago"
                   restart(wf, why)
                   if age is not None and age > max_h * 2:
                       problems.append(f"**{wf}** hasn't delivered data in {age:.0f} hours, even after restarts. Its logs are in logs/runner/ in the private Crawl repository.")
+              elif wf == "crawl.yml" and not busy(wf):
+                  # the backfill chain hands off at the end of each run; a run that died (timeout, failure, cancelled)
+                  # hands off to nothing, so start the next link ourselves
+                  ended = [w for w in runs(wf) if w["status"] == "completed"]
+                  if ended and ended[0].get("conclusion") not in ("success", "skipped", None) and age is not None and age > 2:
+                      restart(wf, f"the last run ended with '{ended[0]['conclusion']}' and nothing has run since ({age:.0f}h)")
 
           # 3. the public site / feed
           site_tok = os.environ.get("SITE_TOKEN") or data_tok

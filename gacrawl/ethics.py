@@ -326,15 +326,23 @@ def shape(fetcher, system: str, base: str, year: str, log=print):
 
 
 def drop_superseded(store) -> int:
-    """An amended report replaces the one it amends: lines from an older version of the same filer's same report go."""
-    return store.delete_where(
-        "kind='contribution' AND key LIKE 'ga2|%' AND EXISTS (SELECT 1 FROM records r2 WHERE r2.kind='contribution' "
-        "AND r2.key LIKE 'ga2|%' AND json_extract(r2.meta,'$.ga_filer')=json_extract(records.meta,'$.ga_filer') "
-        "AND json_extract(r2.meta,'$.report_name')=json_extract(records.meta,'$.report_name') "
-        "AND json_extract(r2.meta,'$.ga_system')=json_extract(records.meta,'$.ga_system') "
-        "AND (json_extract(r2.meta,'$.report_version') > json_extract(records.meta,'$.report_version') "
-        "OR (json_extract(r2.meta,'$.report_version') = json_extract(records.meta,'$.report_version') "
-        "AND json_extract(r2.meta,'$.report_id') > json_extract(records.meta,'$.report_id'))))")
+    """An amended report replaces the one it amends: lines from an older version of the same filer's same report go.
+    One pass over the Commission's lines, grouped in memory (a self-join in SQL is quadratic and stalled the step)."""
+    best: dict[tuple, tuple] = {}
+    lines = []
+    for r in store.iter_query("kind='contribution' AND key LIKE 'ga2|%'"):
+        m = r.get("meta") or {}
+        g = (m.get("ga_system"), m.get("ga_filer"), m.get("report_name"))
+        v = (int(m.get("report_version") or 1), int(m.get("report_id") or 0))
+        lines.append((r["key"], g, v))
+        if v > best.get(g, (0, 0)):
+            best[g] = v
+    old = [k for k, g, v in lines if v < best[g]]
+    n = 0
+    for i in range(0, len(old), 500):
+        chunk = old[i:i + 500]
+        n += store.delete_where("kind='contribution' AND key IN (" + ",".join("?" * len(chunk)) + ")", tuple(chunk))
+    return n
 
 
 def run(fetcher, store, root, candidates, deadline, log=print) -> dict:

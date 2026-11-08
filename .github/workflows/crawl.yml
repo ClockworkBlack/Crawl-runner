@@ -442,7 +442,7 @@ jobs:
         run: |
           # gacrawl/federal_bills.py: the first runs read each Congress from its zip (resumable); then only what changed
           M=${{ vars.FEDERAL_BILLS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=3
-          gacrawl federal-bills --max-minutes "$M" || true
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl federal-bills --max-minutes "$M" || echo "the federal bills step stopped after $((M + 10)) minutes"
       - name: Campaign finance and organizations
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
@@ -461,7 +461,7 @@ jobs:
           # the first full read takes several runs (resumable), then each run reads only what is new
           M=${{ vars.ETHICS_MINUTES || '25' }}; [ "$IS_MAIN" != "true" ] && M=3
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          gacrawl ethics run --max-minutes "$M" || true
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --max-minutes "$M" || echo "the Georgia money step stopped after $((M + 10)) minutes"
       - name: Donor profiles by the open model (what each organization that gave money is, from its registrations)
         run: |
           # gacrawl/donors_ai.py: only organizations and committees, only from what the finance step opened (FEC
