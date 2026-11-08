@@ -8,6 +8,11 @@ government's own site (or its code host) and drops the files in the private Craw
     imports/ordinances/<id>__<file>          the top folder works too, with the id before "__"
     imports/ordinances/<file>                place worked out from the text when only one place is named
     imports/ordinances/**/sources.csv       optional: file,url,title,date,kind,note (where each file came from)
+    imports/ordinances/GA/<county>/code of ordinances/{code.html, toc.json, manifest.json, nodes/}
+                                            a downloader's output, dropped as is (the whole GA folder, or a .zip
+                                            of it): every folder holding manifest.json or toc.json with code.html
+                                            or nodes/ is ONE code, and the place is the first folder on its path
+                                            that names a Georgia government (a bare name like "Fulton" is the county)
 
 Files are read, never moved or changed: PDFs from their text layer (OCR only for scanned pages), Word (.docx),
 saved web pages (.html/.htm), plain text (.txt/.md) and images (OCR). Each becomes one document split into
@@ -33,7 +38,7 @@ from pathlib import Path
 
 import yaml
 
-READER_VERSION = 1          # bump when reading or splitting changes, so every file is read again
+READER_VERSION = 2          # bump when reading or splitting changes, so every file is read again
 DOC_EXT = {".pdf", ".docx", ".html", ".htm", ".txt", ".md"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
 SKIP_NAMES = {"readme.md", "sources.csv", ".gitkeep"}
@@ -76,10 +81,34 @@ class Places:
         k = _norm(label)
         return self.by_key.get(k) or self.by_key.get(_norm(k.replace(" ga", "").replace(" georgia", "")))
 
+    def resolve_folder(self, label: str, hint: str = "") -> tuple[str | None, bool]:
+        """A folder name -> (registry id, ambiguous?). Folders under GA/ are counties, so a bare name that is both a
+        city and a county ("Jackson", "Monroe") is the county unless the code's own text says "City of <name>";
+        Municode-style slugs (fulton_county, liberty_county_, athens-clarke_county) work too."""
+        if not label or _norm(label) in NOISE_DIRS:
+            return None, False
+        if label in self.by_id:
+            return label, False
+        k = _norm(label)
+        if k.endswith(" county"):
+            return self.by_key.get(k) or self.by_key.get(k[: -len(" county")]), False
+        county, other = self.by_key.get(k + " county"), self.by_key.get(k)
+        if county and other and county != other:
+            name = re.escape(self.by_id[other]["name"])
+            if hint and re.search(rf"\b(city|town|village) of {name}\b", hint, re.I) \
+                    and not re.search(rf"\b{name} County\b", hint, re.I):
+                return other, True
+            return county, True
+        return county or other, False
+
     def from_text(self, text: str) -> list[str]:
         from .screens import match_jurisdictions
 
         return match_jurisdictions(text[:40000], self.places)
+
+
+NOISE_DIRS = {"out", "ga", "georgia", "code of ordinances", "codes of ordinances", "code", "codes", "ordinances",
+              "nodes", "downloads", "download", "municode", "files", "data", "output"}
 
 
 # ----------------------------------------------------------------------------- reading files
@@ -144,6 +173,107 @@ def read_file(path: Path, data: bytes, ocr_budget_s: float = 900.0) -> dict:
         out["needs_review"].insert(0, f"read by OCR ({len(out['ocr_pages'])} page{'s' if len(out['ocr_pages']) != 1 else ''}"
                                       f", mean confidence {out['mean_confidence']}): check quotes against the file")
     return out
+
+
+BUNDLE_MARKERS = ("manifest.json", "toc.json")
+
+
+def is_bundle(d: Path) -> bool:
+    """A downloader's saved code: manifest.json or toc.json beside code.html or a nodes/ folder."""
+    names = {p.name.lower(): p for p in d.iterdir()} if d.is_dir() else {}
+    return any(m in names for m in BUNDLE_MARKERS) and ("code.html" in names or ("nodes" in names and names["nodes"].is_dir()))
+
+
+def _strings(obj, keys=None, depth=0) -> list[str]:
+    """String values in a JSON value (only under `keys` when given), in document order."""
+    out = []
+    if depth > 40:
+        return out
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str):
+                if keys is None or k.lower() in keys:
+                    out.append(v)
+            else:
+                out += _strings(v, keys, depth + 1)
+    elif isinstance(obj, list):
+        for v in obj:
+            out += _strings(v, keys, depth + 1) if not isinstance(v, str) else ([v] if keys is None else [])
+    return out
+
+
+def _json(p: Path):
+    try:
+        return json.loads(p.read_text(encoding="utf-8-sig", errors="replace"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _html_md(html: str) -> tuple[str, str]:
+    """(title, markdown) of a whole saved page: every part of the body, not only its biggest block."""
+    from bs4 import BeautifulSoup
+
+    from .extract import html_to_markdown
+
+    soup = BeautifulSoup(html, "lxml")
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    body = soup.body or soup
+    for t in body.find_all(["script", "style", "noscript"]):
+        t.decompose()
+    _, md = html_to_markdown("<html><body><main>" + body.decode_contents() + "</main></body></html>")
+    return title, md
+
+
+TEXT_KEYS = {"html", "content", "text", "body", "content_html", "contenthtml", "markdown"}
+HEAD_KEYS = {"title", "heading", "header", "label", "name", "number"}
+
+
+def _natural(p: Path):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", p.as_posix())]
+
+
+def read_bundle(d: Path) -> dict:
+    """One saved code: code.html when present (the whole code in one page), else the nodes/ files in order."""
+    names = {p.name.lower(): p for p in d.iterdir()}
+    manifest = _json(names["manifest.json"]) if "manifest.json" in names else None
+    toc = _json(names["toc.json"]) if "toc.json" in names else None
+    meta_txt = " ".join(_strings(manifest)) if manifest is not None else ""
+    toc_titles = _strings(toc, HEAD_KEYS)[:3] if toc is not None else []
+    title, md = "", ""
+    if "code.html" in names:
+        title, md = _html_md(names["code.html"].read_text(encoding="utf-8", errors="replace"))
+    if len(md) < 500 and "nodes" in names:
+        parts = []
+        for f in sorted((p for p in names["nodes"].rglob("*") if p.is_file()), key=_natural):
+            ext = f.suffix.lower()
+            if ext in (".html", ".htm"):
+                parts.append(_html_md(f.read_text(encoding="utf-8", errors="replace"))[1])
+            elif ext == ".json":
+                j = _json(f)
+                if j is None:
+                    continue
+                heads, texts = _strings(j, HEAD_KEYS), _strings(j, TEXT_KEYS)
+                block = ("## " + heads[0] + "\n\n" if heads else "")
+                for t in texts:
+                    block += (_html_md(t)[1] if "<" in t and ">" in t else t) + "\n\n"
+                parts.append(block.strip())
+            elif ext in (".txt", ".md"):
+                parts.append(f.read_text(encoding="utf-8", errors="replace"))
+        nodes_md = "\n\n".join(x for x in parts if x.strip())
+        if len(nodes_md) > len(md):
+            md = nodes_md
+    text = re.sub(r"^#+\s*", "", md, flags=re.M)
+    urls = [u for u in re.findall(r"https?://[^\s\"'<>]+", meta_txt)]
+    return {"text": text, "markdown": md, "pages": None, "ocr_pages": [], "mean_confidence": None, "needs_review": [],
+            "title_hint": title or (toc_titles[0] if toc_titles and len(toc_titles[0]) > 8 else ""),
+            "meta_text": meta_txt + " " + title + " " + " ".join(toc_titles), "url": urls[0] if urls else ""}
+
+
+def bundle_digest(d: Path) -> str:
+    h = hashlib.sha256()
+    for f in sorted((p for p in d.rglob("*") if p.is_file()), key=lambda p: p.relative_to(d).as_posix()):
+        h.update(f.relative_to(d).as_posix().encode() + b"\0" + hashlib.sha256(f.read_bytes()).digest())
+    return h.hexdigest()
 
 
 # ----------------------------------------------------------------------------- sections and kinds
@@ -215,7 +345,7 @@ def adopted_date(text: str) -> str:
 
 def _title(info: dict, path: Path) -> str:
     if info.get("title_hint"):
-        return info["title_hint"][:200]
+        return re.sub(r"\s*\|\s*Municode Library\s*$", "", info["title_hint"]).strip()[:200]
     for line in (info.get("text") or "").splitlines():
         line = line.strip()
         if 12 <= len(line) <= 200 and re.search(r"[A-Za-z]{4}", line):
@@ -253,9 +383,84 @@ def _official(url: str, j: dict | None) -> bool:
 
 
 # ----------------------------------------------------------------------------- the build
+def _unzip(z: Path, dest: Path) -> list[str]:
+    """Extract a dropped .zip (paths inside it kept; nothing outside dest). Returns problems found."""
+    bad = []
+    with zipfile.ZipFile(z) as zf:
+        for m in zf.infolist():
+            name = m.filename.replace("\\", "/")
+            if m.is_dir() or name.startswith("__MACOSX/") or Path(name).name.startswith("._"):
+                continue
+            target = (dest / name).resolve()
+            if not str(target).startswith(str(dest.resolve()) + "/"):
+                bad.append(f"{z.name}: skipped {name} (path outside the zip)")
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(m) as src, open(target, "wb") as fh:
+                fh.write(src.read())
+    return bad
+
+
+def inbox_units(inbox: Path, scratch: Path | None = None) -> tuple[list[tuple[str, Path, str]], list[str]]:
+    """(kind, path, label) for everything in the inbox: ("bundle", folder, label) for a downloader's saved code,
+    ("file", file, label) for a loose document. Zips are unpacked into `scratch` and walked the same way, labelled
+    "<zip path>/<path inside>". Hidden folders and the inbox's own README/sources.csv are skipped."""
+    import os
+    import tempfile
+
+    roots, problems = [(inbox, "")], []
+    zips = sorted(p for p in inbox.rglob("*.zip") if p.is_file() and not any(x.startswith(".") for x in p.relative_to(inbox).parts))
+    if zips:
+        scratch = scratch or Path(tempfile.mkdtemp(prefix="ordzip-"))
+        for i, z in enumerate(zips):
+            dest = scratch / f"z{i}"
+            dest.mkdir(parents=True, exist_ok=True)
+            try:
+                problems += _unzip(z, dest)
+            except zipfile.BadZipFile:
+                problems.append(f"{z.relative_to(inbox).as_posix()}: not a readable zip")
+                continue
+            roots.append((dest, z.relative_to(inbox).as_posix()))
+    units = []
+    for base, prefix in roots:
+        for d, dirs, files in os.walk(base):
+            dp = Path(d)
+            rel = dp.relative_to(base).as_posix()
+            if rel != "." and any(x.startswith(".") for x in dp.relative_to(base).parts):
+                dirs[:] = []
+                continue
+            label = "/".join(x for x in (prefix, "" if rel == "." else rel) if x)
+            if rel != "." and is_bundle(dp):
+                units.append(("bundle", dp, label))
+                dirs[:] = []
+                continue
+            dirs.sort()
+            for f in sorted(files):
+                fp = dp / f
+                if f.lower() in SKIP_NAMES or f.startswith(".") or fp.suffix.lower() not in DOC_EXT | IMAGE_EXT:
+                    continue
+                units.append(("file", fp, "/".join(x for x in (label, f) if x)))
+    return units, problems
+
+
 def inbox_files(inbox: Path) -> list[Path]:
-    return sorted(p for p in inbox.rglob("*") if p.is_file() and not any(part.startswith(".") for part in p.relative_to(inbox).parts)
-                  and p.name.lower() not in SKIP_NAMES and p.suffix.lower() in DOC_EXT | IMAGE_EXT)
+    return [p for k, p, _ in inbox_units(inbox)[0] if k == "file"]
+
+
+def place_of(places: "Places", label: str, is_dir: bool, hint: str = "") -> tuple[str | None, str, list[str]]:
+    """(id, how, folders that named nothing) from a unit's path: the first folder (top down) that names a place."""
+    parts = [x for x in label.split("/") if x]
+    if not is_dir:
+        parts = parts[:-1]
+    parts = [x[:-4] if x.lower().endswith(".zip") else x for x in parts]
+    unknown = []
+    for x in parts:
+        jid, amb = places.resolve_folder(x, hint)
+        if jid:
+            return jid, "folder" + (" (city and county share the name: county unless the text says city)" if amb else ""), []
+        if _norm(x) not in NOISE_DIRS and not re.search(r"\bcode|ordinance|zoning|charter|resolution", x, re.I):
+            unknown.append(x)
+    return None, "", unknown
 
 
 def _load_prev(prev: Path | None) -> dict[str, dict]:
@@ -274,67 +479,89 @@ def _load_prev(prev: Path | None) -> dict[str, dict]:
 
 
 def build(root: Path, out: Path, prev: Path | None = None, log=print, ocr_budget_s: float = 900.0) -> dict:
+    import shutil
+    import tempfile
+
     inbox = root / "imports" / "ordinances"
     inbox.mkdir(parents=True, exist_ok=True)
     places = Places(load_places(root))
     srcs = load_sources(inbox)
     cache = _load_prev(prev)
-    files = inbox_files(inbox)
+    scratch = Path(tempfile.mkdtemp(prefix="ordzip-"))
+    try:
+        units, problems = inbox_units(inbox, scratch)
+        return _build(units, problems, places, srcs, cache, out, log, ocr_budget_s)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _build(units, problems, places, srcs, cache, out: Path, log, ocr_budget_s: float) -> dict:
     docs_dir = out / "docs"
     if docs_dir.exists():
         for p in docs_dir.glob("*.json"):
             p.unlink()
     docs_dir.mkdir(parents=True, exist_ok=True)
     entries: dict[str, dict] = {}
-    report = {"files": len(files), "documents": 0, "read": 0, "reused": 0, "duplicates": [], "unplaced": [],
-              "errors": [], "unknown_folders": []}
-    for f in files:
-        rel = f.relative_to(inbox).as_posix()
-        data = f.read_bytes()
-        sha = hashlib.sha256(data).hexdigest()
+    report = {"files": sum(1 for k, *_ in units if k == "file"), "saved_codes": sum(1 for k, *_ in units if k == "bundle"),
+              "documents": 0, "read": 0, "reused": 0, "duplicates": [], "unplaced": [], "errors": list(problems),
+              "unknown_folders": [], "ambiguous": []}
+    for kind, f, rel in units:
+        bundle = kind == "bundle"
+        try:
+            data = None if bundle else f.read_bytes()
+            sha = bundle_digest(f) if bundle else hashlib.sha256(data).hexdigest()
+        except OSError as exc:
+            report["errors"].append(f"{rel}: {exc}")
+            continue
         if sha in entries:
             entries[sha]["files"].append(rel)
             report["duplicates"].append(rel)
             continue
         src = srcs.get(rel) or srcs.get("name:" + f.name.lower()) or {}
-        # the place: folder, then "<id>__" prefix, then sources.csv, then the text itself
-        parts = f.relative_to(inbox).parts
-        jid, how = None, ""
-        if len(parts) > 1:
-            jid, how = places.resolve(parts[0]), "folder"
-            if not jid and parts[0] not in report["unknown_folders"]:
-                report["unknown_folders"].append(parts[0])
-        if not jid and "__" in f.name:
-            jid, how = places.resolve(f.name.split("__", 1)[0]), "file name"
-        if not jid and src.get("place"):
-            jid, how = places.resolve(src["place"]), "sources.csv"
         if sha in cache:
             e, doc = dict(cache[sha]["entry"]), cache[sha]["doc"]
             report["reused"] += 1
         else:
             try:
-                info = read_file(f, data, ocr_budget_s=ocr_budget_s)
+                info = read_bundle(f) if bundle else read_file(f, data, ocr_budget_s=ocr_budget_s)
             except Exception as exc:  # noqa: BLE001 — one unreadable file never stops the rest
                 report["errors"].append(f"{rel}: {type(exc).__name__}: {exc}")
                 log(f"{rel}: could not read ({type(exc).__name__}: {exc})")
                 continue
+            if bundle and len(info["text"]) < 200:
+                report["errors"].append(f"{rel}: saved code with almost no text (is code.html or nodes/ empty?)")
             secs = sections(info["markdown"])
             title = _title(info, f)
-            e = {"sha256": sha, "title": title, "kind": guess_kind(title, info["text"], len(secs)),
+            e = {"sha256": sha, "title": title,
+                 "kind": (lambda k: "code" if bundle and k in ("other", "ordinance", "resolution", "charter") else k)(
+                     guess_kind(title, info["text"], len(secs))),
                  "adopted": adopted_date(info["text"]), "pages": info["pages"], "chars": len(info["text"]),
                  "sections": len(secs), "ocr_pages": len(info["ocr_pages"]), "mean_confidence": info["mean_confidence"],
-                 "needs_review": info["needs_review"], "file_type": f.suffix.lower().lstrip(".")}
+                 "needs_review": info["needs_review"],
+                 "file_type": "saved code (code.html / toc.json / nodes)" if bundle else f.suffix.lower().lstrip(".")}
             if info.get("incomplete"):
                 e["incomplete"] = True
-            doc = {"sections": secs, "text_places": places.from_text(info["text"])}
+            doc = {"sections": secs, "text_places": places.from_text(info["text"]),
+                   "hint": (info.get("meta_text", "") + " " + title + " " + info["text"][:3000])[:4000],
+                   "found_url": info.get("url", "")}
             report["read"] += 1
+        # the place: the first folder on the path that names one, then "<id>__" prefix, sources.csv, the text
+        jid, how, unknown = place_of(places, rel, bundle, doc.get("hint", ""))
+        if not jid and not bundle and "__" in f.name:
+            jid, how = places.resolve(f.name.split("__", 1)[0]), "file name"
+        if not jid and src.get("place"):
+            jid, how = places.resolve(src["place"]), "sources.csv"
         if not jid:
             tp = doc.get("text_places") or []
             if len(tp) == 1:
                 jid, how = tp[0], "text"
+        if not jid:
+            report["unknown_folders"] += [u for u in unknown if u not in report["unknown_folders"]]
+        if jid and "share the name" in how:
+            report["ambiguous"].append(f"{rel} -> {places.by_id[jid]['name']}")
         j = places.by_id.get(jid) if jid else None
         # what the owner wrote in sources.csv wins over what was read
-        url = src.get("url", "")
+        url = src.get("url", "") or doc.get("found_url", "")
         e.update({"id": f"{jid or 'unplaced'}-{sha[:12]}", "jurisdiction": jid or "", "place": j["name"] if j else "",
                   "place_kind": j.get("kind") if j else "", "counties": (j.get("counties") or ([j["name"]] if j and j.get("kind") == "county" else [])) if j else [],
                   "place_from": how if jid else "", "files": [rel], "url": url,
@@ -352,7 +579,8 @@ def build(root: Path, out: Path, prev: Path | None = None, log=print, ocr_budget
         (docs_dir / f"{e['id']}.json").write_text(json.dumps({
             "id": e["id"], "jurisdiction": e["jurisdiction"], "place": e["place"], "title": e["title"], "kind": e["kind"],
             "adopted": e["adopted"], "url": e["url"], "files": e["files"], "sections": doc["sections"],
-            "text_places": doc.get("text_places", [])}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            "text_places": doc.get("text_places", []), "hint": doc.get("hint", ""), "found_url": doc.get("found_url", "")},
+            ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         log(f"{rel}: {e['place'] or 'place unknown'} · {e['kind']} · {e['sections']} sections"
             + (" (reused)" if sha in cache else ""))
     docs = sorted(entries.values(), key=lambda e: (e["place"] or "~", e["kind"], e["title"]))
@@ -370,6 +598,7 @@ def build(root: Path, out: Path, prev: Path | None = None, log=print, ocr_budget
             b["documents"] += 1
             b["kinds"][e["kind"]] = b["kinds"].get(e["kind"], 0) + 1
     report["documents"] = len(docs)
+    report["places"] = len(by_place)
     idx = {"note": "Local laws (codes of ordinances, zoning codes, charters, single ordinances and resolutions) the "
                    "site owner downloaded by hand from each government's own site or its code host, read into sections. "
                    "Full text in docs/<id>.json. See schema.md.",
@@ -400,10 +629,14 @@ Written by `gacrawl ordinances build` in the private Crawl repository whenever a
   - `ocr_pages`, `mean_confidence`, `needs_review`: text read by OCR must be checked against the file before quoting;
     `incomplete`: some scanned pages were not read yet (they are on the next build)
   - `source`: always "downloaded by the site owner ..."; these are primary documents the owner opened
-- `unplaced`: files whose government could not be worked out (put them in a folder named for the place)
+- `unplaced`: files or saved-code folders whose government could not be worked out (put them in a folder named for the place)
 
 ## docs/<id>.json
 `{id, jurisdiction, place, title, kind, adopted, url, files, sections: [{h, t}], text_places}`: `h` is the section
 heading as printed (Sec. 2-14 ..., ARTICLE IV ...; a long stretch without headings is split into "(part n)"),
-`t` its text with paragraphs separated by blank lines. `text_places` are the registry ids the text names.
+`t` its text with paragraphs separated by blank lines. `text_places` are the registry ids the text names; `hint` and
+`found_url` are what the build read to place the document (a saved code's manifest, title and opening text).
+
+A downloader's saved code (`GA/<county>/code of ordinances/` with `code.html`, `toc.json`, `manifest.json`,
+`nodes/`) is one document, `file_type` "saved code ...", `kind` code (or zoning), its `files` entry is the folder.
 """

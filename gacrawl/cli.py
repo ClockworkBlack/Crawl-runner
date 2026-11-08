@@ -360,25 +360,29 @@ def cmd_ordinances(cfg, args):
     if args.action == "list":
         inbox = root / "imports" / "ordinances"
         places = of.Places(of.load_places(root))
-        files = of.inbox_files(inbox) if inbox.exists() else []
-        for f in files:
-            parts = f.relative_to(inbox).parts
-            jid = places.resolve(parts[0]) if len(parts) > 1 else None
-            if not jid and "__" in f.name:
-                jid = places.resolve(f.name.split("__", 1)[0])
-            print(f"{f.relative_to(inbox).as_posix()}\t{jid or '(place from the text, or unknown)'}")
-        print(f"{len(files)} files")
+        units, problems = of.inbox_units(inbox) if inbox.exists() else ([], [])
+        for kind, f, rel in units:
+            jid, how, _ = of.place_of(places, rel, kind == "bundle")
+            print(f"{rel}{'/ (saved code)' if kind == 'bundle' else ''}\t"
+                  f"{places.by_id[jid]['name'] if jid else '(place from the text, or unknown)'}")
+        for x in problems:
+            print("problem:", x)
+        print(f"{sum(k == 'bundle' for k, *_ in units)} saved codes, {sum(k == 'file' for k, *_ in units)} files")
         return
     out = Path(args.out)
     out = out if out.is_absolute() else root / out
     rep = of.build(root, out, Path(args.prev) if args.prev else None, ocr_budget_s=args.ocr_minutes * 60)
     print(json.dumps({k: (v if not isinstance(v, list) else len(v)) for k, v in rep.items()}))
     if args.report:
-        lines = [f"### Downloaded ordinances: {rep['documents']} documents from {rep['files']} files",
+        lines = [f"### Downloaded ordinances: {rep['documents']} documents for {rep['places']} governments "
+                 f"({rep['saved_codes']} saved codes, {rep['files']} single files)",
                  f"Read now: {rep['read']} · unchanged (not read again): {rep['reused']} · same file twice: {len(rep['duplicates'])}"]
         if rep["unknown_folders"]:
             lines += ["", "**Folders that are not a place name or id** (rename them, e.g. `alpharetta`, `co-fulton`, "
                       "`Fulton County`):", *[f"- `{x}`" for x in rep["unknown_folders"]]]
+        if rep["ambiguous"]:
+            lines += ["", "**City and county share the name; filed under the county** (rename the folder "
+                      "`City of <name>` if it is the city's code):", *[f"- `{x}`" for x in rep["ambiguous"]]]
         if rep["unplaced"]:
             lines += ["", "**Files with no place** (put them in a folder named for the place):", *[f"- `{x}`" for x in rep["unplaced"]]]
         if rep["errors"]:

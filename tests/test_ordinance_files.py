@@ -110,3 +110,80 @@ def test_sections_split_long_unheaded_text():
     secs = of.sections(md)
     assert len(secs) >= 2 and all(len(s["t"]) <= of.SECTION_TARGET + 2000 for s in secs)
     assert secs[1]["h"].endswith("(part 2)")
+
+
+SAVED_CODE = """<html><head><title>Code of Ordinances | Jackson County, GA | Municode Library</title></head><body>
+<nav><a href="#">Home</a></nav><div class="chunk"><h2>Chapter 6 - ANIMALS</h2>
+<p>Sec. 6-1. Definitions.</p><p>Animal means any live vertebrate creature, domestic or wild.</p>
+<p>Sec. 6-2. Running at large prohibited.</p><p>No owner shall allow any dog to run at large in the county.</p>
+</div><div class="chunk"><h2>Chapter 14 - SOLID WASTE</h2><p>Sec. 14-1. Collection.</p>
+<p>Solid waste shall be collected weekly by the county or its contractor.</p></div></body></html>"""
+
+
+def _saved_code(d: Path, html=SAVED_CODE, nodes=None, url="https://library.municode.com/ga/jackson_county/codes/code_of_ordinances"):
+    d.mkdir(parents=True)
+    if html is not None:
+        (d / "code.html").write_text(html)
+    (d / "toc.json").write_text(json.dumps({"title": "Code of Ordinances", "children": [{"title": "Chapter 6 - ANIMALS"}]}))
+    (d / "manifest.json").write_text(json.dumps({"client": "jackson_county", "url": url, "downloaded": "2026-11-07"}))
+    (d / "nodes").mkdir()
+    for name, body in (nodes or {"1.json": {"title": "Chapter 6", "content": "<p>node copy</p>"}}).items():
+        (d / "nodes" / name).write_text(json.dumps(body))
+
+
+def test_dropped_ga_folder_one_code_per_county(tmp_path):
+    root = _project(tmp_path)
+    inbox = root / "imports" / "ordinances"
+    for p in list(inbox.iterdir()):      # only the downloader's layout this time
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    ga = inbox / "out" / "GA"
+    _saved_code(ga / "Jackson" / "code of ordinances")                     # city and county share the name
+    _saved_code(ga / "fulton_county" / "Code of Ordinances",
+                html=SAVED_CODE.replace("Jackson County", "Fulton County"),
+                url="https://library.municode.com/ga/fulton_county/codes/code_of_ordinances")
+    # no code.html: the nodes are read in order (2 before 10)
+    _saved_code(ga / "Cobb" / "code of ordinances", html=None, url="https://library.municode.com/ga/cobb_county",
+                nodes={"10.json": {"title": "Sec. 2-10. Later.", "content": "<p>Second node text about permits.</p>"},
+                       "2.json": {"title": "Sec. 2-2. Earlier.", "content": "<p>First node text about fees and charges.</p>" * 10}})
+    out = tmp_path / "out"
+    rep = of.build(root, out, log=lambda *_: None)
+    assert rep["saved_codes"] == 3 and rep["files"] == 0 and rep["documents"] == 3 and not rep["errors"], rep
+    idx = json.loads((out / "index.json").read_text())
+    d = {e["jurisdiction"]: e for e in idx["documents"]}
+    assert set(d) == {"co-jackson", "co-fulton", "co-cobb"}
+    assert rep["ambiguous"] == ["out/GA/Jackson/code of ordinances -> Jackson County"]
+    j = d["co-jackson"]
+    assert j["kind"] == "code" and j["title"] == "Code of Ordinances | Jackson County, GA"
+    assert j["url"].startswith("https://library.municode.com/") and j["url_official"] is True
+    assert j["files"] == ["out/GA/Jackson/code of ordinances"]
+    doc = json.loads((out / "docs" / f"{j['id']}.json").read_text())
+    heads = [s["h"] for s in doc["sections"]]
+    assert "Sec. 6-2. Running at large prohibited." in heads and "Chapter 14 - SOLID WASTE" in heads
+    assert not any("node copy" in s["t"] for s in doc["sections"])          # code.html wins; nodes not read twice
+    cobb = json.loads((out / "docs" / f"{d['co-cobb']['id']}.json").read_text())
+    hs = [s["h"] for s in cobb["sections"]]
+    assert hs.index("Sec. 2-2. Earlier.") < hs.index("Sec. 2-10. Later.")
+
+    # the same GA folder as a zip: same documents, and a rebuild reuses them
+    import zipfile as zf
+    for p in list(inbox.iterdir()):
+        shutil.make_archive(str(tmp_path / "GA"), "zip", inbox / "out")
+        shutil.rmtree(p)
+    shutil.move(str(tmp_path / "GA.zip"), inbox / "GA.zip")
+    prev = tmp_path / "prev"
+    shutil.copytree(out, prev)
+    rep2 = of.build(root, out, prev=prev, log=lambda *_: None)
+    assert rep2["documents"] == 3 and rep2["reused"] == 3 and rep2["read"] == 0
+    idx2 = json.loads((out / "index.json").read_text())
+    assert {e["jurisdiction"] for e in idx2["documents"]} == {"co-jackson", "co-fulton", "co-cobb"}
+    assert any(f.startswith("GA.zip/GA/") for e in idx2["documents"] for f in e["files"])
+
+
+def test_city_folder_wins_when_the_code_says_city():
+    p = of.Places(of.load_places(ROOT))
+    assert p.resolve_folder("Jackson")[0] == "co-jackson"
+    city = p.resolve("Jackson")
+    assert city and p.resolve_folder("Jackson", "Code of Ordinances of the City of Jackson, Georgia")[0] == city
+    assert p.resolve_folder("athens-clarke_county")[0] in ("athens-clarke", "co-clarke")
+    assert p.resolve_folder("liberty_county_")[0] == "co-liberty"
+    assert p.resolve_folder("GA") == (None, False) and p.resolve_folder("code of ordinances") == (None, False)
