@@ -1,7 +1,8 @@
 name: news
 # The News tab's stories, on their own: the outlets' news APIs and feeds (gacrawl news, the same step the crawl's merge
-# job runs), then Electo's import of the digest (ga/crawl_import.py news_from: stories written by hand stay), then the
-# public site and data feed (Electo tools/site_data.sh). Runs every three hours and on demand, beside the crawl (its own
+# job runs), then Electo's import of the digest (ga/crawl_import.py news_from: stories written by hand stay; one event's
+# stories grouped), then summaries by the open model (Electo tools/ai/news_ai.py: Qwen3-8B on this runner's CPU, each
+# checked against the outlets' text), then the public site and data feed (Electo tools/site_data.sh). Runs every three hours and on demand, beside the crawl (its own
 # concurrency group, so it never waits for a long crawl run), and touches nothing else: no crawl state, no database.
 on:
   schedule:
@@ -27,7 +28,7 @@ jobs:
     # the public runner only (the private repository holds the data and would run it twice)
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +41,15 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
+      - name: The open model (Qwen3-8B, 4-bit; kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: llama.cpp for the model (CPU build)
+        run: |
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || echo "llama.cpp did not install; the stories keep the outlets' excerpts"
       - name: Political news (outlets' news APIs and feeds, the last ten days)
         run: |
           timeout -s INT -k 1m 12m gacrawl news --max-minutes 10 --export dist/news/news.json || echo "news stopped after 12 minutes"
@@ -58,8 +68,10 @@ jobs:
           git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-news
           cd /tmp/electo-news
           python3 -I -c "import sys; sys.path.insert(0, 'ga'); import crawl_import as ci; ci.news_from(sys.argv[1])" "$BUNDLE"
+          # summaries by the open model for the stories that have none yet (a failure keeps the outlets' excerpts)
+          [ -f tools/ai/news_ai.py ] && timeout 40m python3 -I tools/ai/news_ai.py --text "$BUNDLE/news_text.json" --minutes 30 || echo "no model summaries this run"
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add ga/news.json
+          git add ga/news.json research/train/news_ai_log.jsonl 2>/dev/null || git add ga/news.json
           if git diff --cached --quiet; then echo "News tab already up to date"; else
             git commit -qm "News from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
             for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done

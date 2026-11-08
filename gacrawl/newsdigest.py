@@ -90,6 +90,7 @@ AMBIGUOUS = {"washington", "lincoln", "jackson", "franklin", "union", "columbia"
              "lumber city", "jefferson", "madison", "monroe", "clay", "grant", "lee", "hart", "berlin", "milan", "rome",
              "perry", "douglas", "baker", "warwick", "allen", "riddleville", "white", "young", "harris", "smith"}
 _PLACES: list = []
+_COUNTY_OF: dict = {}    # place name (lower case) -> its counties, for the News tab's county filter
 
 
 def _places():
@@ -108,10 +109,37 @@ def _places():
                                (j.get("name") or "").strip(), flags=re.I).strip()
                 if len(n) >= 4 and n.lower() not in AMBIGUOUS:
                     names.add(re.escape(n))
+                    cos = [re.sub(r"\s+County$", "", n)] if j.get("kind") == "county" else list(j.get("counties") or [])
+                    _COUNTY_OF.setdefault(n.lower(), [])
+                    _COUNTY_OF[n.lower()] += [c for c in cos if c not in _COUNTY_OF[n.lower()]]
         except Exception:  # noqa: BLE001
             names = set()
         _PLACES.append(re.compile(r"\b(" + "|".join(sorted(names, key=len, reverse=True)) + r")\b") if names else None)
     return _PLACES[0]
+
+
+# the big cities whose names GEORGIA matches (they are left out of the place list's ambiguity rules)
+BIG = {"atlanta": ["Fulton", "DeKalb"], "savannah": ["Chatham"], "augusta": ["Richmond"], "macon": ["Bibb"],
+       "columbus": ["Muscogee"], "athens": ["Clarke"], "albany": ["Dougherty"], "valdosta": ["Lowndes"],
+       "gwinnett": ["Gwinnett"], "cobb": ["Cobb"], "dekalb": ["DeKalb"], "fulton": ["Fulton"], "clayton": ["Clayton"],
+       "cherokee": ["Cherokee"], "forsyth": ["Forsyth"], "chatham": ["Chatham"]}
+
+
+def counties_of(title: str, text: str) -> list[str]:
+    """The Georgia counties a story names: a county by name ("Wilcox County"), a city by name (its county)."""
+    hay = f"{title} {text[:2500]}"
+    pl = _places()
+    out: list[str] = []
+    for m in (pl.finditer(hay) if pl else []):
+        for c in _COUNTY_OF.get(m.group(0).lower(), []):
+            if c not in out:
+                out.append(c)
+    for m in re.finditer(r"\b(" + "|".join(BIG) + r")\b", hay, re.I):
+        if m.group(0).lower() in ("cobb", "dekalb", "fulton", "gwinnett", "clayton", "cherokee", "forsyth", "chatham") or not out:
+            for c in BIG[m.group(0).lower()]:
+                if c not in out:
+                    out.append(c)
+    return out[:6]
 
 
 def in_georgia(title: str, text: str) -> bool:
@@ -167,7 +195,7 @@ class Digest:
             self.feeds = {}
         self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0}
 
-    def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str) -> None:
+    def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str, body: str = "") -> None:
         self.stats["seen"] += 1
         title = _text(title)[:240]
         if not url.startswith("http") or not title or not keep(title, text):
@@ -176,18 +204,23 @@ class Digest:
         rec = Record(SOURCE, "news_item", url, title=title, text=_excerpt(text), published=(date or "")[:10] or None,
                      channel=via, jurisdiction="ga", evidence="reported", key=f"{SOURCE}|{url}",
                      meta={"outlet": outlet, "outlet_name": self.names.get(outlet, outlet), "tags": tags_of(title, text),
-                           "via": via, "opened": True})
+                           "via": via, "opened": True, "counties": counties_of(title, body or text),
+                           "statewide": bool(STATEWIDE.search(f"{title} {text}")),
+                           # the outlet's own text, for the model that writes the summary (never published: the page
+                           # shows the headline, the outlet's excerpt or the checked summary, and links to the story)
+                           "body": (body or text)[:3000]})
         self.stats["new"] += self.store.add(rec)
 
     def from_wp(self, dom: str, api: str) -> None:
         after = (dt.date.today() - dt.timedelta(days=NEWS_DAYS)).isoformat() + "T00:00:00"
         r = self.f.get(api.rstrip("/") + "/wp/v2/posts", params={"after": after, "per_page": PER_OUTLET,
-                                                                 "_fields": "link,date,title,excerpt"}, use_cache=False)
+                                                                 "_fields": "link,date,title,excerpt,content"}, use_cache=False)
         if r.status != 200 or not r.content.strip().startswith(b"["):
             return
         for p in r.json():
             self.add(p.get("link") or "", (p.get("title") or {}).get("rendered") or "",
-                     _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json")
+                     _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json",
+                     body=_text((p.get("content") or {}).get("rendered") or ""))
 
     def feed_of(self, dom: str) -> str | None:
         e = self.feeds.get(dom) or {}
@@ -247,9 +280,11 @@ class Digest:
         return self.stats
 
 
-def export_news(store, out_path: Path) -> dict:
+def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
+    """The digest in the page's format; with text_path, also {url: the outlet's own text} for the summary model (that
+    file is the model's input only and is never published)."""
     floor = (dt.date.today() - dt.timedelta(days=21)).isoformat()
-    items, seen = [], set()
+    items, seen, texts = [], set(), {}
     for r in store.iter_query("kind='news_item'"):
         d = (r.get("published") or "")[:10]
         if not d or d < floor:
@@ -266,12 +301,22 @@ def export_news(store, out_path: Path) -> dict:
                 m = json.loads(m)
             except ValueError:
                 m = {}
-        items.append({"t": r.get("title") or "", "u": r["url"], "s": m.get("outlet_name") or m.get("outlet") or "",
-                      "d": d, "sum": r.get("text") or "", "tags": m.get("tags") or [], "also": [], "auto": 1})
+        co = m.get("counties")
+        if co is None:      # a story stored before counties were kept
+            co = counties_of(r.get("title") or "", m.get("body") or r.get("text") or "")
+        it = {"t": r.get("title") or "", "u": r["url"], "s": m.get("outlet_name") or m.get("outlet") or "",
+              "d": d, "sum": r.get("text") or "", "tags": m.get("tags") or [], "also": [], "auto": 1, "co": co}
+        if m.get("statewide") or (not co and STATEWIDE.search(it["t"] + " " + it["sum"])):
+            it["sw"] = 1
+        items.append(it)
+        texts[r["url"]] = m.get("body") or r.get("text") or ""
     items.sort(key=lambda x: x["d"], reverse=True)
     items = items[:NEWS_KEEP]
     window = f"{items[-1]['d']} to {items[0]['d']}" if items else ""
     out_path.write_text(json.dumps({"updated": _now(), "window": window, "note": "Headlines and the outlets' own excerpts, "
                                     "collected by the crawler from Georgia outlets' news feeds; every line links to the story.",
                                     "items": items}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    if text_path:
+        keep_u = {x["u"] for x in items}
+        text_path.write_text(json.dumps({u: t for u, t in texts.items() if u in keep_u}, ensure_ascii=False), encoding="utf-8")
     return {"items": len(items), "window": window}

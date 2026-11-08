@@ -722,7 +722,7 @@ def cmd_news(cfg, args):
 
             out = Path(args.export)
             out.parent.mkdir(parents=True, exist_ok=True)
-            stats["export"] = export_news(store, out)
+            stats["export"] = export_news(store, out, out.with_name("news_text.json"))
     finally:
         store.close()
     print(json.dumps({"news": stats}))

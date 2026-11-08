@@ -1,0 +1,113 @@
+name: ai-profiles
+# Profile sorting by the open model (Electo tools/ai/profiles_ai.py: Qwen3-8B, 4-bit, on the runner's CPU): every
+# sentence Crawl copied from a candidate's own site or posts is judged a position or not, given topics and one neutral
+# line, which is shown only when the checker finds nothing in it the sentence does not say. Four runners share the
+# people (by hash), each for up to five hours; a sentence already read is never read again, so the runs pick up where
+# the last stopped. Then the results are combined into Electo's ga/crawl/profile_ai.json, with every call kept in
+# research/train/profile_ai_log.jsonl for training a model of our own later, and the public site is refreshed.
+on:
+  schedule:
+    - cron: "37 1,13 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of model time per runner"
+        default: "300"
+
+permissions:
+  contents: read
+  actions: write        # remove this run's attachments at the end
+
+concurrency:
+  group: ai-profiles-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  sort:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the profiles, the prompts and the checker)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /ga/crawl/people.json /ga/crawl/profile_ai.json
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+      - name: The open model (Qwen3-8B, 4-bit; kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: llama.cpp (CPU build)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Sort this runner's share of the profiles
+        run: |
+          M="${{ inputs.minutes || '300' }}"
+          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profiles_ai.py --shard ${{ matrix.shard }} --of 4 --minutes "$M" --out ../shard.json || echo "stopped"
+          [ -f ../shard.json ] || echo '{"v":1,"s":{}}' > ../shard.json
+          cp research/train/profile_ai_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: profile-ai-${{ matrix.shard }}
+          path: |
+            shard.json
+            log.jsonl
+          retention-days: 2
+
+  combine:
+    needs: sort
+    if: always() && github.event.repository.private == false && needs.sort.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "profile-ai-*", path: shards}
+      - name: Combine into Electo and refresh the public site
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          set -e
+          S="$PWD/shards"
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
+          cd /tmp/electo-ai
+          pip install -q huggingface_hub >/dev/null 2>&1 || true
+          python3 -I tools/ai/profiles_ai.py --combine "$S"/*/shard.json
+          mkdir -p research/train && touch research/train/profile_ai_log.jsonl
+          cat "$S"/*/log.jsonl >> research/train/profile_ai_log.jsonl 2>/dev/null || true
+          python3 -I -c "import sys; p=sys.argv[1]; L=[l for l in open(p, encoding='utf-8') if l.strip()]; seen=set(); out=[]
+          for l in L:
+              if l not in seen: seen.add(l); out.append(l)
+          open(p, 'w', encoding='utf-8').writelines(out[-20000:])" research/train/profile_ai_log.jsonl
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add ga/crawl/profile_ai.json research/train/profile_ai_log.jsonl
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -qm "Profile sorting by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+      - name: Remove this run's attachments
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done
