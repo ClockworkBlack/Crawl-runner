@@ -450,6 +450,13 @@ jobs:
           # otherwise on research runs, as before
           if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then gacrawl finance --max-minutes "$M" || true
           else gacrawl finance --reread-only --max-minutes "$M" || true; fi
+      - name: Georgia state and local money (State Ethics Commission)
+        run: |
+          # EFile (2022-2025) and PeachFile (2026 on), through the public API their own Contributions search calls;
+          # the first full read takes several runs (resumable), then each run reads only what is new
+          M=${{ vars.ETHICS_MINUTES || '25' }}; [ "$IS_MAIN" != "true" ] && M=3
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          gacrawl ethics run --max-minutes "$M" || true
       - name: Open records requests (replies, follow-ups, new batch)
         env:
           ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}

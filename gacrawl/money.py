@@ -46,7 +46,10 @@ def via_of(m: dict) -> str:
 
 
 def platform_of(m: dict) -> str:
-    """A platform's own lump line (ActBlue, WinRed ... passing on many people's gifts at once)."""
+    """A platform's own lump line (ActBlue, WinRed ... passing on many people's gifts at once), or a filer's line of
+    unitemized gifts (many small gifts reported as one sum, no donor named)."""
+    if m.get("unitemized"):
+        return "Unitemized small gifts"
     p = PLATFORMS.get(m.get("contributor_committee_id") or "")
     if p:
         return p

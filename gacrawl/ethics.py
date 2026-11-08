@@ -2,8 +2,9 @@
 Campaign Finance Commission), whose public search site is media.ethics.ga.gov. The owner confirmed (Nov 7) that the
 crawler may use its search forms, slowly, one candidate at a time, and read its log of newly filed reports.
 
-The site has no robots.txt and its pages say robots "all"; it offers no API or bulk download (the Commission's
-records page is gone), and its searches are ASP.NET forms: a page is asked for, its form filled in as a person would
+Reports filed 2022 on are in the two current systems (EFile, then PeachFile from 2026), read through the public JSON
+API their own search pages call (run() below). The older site (2005-2021) has no robots.txt and its pages say robots
+"all"; its searches are ASP.NET forms: a page is asked for, its form filled in as a person would
 (every field the page itself carries, plus the name typed in) and sent back. Nothing is guessed: every address the
 reader follows is a link or form on a page it opened, starting from the search pages the Commission's home page
 links to.
@@ -13,6 +14,7 @@ links to.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 from pathlib import Path
@@ -145,9 +147,193 @@ def explore(fetcher, out: Path, last: str = "Burns", first: str = "Jon", log=pri
     return {"pages": len(seen), "efiled_reports_listed": len(tbd)}
 
 
-def run(fetcher, store, root, candidates, deadline) -> dict:
-    """The reader proper is built on the pages explore() saves; until then nothing is collected."""
-    return {"ethics": "explore first"}
+# ----------------------------------------------------------------------------- the current systems' public API
+# Both current systems (EFile 2022-2025 at recordsearch.ethics.ga.gov, PeachFile 2026 on at peachfile.ethics.ga.gov)
+# are Angular pages over a public JSON API; their Contributions search calls GetTransactionDetails, which is the call
+# the reader makes, the same way, with the same body the page sends (seen in data/ethics_probe/clicks.json).
+SYSTEMS = {
+    "peachfile": "https://api-peachfile.ethics.ga.gov/api/",
+    "efile": "https://api-recordsearch.ethics.ga.gov/api/",
+}
+SINCE_YEAR = 2022
+PAGE = 200
+GA_SOURCE = "Georgia State Ethics Commission"
+# Two Business Day reports repeat, early, gifts the next regular report lists again: never counted
+TBD_REPORT = re.compile(r"(?i)two business day|2 business day|\btbd\b|24[- ]hour")
+SKIP_SUBTYPE = re.compile(r"(?i)interest|return|refund|loan payment|loan forgiv")
+
+
+def _body(year: str, page: int, size: int, sort: str = "asc", **kw) -> dict:
+    b = {"pageNumber": page, "pageSize": size, "sortBy": "Transaction Date", "sortType": sort, "transactionTypeCode": "TCON",
+         "filerName": "", "sourceName": "", "transactionAmountMax": None, "sourceTypeCode": "", "committeeType": "",
+         "electionID": "", "reportName": "", "toDate": None, "fromDate": None, "byState": "", "electionType": "",
+         "electionYear": year}
+    b.update(kw)
+    return b
+
+
+def _api(fetcher, base: str, path: str, body):
+    r = fetcher.post(base + path, json_body=body, headers={"Accept": "application/json", "Content-Type": "application/json"})
+    if r.status != 200:
+        raise RuntimeError(f"HTTP {r.status} from {path}")
+    return json.loads(r.text)
+
+
+def _nm(s: str) -> str:
+    return re.sub(r"[^a-z]+", " ", (s or "").lower()).strip()
+
+
+def candidate_index(candidates) -> dict:
+    """'first last' -> candidate, for names that only one Electo candidate carries (state and local offices)."""
+    idx: dict[str, list] = {}
+    for c in candidates:
+        for v in {c.get("name", ""), *(c.get("variants") or []), *(c.get("aliases") or [])}:
+            w = _nm(v).split()
+            if len(w) >= 2:
+                for k in {f"{w[0]} {w[-1]}"}:
+                    if c not in idx.setdefault(k, []):
+                        idx[k].append(c)
+    return {k: v[0] for k, v in idx.items() if len(v) == 1}
+
+
+def _who(t: dict) -> str:
+    """The filer's own name as 'first last' when the filer is a candidate, else ''."""
+    fn, ln = (t.get("candidateFirstName") or "").strip(), (t.get("candidateLastName") or "").strip()
+    if fn and ln:
+        return _nm(fn + " " + ln)
+    f = t.get("filerName") or ""
+    if (t.get("filerTypeCode") or "").upper() in ("CAN", "C") and "," in f:
+        last, first = f.split(",", 1)
+        return _nm(first.split()[0] + " " + last) if first.split() else ""
+    return ""
+
+
+def kind_of(t: dict) -> str | None:
+    sub = " ".join(str(t.get(k) or "") for k in ("transactionSubTypeDesc", "transactionCategory", "transactionTypeCodeDescription"))
+    if SKIP_SUBTYPE.search(sub):
+        return None
+    if re.search(r"(?i)in[- ]?kind", sub):
+        return "in_kind"
+    if re.search(r"(?i)loan", sub):
+        return "loan"
+    return "contribution"
+
+
+def record_of(system: str, t: dict, cands: dict):
+    """One transaction as a contribution record, or None when it does not count (a Two Business Day report, interest,
+    a return)."""
+    from .finance import contribution_record
+
+    if TBD_REPORT.search(t.get("reportName") or ""):
+        return None
+    kind = kind_of(t)
+    if kind is None or t.get("transactionAmount") in (None, ""):
+        return None
+    unitem = bool(re.search(r"(?i)unitemi", (t.get("transactionSubTypeDesc") or "") + " " + (t.get("transactionCategory") or "")))
+    payee = " ".join(x for x in (t.get("payeeFirstName"), t.get("payeeMiddleName"), t.get("payeeLastName")) if x).strip()
+    name = (t.get("sourceName") or payee or "").strip()
+    if payee and "," not in name and (t.get("transactionSourceTypeCode") or "").upper() in ("IND", "TIND"):
+        name = f"{t.get('payeeLastName')}, {t.get('payeeFirstName')}".strip(", ")
+    d = (t.get("transactionDate") or "")[:10]
+    if re.match(r"\d\d/\d\d/\d{4}", d):
+        d = f"{d[6:10]}-{d[0:2]}-{d[3:5]}"
+    c = cands.get(_who(t))
+    recipient = c["name"] if c else (t.get("filerName") or "").strip()
+    row = {"name": "" if unitem else name, "amount": float(t["transactionAmount"]), "date": d, "kind": kind,
+           "employer": t.get("payeeEmployer") or "", "occupation": t.get("payeeOccupation") or "",
+           "city": t.get("transactionSourceCity") or "", "state": (t.get("transactionSourceStateCode") or "")[:2],
+           "election": t.get("electionTypeDescription") or "", "line": str(t.get("transactionId") or "")}
+    url = ("https://peachfile.ethics.ga.gov/public/cf/contributions" if system == "peachfile"
+           else "https://recordsearch.ethics.ga.gov/public/cf/contributions")
+    rec = contribution_record(f"cand:{c['id']}" if c else "ga-ethics", url, row, recipient,
+                              "candidate" if (c or _who(t)) else "committee", GA_SOURCE,
+                              jurisdiction=(c or {}).get("jurisdiction", ""), channel="api")
+    rec.key = f"ga2|{system}|{t.get('transactionId')}"
+    rec.meta.update({"ga_system": system, "ga_filer": t.get("filerRegistrationGuid") or "", "filer_name": t.get("filerName") or "",
+                     "filer_type": t.get("filerTypeDesc") or t.get("filerTypeCode") or "",
+                     "report_name": t.get("reportName") or "", "report_id": t.get("filerReportId"),
+                     "report_version": t.get("filerReportVersionId") or 1, "subtype": t.get("transactionSubTypeDesc") or "",
+                     "source_type": t.get("transactionSource") or "", "transaction_id": t.get("transactionId"),
+                     **({"unitemized": True} if unitem else {}),
+                     **({"candidate_id": c["id"], "electo_key": c.get("electo_key")} if c else {})})
+    return rec
+
+
+def years(fetcher, base: str) -> list[str]:
+    d = _api(fetcher, base, "PublicLookup/GetPublicTransactionElectionYearLookup", {"key": "electionyears", "isSelectReq": False})
+    ys = sorted({str(x.get("code") or x.get("name") or x.get("value") or "")[:4] for x in (d.get("data") or [])}, reverse=True)
+    return [y for y in ys if y.isdigit() and SINCE_YEAR <= int(y) <= 2100]
+
+
+def drop_superseded(store) -> int:
+    """An amended report replaces the one it amends: lines from an older version of the same filer's same report go."""
+    return store.delete_where(
+        "kind='contribution' AND key LIKE 'ga2|%' AND EXISTS (SELECT 1 FROM records r2 WHERE r2.kind='contribution' "
+        "AND r2.key LIKE 'ga2|%' AND json_extract(r2.meta,'$.ga_filer')=json_extract(records.meta,'$.ga_filer') "
+        "AND json_extract(r2.meta,'$.report_name')=json_extract(records.meta,'$.report_name') "
+        "AND json_extract(r2.meta,'$.ga_system')=json_extract(records.meta,'$.ga_system') "
+        "AND (json_extract(r2.meta,'$.report_version') > json_extract(records.meta,'$.report_version') "
+        "OR (json_extract(r2.meta,'$.report_version') = json_extract(records.meta,'$.report_version') "
+        "AND json_extract(r2.meta,'$.report_id') > json_extract(records.meta,'$.report_id'))))")
+
+
+def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
+    """Every contribution, in-kind gift and loan filed with the Commission since SINCE_YEAR, from both current systems,
+    a page at a time (resumable: the page reached is kept per system and election year). A year read in full is read
+    again from its newest lines each run (late and amended filings), up to the first page with nothing new."""
+    import time
+
+    cands = candidate_index([c for c in candidates if "federal" not in (c.get("levels") or [])])
+    st = {"added": 0, "pages": 0, "skipped": 0, "years": {}}
+    for system, base in SYSTEMS.items():
+        try:
+            ys = years(fetcher, base)
+        except Exception as e:  # noqa: BLE001
+            log(f"ethics {system}: election years: {type(e).__name__}: {str(e)[:160]}")
+            continue
+        for y in ys:
+            ck = f"ga_ethics:{system}:{y}"
+            cur = json.loads(store.kv_get(ck) or "{}")
+            # a year read in full is read in full again once a month (filings that arrive late carry old dates)
+            full = cur.get("complete", False) and cur.get("at", "") >= (dt.date.today() - dt.timedelta(days=30)).isoformat()
+            page = 1 if full else int(cur.get("page", 1))
+            sort = "desc" if full else "asc"
+            got = 0
+            while time.monotonic() < deadline:
+                try:
+                    d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, PAGE, sort))
+                except Exception as e:  # noqa: BLE001
+                    log(f"ethics {system} {y} page {page}: {type(e).__name__}: {str(e)[:160]}")
+                    break
+                items = (d.get("data") or {}).get("items") or []
+                st["pages"] += 1
+                new = 0
+                for t in items:
+                    rec = record_of(system, t, cands)
+                    if rec is None:
+                        st["skipped"] += 1
+                        continue
+                    if store.get_meta(rec.key) is None:
+                        new += 1
+                    if store.add(rec):
+                        got += 1
+                total = int((items[0].get("totalRows") if items else 0) or 0)
+                if not full:
+                    store.kv_set(ck, json.dumps({"page": page + 1, "total": total}))
+                if len(items) < PAGE or (full and new == 0):
+                    if not full:
+                        store.kv_set(ck, json.dumps({"complete": True, "total": total, "at": dt.date.today().isoformat()}))
+                    break
+                page += 1
+            st["added"] += got
+            st["years"][f"{system}:{y}"] = got
+            log(f"ethics {system} {y}: {got} lines added or changed ({'refresh' if full else 'full read'}, page {page})")
+            if time.monotonic() >= deadline:
+                break
+    st["superseded"] = drop_superseded(store)
+    log(f"ethics: {st['added']} lines, {st['skipped']} not counted (Two Business Day reports, interest, returns), "
+        f"{st['superseded']} replaced by amended reports")
+    return st
 
 
 def click_probe(out: Path, sites=("https://peachfile.ethics.ga.gov/", "https://recordsearch.ethics.ga.gov/"),
