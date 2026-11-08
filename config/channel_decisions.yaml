@@ -1,0 +1,48 @@
+# The owner's decisions on YouTube channels: is this a government body's own meeting channel?
+#
+# confirmed  the channel is the body's own: its meeting videos become records (kind `video`, evidence primary), it never
+#            goes to the Rumor Mill - Video bucket again, and Electo lists its videos with the body (Meeting videos)
+# rejected   not the body's own: its videos stay out of the records (they are kept in the Rumor Mill - Video bucket)
+#
+# Keyed by the channel id (UC...), the part after /channel/ in its address. These decisions win over the crawler's own
+# name checks (transcripts.official_channel). They are also the examples the open model learns from
+# (gacrawl/channel_ai.py): it judges every channel still unverified against them, and every decision is written to the
+# training log (data/train/channel_log.jsonl) as a labeled example. Electo keeps the same list in
+# research/confirmed_channels.json.
+channels:
+  UCF6qQB_RJgr-ujG86DZwreQ:
+    title: Clayton County Public Schools
+    jurisdiction: sd-clayton
+    status: confirmed
+    decided: "2026-11-08"
+    by: owner
+    note: >-
+      Board of Education regular meetings and work sessions. The crawler had held it back because the channel's handle
+      read as a news channel.
+  UCLB7HPZaLQrd0ptiMEsoExg:
+    title: Gator Bytes
+    jurisdiction: sd-ware
+    status: confirmed
+    decided: "2026-11-08"
+    by: owner
+    found_on: http://www.ware.k12.ga.us/
+    note: >-
+      Linked from Ware County Schools' own website; it carries the district's Board of Education meetings.
+  UCbK-5QqXTFdKhCCaGh5xkuA:
+    title: JCS Streaming
+    jurisdiction: sd-city-jefferson
+    status: confirmed
+    decided: "2026-11-08"
+    by: owner
+    found_on: http://www.jeffcityschools.org/
+    note: >-
+      Linked from Jefferson City Schools' own website; it carries the district's Board meetings.
+  UCMxOzyWKnFzRgYpCmdOU-8g:
+    title: Fannin Rebel TV
+    jurisdiction: sd-fannin
+    status: confirmed
+    decided: "2026-11-08"
+    by: owner
+    note: >-
+      Carries the Fannin County Board of Education's meetings. The crawler had held it back because "Fan" in the name
+      read as a fan channel.

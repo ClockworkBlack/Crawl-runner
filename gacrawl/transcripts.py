@@ -273,10 +273,16 @@ def _core(name: str) -> str:
 
 
 def official_channel(ch: dict, jurisdiction_name: str, basis: str) -> tuple[bool, str]:
-    """A channel is the government's official account when the government itself points to it (a link on its own
-    website, found by the seed, or a hand check recorded in config/overrides.yaml) and the channel is plainly the
-    government's: it carries the place's name or a government word, and nothing marking it as a chamber, a news
-    outlet, a party or a group of residents."""
+    """A channel is the government's official account when the owner confirmed it (config/channel_decisions.yaml, which
+    also rejects channels), or when the government itself points to it (a link on its own website, found by the seed,
+    or a hand check recorded in config/overrides.yaml) and the channel is plainly the government's: it carries the
+    place's name or a government word, and nothing marking it as a chamber, a news outlet, a party or a group of
+    residents."""
+    from .channel_decisions import basis as _dbasis, decision
+
+    d = decision(ch)
+    if d:   # the owner's decision (config/channel_decisions.yaml) wins over every check below
+        return d["status"] == "confirmed", _dbasis(d)
     if not basis:
         return False, "no official page links to this channel"
     title_handle = f"{ch.get('title', '')} {ch.get('handle', '')}"

@@ -351,7 +351,15 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     (out / "rumor_mill.json").write_text(json.dumps(pub, ensure_ascii=False, indent=1), encoding="utf-8")
     from .rumor_video import VideoRumorMill
 
-    rumor_videos = VideoRumorMill(root).all()
+    from .channel_decisions import decision
+
+    # a channel the owner confirmed is a record source now (its videos are kind `video`), never a rumor
+    rumor_videos = []
+    for r in VideoRumorMill(root).all():
+        d = decision(r.get("channel"), root)
+        if d and d["status"] == "confirmed":
+            continue
+        rumor_videos.append({**r, "status": "rejected"} if d else r)
     (out / "rumor_mill_video.json").write_text(json.dumps({
         "note": "Rumor Mill - Video: meeting videos from YouTube channels not confirmed as the government's official "
                 "account (reason per row). Never cite these; confirm the channel by hand first.",

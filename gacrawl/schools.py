@@ -1103,7 +1103,17 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
     policies: dict[str, list] = defaultdict(list)
     meetings: dict[str, list] = defaultdict(list)
     votes: dict[str, list] = defaultdict(list)
-    for r in store.iter_query("kind IN ('policy','meeting','vote') AND jurisdiction LIKE 'sd-%'"):
+    videos: dict[str, list] = defaultdict(list)
+    readings: dict[str, dict] = {}     # video page -> the open model's reading of its transcript (video_ai.py)
+    for r in store.iter_query("kind='transcript' AND jurisdiction LIKE 'sd-%' AND meta LIKE '%\"ai\"%'"):
+        m = _meta(r)
+        a = m.get("ai") or {}
+        if m.get("video_page") and (a.get("summary") or a.get("items")):
+            readings[m["video_page"]] = {"summary": a.get("summary") or "", "m": a.get("m") or "",
+                                         "items": [{k: it.get(k) for k in ("type", "who", "text", "needs_review") if it.get(k)}
+                                                   for it in (a.get("items") or []) if it.get("type") in ("motion", "vote", "agenda")][:8],
+                                         "source": m.get("transcript_source") or ""}
+    for r in store.iter_query("kind IN ('policy','meeting','vote','video') AND jurisdiction LIKE 'sd-%'"):
         did = r["jurisdiction"]
         if r["kind"] == "policy":
             m = _meta(r)
@@ -1111,6 +1121,12 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
                                   "adopted": m.get("adopted") or r.get("published") or "", "text": (r.get("text") or "")[:400]})
         elif r["kind"] == "meeting":
             meetings[did].append({"d": r.get("published") or "", "title": (r.get("title") or "")[:120], "u": r["url"]})
+        elif r["kind"] == "video":
+            # meeting recordings from the district's own channel (official, or confirmed by the owner)
+            oc = _meta(r).get("official_channel") or {}
+            videos[did].append({"d": (r.get("published") or "")[:10], "title": (r.get("title") or "")[:160], "u": r["url"],
+                                "ch": oc.get("title") or "", "chu": f"https://www.youtube.com/channel/{oc['id']}" if oc.get("id") else "",
+                                "basis": (oc.get("basis") or "")[:200], **({"read": readings[r["url"]]} if r["url"] in readings else {})})
         else:
             votes[did].append(r)
     # budget documents: the district's own (its site's documents and pages tagged Budget and taxes) and the state's
@@ -1159,6 +1175,7 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
         index["districts"].append(row)
         detail = {**row, "people": peo, "policy_list": sorted(policies.get(did, []), key=lambda p: (p["code"], p["title"]))[:600],
                   "meeting_list": sorted(meetings.get(did, []), key=lambda m: m["d"], reverse=True)[:120],
+                  "video_list": sorted(videos.get(did, []), key=lambda m: m["d"], reverse=True)[:200],
                   "member_votes": bm["members"],
                   "budget_list": sorted(budget_by_d.get(did, []), key=lambda x: (x["d"] or x["at"]), reverse=True)[:40],
                   "school_list": [{**s, "stats": st_s.get((dc, school_key(s["name"])), {}), "website": (sites_known.get(s["id"]) or {}).get("url", ""),

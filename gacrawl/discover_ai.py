@@ -2,7 +2,7 @@
 opened politely, judged by the model, checked by rules, then added at once when it is as good as the links Electo
 already accepts, or listed for the owner's approval.
 
-What it looks for, most useful first:
+What it looks for, most useful first (and the Rumor Mill as leads: see Discovery.rumor_leads):
   people     names in the news the crawler collected (gacrawl news) that Electo does not know yet: the model lists the
              people a story names with their office and place (a name counts only when the story spells it so); a new
              person is added on their own once 3 different trusted outlets name them in the same kind of office, and
@@ -143,6 +143,16 @@ def scope_check(office: str, place: str, ga_places: set[str] | None) -> tuple[st
     if not in_ga:
         return "wait", f"place \"{place}\" is not one Electo knows in Georgia"
     return "ok", ""
+
+
+def claim_core(claim: str) -> str:
+    """A rumor headline as search words: the site's name after a dash or bar dropped, punctuation out, at most 9 words."""
+    c = claim or ""
+    cut = max(c.rfind(sep) for sep in (" | ", " - ", " – ", " — "))
+    if cut > 15:
+        c = c[:cut]
+    words = [w for w in re.sub(r"[^\w\s'$%.-]", " ", c).split() if w]
+    return " ".join(words[:9])
 
 
 def _gov(d: str) -> bool:
@@ -295,11 +305,58 @@ class Discovery:
         except Exception:  # noqa: BLE001
             js = []
         js.sort(key=lambda j: -(j.get("population") or 0))
+        out += self.rumor_leads(max(4, limit // 10))
         for j in js[: max(5, limit // 6)]:
             nm = j["name"] if j["kind"] == "county" else f"City of {j['name']}"
             out.append({"type": "place", "key": "j:" + j["id"], "id": j["id"], "name": j["name"], "office": "", "place": nm,
                         "q": f'"{nm}" Georgia official website'})
         return out
+
+    # ------------------------------------------------------------ the Rumor Mill as leads for research
+    def rumor_leads(self, limit: int = 8) -> list[dict]:
+        """Rumor Mill items the open model has read (rumors_ai.py) and found to name the person, as research leads: the
+        claim is searched for in trusted outlets and on official pages. The rumor page itself is never a source; what the
+        search finds is kept only when it is an official page or a trusted outlet's story naming the person and telling
+        the same story (decide()), and it is then noted on the rumor (row["research"]) so Electo can show it."""
+        try:
+            from .candidates import RumorMill
+
+            rows = RumorMill(self.root).all()
+        except Exception:  # noqa: BLE001
+            return []
+        by_id = {c["id"]: c for c in self.cands}
+        out = []
+        rows = [r for r in rows if (r.get("ai") or {}).get("named") and not (r.get("ai") or {}).get("opinion")
+                and r.get("status", "unverified") == "unverified" and not self._tried("r:" + r["id"])
+                and (r.get("ai") or {}).get("attribution") in ("official record", "named source", "anonymous")]
+        rows.sort(key=lambda r: r.get("last_seen") or "", reverse=True)
+        for r in rows[:limit]:
+            c = by_id.get(r.get("candidate_id") or "")
+            if not c or not c.get("name"):
+                continue
+            core = claim_core(r.get("claim") or "")
+            if len(core.split()) < 3:
+                continue
+            place = ", ".join((c.get("counties") or [])[:1]) or "Georgia"
+            out.append({"type": "candidate", "key": "r:" + r["id"], "id": c["id"], "name": c["name"], "office": c.get("office") or "",
+                        "place": place, "rumor": r["id"], "claim": core, "q": f'"{c["name"]}" {core}'})
+        return out
+
+    def note_rumor(self, task: dict, page: dict, what: str) -> None:
+        try:
+            from .candidates import RumorMill
+
+            rm = RumorMill(self.root)
+            for r in rm.all():
+                if r.get("id") == task.get("rumor"):
+                    res = r.setdefault("research", [])
+                    if not any(x.get("u") == page["url"] for x in res):
+                        res.append({"u": page["url"], "t": page["title"][:200], "kind": what, "at": _now()[:10]})
+                        rm._dirty = True
+                    break
+            rm.flush()
+        except Exception as e:  # noqa: BLE001
+            self.log(f"discover: could not note the rumor's research: {type(e).__name__}: {str(e)[:120]}")
 
     # ------------------------------------------------------------ new people in the news
     def news_people(self, days: int = 14, batch: int = 8, max_batches: int = 6) -> list[dict]:
@@ -452,9 +509,22 @@ class Discovery:
         else:
             if task["name"].lower() not in hay:
                 fails.append("the page does not name the place")
+        if task.get("rumor"):
+            # research on a rumor: the page must tell the same story (most of the claim's key words) ...
+            ck = [w for w in _norm(task.get("claim", "")).split() if len(w) > 3]
+            have = sum(1 for w in ck if w in hay)
+            if len(ck) < 3 or have < 0.6 * len(ck):
+                fails.append("the page does not tell the same story as the rumor")
         if fails:
             return "", "drop", fails
         kind = j["kind"]
+        if task.get("rumor"):
+            # ... and be an official page or a trusted outlet's; nothing else counts as research on a rumor
+            if _gov(d):
+                return "official_page", "auto", []
+            if any(d == o or d.endswith("." + o) for o in self.outlets):
+                return "news", "auto", []
+            return "", "drop", ["research on a rumor keeps only official pages and trusted outlets"]
         if _gov(d):
             what = "official_page" if task["type"] == "candidate" else "place_site"
             if task["type"] == "place" and task["name"].lower() not in _norm(page["title"] + " " + page["h1"]):
@@ -490,6 +560,8 @@ class Discovery:
                                  "place": task["place"], "url": page["url"], "title": page["title"], "quote": j["quote"],
                                  "status": how, "why": "; ".join(why), "query": query, "at": _now(), "model": j["kind"]}
         self.stats["auto" if how == "auto" else "pending"] += 1
+        if task.get("rumor") and how == "auto":
+            self.note_rumor(task, page, what)
         if what in ("official_page", "news"):
             # information about the person: a record the profile research finds like any other (it names them)
             ev = "primary" if what == "official_page" else "reported"

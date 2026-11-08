@@ -477,6 +477,25 @@ jobs:
           M=${{ vars.RUMORS_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
           python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed (the donor step installs it); no readings this run"; exit 0; }
           timeout -s INT -k 2m "$((M + 6))m" gacrawl rumors-ai --max-minutes "$M" || echo "rumor readings stopped after $((M + 6)) minutes"
+      - name: Meeting channels by the open model (taught by the owner's channel decisions)
+        run: |
+          # gacrawl/channel_ai.py: every channel still in the Rumor Mill - Video bucket judged against the owner's decisions
+          # (config/channel_decisions.yaml); confirmed on its own only when as good as the owner's confirmed channels,
+          # else listed in data/channel_review.md
+          M=${{ vars.CHANNEL_AI_MINUTES || '5' }}; [ "$IS_MAIN" != "true" ] && M=1
+          python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed; no channel readings this run"; exit 0; }
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl channel-ai --max-minutes "$M" || echo "channel readings stopped after $((M + 4)) minutes"
+      - name: Meeting videos read by the open model (captions as transcripts; what each meeting did)
+        run: |
+          # gacrawl/video_ai.py: official channels' meeting videos only; captions through yt-dlp (no key). If YouTube asks
+          # the runner to sign in or prove it is not a bot, the step stops for the day (never worked around)
+          M=${{ vars.VIDEO_AI_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
+          pip install -q --prefer-binary yt-dlp || { echo "yt-dlp did not install; no meeting videos read this run"; exit 0; }
+          if python3 -c "import llama_cpp" 2>/dev/null; then
+            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --max-minutes "$M" || echo "video readings stopped after $((M + 6)) minutes"
+          else
+            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --captions-only --max-minutes "$M" || echo "captions stopped after $((M + 6)) minutes"
+          fi
       - name: Federal bill descriptions by the open model (plain words from the official summary, checked)
         run: |
           M=${{ vars.FEDERAL_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
@@ -587,7 +606,7 @@ jobs:
             state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
             state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
-            state/coverage.json data/coverage.md data/seed_review.md data/train \
+            state/coverage.json state/channel_ai.json data/coverage.md data/seed_review.md data/channel_review.md data/train \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
       - name: Electo is fed from what Crawl holds
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true'
