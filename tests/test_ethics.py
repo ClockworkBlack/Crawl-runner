@@ -60,3 +60,10 @@ def test_committee_and_nickname_matching():
     r = ethics.record_of("efile", t(filerName="WBJ Leadership Committee, Inc.", filerTypeDesc="Leadership Committee",
                                    candidateFirstName="", candidateLastName=""), idx)
     assert "candidate_id" not in r.meta
+
+
+def test_candidate_filer_with_full_legal_name():
+    idx = ethics.candidate_index([{"id": "brad-raffensperger", "name": "Brad Raffensperger"}])
+    r = ethics.record_of("efile", t(filerName="Raffensperger, Bradford Jay", filerTypeCode="X", filerTypeDesc="Candidate",
+                                   candidateFirstName="", candidateLastName=""), idx)
+    assert r.meta["candidate_id"] == "brad-raffensperger" and r.meta["line"] == "1"

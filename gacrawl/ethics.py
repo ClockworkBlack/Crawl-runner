@@ -187,7 +187,10 @@ def _firsts(first: str) -> set[str]:
     from .finance import Finance
 
     nick = dict(Finance.NICK, chris={"christopher"}, jen={"jennifer"}, josh={"joshua"}, ron={"ronald"}, don={"donald"},
-                ed={"edward"}, al={"albert", "alan"}, larry={"lawrence"}, jerry={"gerald"}, terry={"terrence"})
+                ed={"edward"}, al={"albert", "alan"}, larry={"lawrence"}, jerry={"gerald"}, terry={"terrence"},
+                brad={"bradford", "bradley"}, charlie={"charles"}, will={"william"}, billy={"william"}, bobby={"robert"},
+                rob={"robert"}, johnny={"john"}, jack={"john"}, kate={"katherine", "kathryn"}, sue={"susan"}, nate={"nathan", "nathaniel"},
+                zach={"zachary"}, alex={"alexander", "alexandra"}, fran={"frances", "francis"}, ken={"kenneth"}, ray={"raymond"})
     out = {first} | set(nick.get(first, ()))
     out |= {k for k, v in nick.items() if first in v}
     return out
@@ -213,10 +216,10 @@ def match(t: dict, cands: dict):
     inside a campaign committee's name ("Friends of Blake Tillery"), when exactly one candidate carries it."""
     w = _who(t)
     if w:
-        ws = w.split()
-        c = cands.get(w) or cands.get(f"{ws[0]} {ws[-1]}")
-        if c:
-            return c
+        ws = [x for x in w.split() if x not in ("jr", "sr", "ii", "iii", "iv")]
+        for k in [w, f"{ws[0]} {ws[-1]}"] + ([f"{ws[1]} {ws[-1]}"] if len(ws) > 2 and len(ws[1]) > 2 else []):
+            if k in cands:          # first name, or the middle name the person goes by
+                return cands[k]
     ft = (t.get("filerTypeDesc") or t.get("filerTypeCode") or "").lower()
     if "leadership" in ft or "independent" in ft or "party" in ft:
         return None
@@ -233,9 +236,11 @@ def _who(t: dict) -> str:
     if fn and ln:
         return _nm(fn + " " + ln)
     f = t.get("filerName") or ""
-    if (t.get("filerTypeCode") or "").upper() in ("CAN", "C") and "," in f:
+    ft = (t.get("filerTypeDesc") or "").lower()
+    if ((t.get("filerTypeCode") or "").upper() in ("CAN", "C") or (ft.startswith("candidate") and "committee" not in ft)) and "," in f:
         last, first = f.split(",", 1)
-        return _nm(first.split()[0] + " " + last) if first.split() else ""
+        last = re.sub(r"(?i)\b(jr|sr|ii|iii|iv)\b\.?", "", last)
+        return _nm(" ".join(first.replace(",", " ").split()) + " " + last) if first.split() else ""
     return ""
 
 
@@ -280,7 +285,7 @@ def record_of(system: str, t: dict, cands: dict):
                               "candidate" if (c or _who(t)) else "committee", GA_SOURCE,
                               jurisdiction=(c or {}).get("jurisdiction", ""), channel="api")
     rec.key = f"ga2|{system}|{t.get('transactionId')}"
-    rec.meta.update({"ga_system": system, "ga_filer": t.get("filerRegistrationGuid") or "", "filer_name": t.get("filerName") or "",
+    rec.meta.update({"line": str(t.get("transactionId") or ""), "ga_system": system, "ga_filer": t.get("filerRegistrationGuid") or "", "filer_name": t.get("filerName") or "",
                      "filer_type": t.get("filerTypeDesc") or t.get("filerTypeCode") or "",
                      "report_name": t.get("reportName") or "", "report_id": t.get("filerReportId"),
                      "report_version": t.get("filerReportVersionId") or 1, "subtype": t.get("transactionSubTypeDesc") or "",
