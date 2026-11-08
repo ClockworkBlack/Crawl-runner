@@ -2,7 +2,8 @@ name: sync-code
 
 # Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes, every 15 minutes:
 #   1. copies the crawler's code from the private repository, the code only: state/, data/, imports/, config/private/
-#      (what the crawler gathered, contacts, the requester's signature) and the records-request mail workflows never
+#      (what the crawler gathered, contacts, the requester's signature, hand-downloaded ordinances) and the records-request
+#      mail and ordinances workflows never
 #      leave the private repository
 #   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/) and then deletes the run
 #      here, so the public repository keeps no logs once they are saved. Needs DATA_TOKEN.
@@ -36,11 +37,11 @@ jobs:
           rsync -a --delete \
             --exclude .git --exclude state/ --exclude data/ --exclude imports/ --exclude config/private/ --exclude logs/ \
             --exclude .github/workflows/records-send.yml --exclude .github/workflows/records-test.yml \
-            --exclude .github/workflows/probe.yml \
+            --exclude .github/workflows/probe.yml --exclude .github/workflows/ordinances.yml \
             src/ pub/
           # excluded paths are also never kept here (rsync --delete leaves excluded paths alone, so remove them)
           rm -rf pub/state pub/data pub/imports pub/config/private pub/logs \
-                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml
+                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml pub/.github/workflows/ordinances.yml
           if grep -rIlE "Humble Servant|ORR_PASSWORD=|@gmail\.com" pub --exclude-dir=.git --exclude=sync-code.yml >/dev/null 2>&1; then
             echo "::error::private text found in the copy; nothing pushed"; grep -rIlE "Humble Servant|@gmail\.com" pub --exclude-dir=.git; exit 1
           fi

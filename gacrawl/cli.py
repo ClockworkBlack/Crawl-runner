@@ -17,6 +17,9 @@
   gacrawl screens capture URL [--device phone|desktop] [--selector CSS] [--source ID] [--kind K]
   gacrawl screens simulate [--out DIR]   write synthetic screenshots (fictional) to test the pipeline
   gacrawl screens box [--box ordinances|posts|text]                  list what's in the Screenshots box
+  gacrawl ordinances build [--out DIR] [--prev DIR] [--report FILE]   read imports/ordinances/ (files downloaded by
+                                         hand) into Electo's data/ordinances/ shape; --prev reuses an earlier build
+  gacrawl ordinances list                what is in imports/ordinances/ and which place each file goes with
   gacrawl posts account-add|verify|mark|add|pull|list|export
   gacrawl electo import --path DIR       import people, council contests, profile links, code links from Electo
   gacrawl electo packets [--out DIR]     write Electo research packets only
@@ -348,6 +351,39 @@ def cmd_ocr(cfg, args):
 def cmd_capture(cfg, args):
     args.action, args.files, args.device, args.selector, args.kind = "capture", [args.url], "desktop", None, "page"
     cmd_screens(cfg, args)
+
+
+def cmd_ordinances(cfg, args):
+    from . import ordinance_files as of
+
+    root = config.ROOT
+    if args.action == "list":
+        inbox = root / "imports" / "ordinances"
+        places = of.Places(of.load_places(root))
+        files = of.inbox_files(inbox) if inbox.exists() else []
+        for f in files:
+            parts = f.relative_to(inbox).parts
+            jid = places.resolve(parts[0]) if len(parts) > 1 else None
+            if not jid and "__" in f.name:
+                jid = places.resolve(f.name.split("__", 1)[0])
+            print(f"{f.relative_to(inbox).as_posix()}\t{jid or '(place from the text, or unknown)'}")
+        print(f"{len(files)} files")
+        return
+    out = Path(args.out)
+    out = out if out.is_absolute() else root / out
+    rep = of.build(root, out, Path(args.prev) if args.prev else None, ocr_budget_s=args.ocr_minutes * 60)
+    print(json.dumps({k: (v if not isinstance(v, list) else len(v)) for k, v in rep.items()}))
+    if args.report:
+        lines = [f"### Downloaded ordinances: {rep['documents']} documents from {rep['files']} files",
+                 f"Read now: {rep['read']} · unchanged (not read again): {rep['reused']} · same file twice: {len(rep['duplicates'])}"]
+        if rep["unknown_folders"]:
+            lines += ["", "**Folders that are not a place name or id** (rename them, e.g. `alpharetta`, `co-fulton`, "
+                      "`Fulton County`):", *[f"- `{x}`" for x in rep["unknown_folders"]]]
+        if rep["unplaced"]:
+            lines += ["", "**Files with no place** (put them in a folder named for the place):", *[f"- `{x}`" for x in rep["unplaced"]]]
+        if rep["errors"]:
+            lines += ["", "**Could not read:**", *[f"- {x}" for x in rep["errors"]]]
+        Path(args.report).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def cmd_screens(cfg, args):
@@ -1086,6 +1122,11 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--candidate"); sc.add_argument("--note"); sc.add_argument("--device", choices=["phone", "desktop"], default="phone")
     sc.add_argument("--selector"); sc.add_argument("--source"); sc.add_argument("--kind", default="page"); sc.add_argument("--out")
     sc.add_argument("--box", choices=["ordinances", "posts", "text"])
+    od = sub.add_parser("ordinances", help="ordinances downloaded by hand (imports/ordinances/) -> Electo's data/ordinances/")
+    od.add_argument("action", choices=["build", "list"]); od.add_argument("--out", default="dist/ordinances")
+    od.add_argument("--prev", help="an earlier build (Electo's data/ordinances/): files read before are not read again")
+    od.add_argument("--report", help="also write a Markdown report here (the workflow's job summary)")
+    od.add_argument("--ocr-minutes", type=float, default=15.0, help="OCR time per scanned document")
     p = sub.add_parser("posts"); p.add_argument("action", choices=["account-add", "verify", "mark", "add", "pull", "list", "export"])
     for flag in ("--candidate", "--candidate-id", "--profile", "--proof", "--office", "--jurisdiction", "--account", "--status",
                  "--note", "--url", "--text", "--posted-at", "--screenshot", "--topics", "--archived"):
@@ -1146,7 +1187,7 @@ def main(argv=None):
     cfg = config.load()
     {"window": cmd_window, "seed": cmd_seed, "status": cmd_status, "discover": cmd_discover, "run": cmd_run,
      "delta": cmd_delta, "merge": cmd_merge, "search": cmd_search, "tasks": cmd_tasks, "blocked": cmd_blocked,
-     "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
+     "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "ordinances": cmd_ordinances, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
