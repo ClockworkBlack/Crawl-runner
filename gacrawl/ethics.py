@@ -175,7 +175,7 @@ def _body(year: str, page: int, size: int, sort: str = "asc", **kw) -> dict:
 def _api(fetcher, base: str, path: str, body):
     r = fetcher.post(base + path, json_body=body, headers={"Accept": "application/json", "Content-Type": "application/json"})
     if r.status != 200:
-        raise RuntimeError(f"HTTP {r.status} from {path}")
+        raise RuntimeError(f"HTTP {r.status} from {path}: {(r.text or '')[:300]}")
     return json.loads(r.text)
 
 
@@ -259,10 +259,34 @@ def record_of(system: str, t: dict, cands: dict):
     return rec
 
 
-def years(fetcher, base: str) -> list[str]:
-    d = _api(fetcher, base, "PublicLookup/GetPublicTransactionElectionYearLookup", {"key": "electionyears", "isSelectReq": False})
+def years(fetcher, base: str, log=print) -> list[str]:
+    """The election years the system's search offers, newest first; '' (every year at once, as EFile's own search
+    asks) when it offers none."""
+    try:
+        d = _api(fetcher, base, "PublicLookup/GetPublicTransactionElectionYearLookup", {"key": "electionyears", "isSelectReq": False})
+    except Exception as e:  # noqa: BLE001
+        log(f"ethics: election years from {base}: {str(e)[:200]}")
+        return [""]
     ys = sorted({str(x.get("code") or x.get("name") or x.get("value") or "")[:4] for x in (d.get("data") or [])}, reverse=True)
-    return [y for y in ys if y.isdigit() and SINCE_YEAR <= int(y) <= 2100]
+    ys = [y for y in ys if y.isdigit() and SINCE_YEAR <= int(y) <= dt.date.today().year + 1]
+    return ys or [""]
+
+
+EXTRA = {"efile": {"filerRegistrationGuid": None}}
+
+
+def shape(fetcher, system: str, base: str, year: str, log=print):
+    """The page size and order this system answers (the search pages themselves ask for 10 at a time, newest first)."""
+    last = ""
+    for size in (100, 50, 25, 10):
+        for sort in ("asc", "desc"):
+            try:
+                _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(year, 1, size, sort, **EXTRA.get(system, {})))
+                return size, sort
+            except Exception as e:  # noqa: BLE001
+                last = str(e)[:300]
+    log(f"ethics {system}: no page size answered; last: {last}")
+    return None
 
 
 def drop_superseded(store) -> int:
@@ -286,22 +310,23 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
     cands = candidate_index([c for c in candidates if "federal" not in (c.get("levels") or [])])
     st = {"added": 0, "pages": 0, "skipped": 0, "years": {}}
     for system, base in SYSTEMS.items():
-        try:
-            ys = years(fetcher, base)
-        except Exception as e:  # noqa: BLE001
-            log(f"ethics {system}: election years: {type(e).__name__}: {str(e)[:160]}")
+        ys = years(fetcher, base, log)
+        sh = shape(fetcher, system, base, ys[0], log)
+        if not sh:
             continue
+        size, order = sh
+        log(f"ethics {system}: years {ys}, {size} lines a page, {order}")
         for y in ys:
-            ck = f"ga_ethics:{system}:{y}"
+            ck = f"ga_ethics:{system}:{y or 'all'}"
             cur = json.loads(store.kv_get(ck) or "{}")
             # a year read in full is read in full again once a month (filings that arrive late carry old dates)
             full = cur.get("complete", False) and cur.get("at", "") >= (dt.date.today() - dt.timedelta(days=30)).isoformat()
             page = 1 if full else int(cur.get("page", 1))
-            sort = "desc" if full else "asc"
+            sort = "desc" if full else order
             got = 0
             while time.monotonic() < deadline:
                 try:
-                    d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, PAGE, sort))
+                    d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, size, sort, **EXTRA.get(system, {})))
                 except Exception as e:  # noqa: BLE001
                     log(f"ethics {system} {y} page {page}: {type(e).__name__}: {str(e)[:160]}")
                     break
@@ -320,7 +345,7 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
                 total = int((items[0].get("totalRows") if items else 0) or 0)
                 if not full:
                     store.kv_set(ck, json.dumps({"page": page + 1, "total": total}))
-                if len(items) < PAGE or (full and new == 0):
+                if len(items) < size or (full and new == 0):
                     if not full:
                         store.kv_set(ck, json.dumps({"complete": True, "total": total, "at": dt.date.today().isoformat()}))
                     break
