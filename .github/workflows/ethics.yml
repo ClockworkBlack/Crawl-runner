@@ -47,8 +47,15 @@ jobs:
           set -f
           gacrawl probe $URLS --browser --out data/ethics_probe || echo "probe stopped"
           bash scripts/ci_runner.sh push-state "ethics probe $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_probe || true
+      - name: Click the public data buttons of the current systems (PeachFile, EFile) and record their API calls
+        if: inputs.action == 'clicks'
+        env:
+          GACRAWL_BROWSER_CHANNEL: chrome
+        run: |
+          gacrawl ethics clicks --out data/ethics_probe || echo "clicks stopped"
+          bash scripts/ci_runner.sh push-state "ethics clicks $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_probe || true
       - name: Explore the search pages
-        if: inputs.action != 'probe'
+        if: inputs.action == 'explore'
         run: |
           gacrawl ethics explore --out data/ethics_explore || echo "explore stopped"
           bash scripts/ci_runner.sh push-state "ethics explore $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_explore || true

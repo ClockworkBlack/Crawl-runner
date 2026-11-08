@@ -148,3 +148,61 @@ def explore(fetcher, out: Path, last: str = "Burns", first: str = "Jon", log=pri
 def run(fetcher, store, root, candidates, deadline) -> dict:
     """The reader proper is built on the pages explore() saves; until then nothing is collected."""
     return {"ethics": "explore first"}
+
+
+def click_probe(out: Path, sites=("https://peachfile.ethics.ga.gov/", "https://recordsearch.ethics.ga.gov/"),
+                clicks=("Download Bulk Data", "Contribution Information", "Filed Disclosure Reports", "Local Filings"),
+                log=print) -> dict:
+    """The Commission's current systems (PeachFile, 2026 on; EFile, 2022-2025) are browser apps that load their data
+    from their own public API after a click. This opens each in headless Chrome, clicks the public data buttons as a
+    person would, and records the API requests each click makes (address, method, request body, the start of the
+    answer) and any file it offers to download, so the reader can call the same public endpoints."""
+    import os
+    from playwright.sync_api import sync_playwright
+
+    out.mkdir(parents=True, exist_ok=True)
+    found = []
+    with sync_playwright() as p:
+        b = p.chromium.launch(channel=os.environ.get("GACRAWL_BROWSER_CHANNEL") or None)
+        for site in sites:
+            for label in clicks:
+                ctx = b.new_context(user_agent=os.environ.get("GACRAWL_USER_AGENT") or None, accept_downloads=True)
+                page = ctx.new_page()
+                reqs = []
+
+                def on_resp(resp, reqs=reqs):
+                    u = resp.url
+                    if "/api/" not in u:
+                        return
+                    try:
+                        body = resp.text()[:3000]
+                    except Exception:  # noqa: BLE001
+                        body = ""
+                    reqs.append({"method": resp.request.method, "url": u, "status": resp.status,
+                                 "post": (resp.request.post_data or "")[:2000], "answer": body})
+                page.on("response", on_resp)
+                downloads = []
+                page.on("download", lambda d, downloads=downloads: downloads.append({"url": d.url, "name": d.suggested_filename}))
+                try:
+                    page.goto(site, wait_until="networkidle", timeout=60000)
+                    n0 = len(reqs)
+                    page.get_by_text(label, exact=False).first.click(timeout=15000)
+                    page.wait_for_timeout(6000)
+                    # a page that lists things: also press its first search / download button
+                    for name in ("Search", "Download", "Export", "CSV"):
+                        btn = page.get_by_role("button", name=name)
+                        if btn.count():
+                            btn.first.click(timeout=8000)
+                            page.wait_for_timeout(6000)
+                            break
+                    rec = {"site": site, "click": label, "page": page.url, "requests": reqs[n0:], "downloads": downloads,
+                           "text": page.inner_text("body")[:2500]}
+                except Exception as e:  # noqa: BLE001
+                    rec = {"site": site, "click": label, "error": f"{type(e).__name__}: {str(e)[:200]}", "requests": reqs}
+                found.append(rec)
+                log(f"click probe: {site} '{label}': {len(rec.get('requests', []))} API calls, {len(downloads)} downloads"
+                    + (f" ({rec['error']})" if rec.get("error") else ""))
+                ctx.close()
+        b.close()
+    (out / "clicks.json").write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
+    return {"clicks": len(found)}
