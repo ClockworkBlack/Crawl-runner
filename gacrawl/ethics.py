@@ -125,11 +125,9 @@ def explore(fetcher, out: Path, last: str = "Burns", first: str = "Jon", log=pri
     m = next((m for m in PB.finditer(r.text) if "lnkView" in m.group(1)), None)
     if not m:
         return {"pages": 0}
-    res = postback(fetcher, r.text, r.url, m.group(1), m.group(2))
-    m2 = next((m for m in PB.finditer(res.text) if "lnkView" in m.group(1) or "View" in m.group(1)), None)
-    cand = postback(fetcher, res.text, res.url, m2.group(1), m2.group(2)) if m2 else res
+    cand = postback(fetcher, r.text, r.url, m.group(1), m.group(2))
     keep("candidate", cand)
-    tbd = ONCLICK_TBD.findall(cand.text)
+    tbd = [u for u in ONCLICK_TBD.findall(cand.text) if "reportTBD" in u] or ONCLICK_TBD.findall(cand.text)
     for rel in tbd[:2]:
         rr = fetcher.get(urljoin(cand.url, rel), use_cache=False)
         keep("efiled", rr)
