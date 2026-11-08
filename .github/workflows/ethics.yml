@@ -6,8 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "explore (save the pages for a few known filers)"
+        description: "explore (save the pages for a few known filers) or probe (look at the URLs below in a browser)"
         default: "explore"
+      urls:
+        description: "probe: space-separated URLs"
+        required: false
 
 permissions:
   contents: read
@@ -35,7 +38,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
+      - name: Probe (a browser visit recording the requests a page makes; kept in the private repository)
+        if: inputs.action == 'probe'
+        env:
+          URLS: ${{ inputs.urls }}
+          GACRAWL_BROWSER_CHANNEL: chrome
+        run: |
+          set -f
+          gacrawl probe $URLS --browser --out data/ethics_probe || echo "probe stopped"
+          bash scripts/ci_runner.sh push-state "ethics probe $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_probe || true
       - name: Explore the search pages
+        if: inputs.action != 'probe'
         run: |
           gacrawl ethics explore --out data/ethics_explore || echo "explore stopped"
           bash scripts/ci_runner.sh push-state "ethics explore $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_explore || true
