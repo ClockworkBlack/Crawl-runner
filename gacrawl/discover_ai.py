@@ -10,7 +10,7 @@ What it looks for, most useful first:
   sites      candidates with no website (recent races first) and places with no website listed: their campaign site,
              official pages and trusted outlets' stories about them
 How:
-  search     Brave Search's API (gacrawl/websearch.py, the BRAVE_API_KEY secret, inside the free monthly credit); every
+  search     DuckDuckGo through the free ddgs library (gacrawl/websearch.py; no key); every
              address comes from a search result or a page the crawler opened, never from a pattern
   open       the crawler's own fetcher: robots.txt, its pace per host, and the block list (a site that refuses the
              crawler is never worked around); Ballotpedia, AI-generated summary portals, Sway groups and the like

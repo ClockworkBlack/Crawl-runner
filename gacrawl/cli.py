@@ -798,7 +798,7 @@ def cmd_news(cfg, args):
 
 
 def cmd_discover_ai(cfg, args):
-    """The open model's discovery: new people in the news, sites for people and places with none (Brave search),
+    """The open model's discovery: new people in the news, sites for people and places with none (DuckDuckGo search),
     each page judged by the model and checked; auto-added when as good as accepted links, else data/seed_review.md."""
     from .candidates import load_outlets
     from .discover_ai import Discovery

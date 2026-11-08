@@ -392,10 +392,8 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-qwen3-8b-q4km-v1
       - name: Discovery by the open model (new people in the news; sites for people and places with none)
-        env:
-          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
         run: |
-          # gacrawl/discover_ai.py: Brave search (inside its free monthly credit), pages opened by the crawler's own
+          # gacrawl/discover_ai.py: DuckDuckGo search through the free ddgs library (no key), pages opened by the crawler's own
           # fetcher, judged by the model and checked; added on their own when as good as links Electo already accepts,
           # else listed in data/seed_review.md for the owner's approval
           M=${{ vars.DISCOVER_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=3

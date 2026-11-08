@@ -1,12 +1,12 @@
-"""Web search for the discovery step (gacrawl/discover_ai.py): Brave Search's API, with the key in the BRAVE_API_KEY
-secret. Brave keeps its own index and its API is a paid service with a key, so this is no scraping of a search page
-and no way around anyone's bot rules; the searches come from the runner, never from Electo's visitors, and carry
-nothing about the owner (a generic User-Agent, no email).
+"""Web search for the discovery step (gacrawl/discover_ai.py): DuckDuckGo through the free `ddgs` library. No account,
+no API key, no card, nothing that ties the searches to the owner (the library sends no email or identity).
 
-Spending stays inside Brave's free monthly credit: at most MONTHLY_CAP searches a calendar month (state/websearch.json
-counts them), RUN_CAP a run, and a query asked in the last CACHE_DAYS days is answered from the cache. Results from
-sites the project never uses (config/outlets.yaml `exclude`: Ballotpedia, AI-generated summary portals, Sway ...) are
-dropped before anything opens them. Without a key, search() returns [] and says so once.
+`ddgs` is unofficial (it reads DuckDuckGo's result pages), so it can be rate-limited or break when DuckDuckGo changes
+something. The step is built for that: queries are spaced out (MIN_GAP seconds), a failed query is retried with growing
+waits, a run asks at most RUN_CAP fresh queries, a query asked in the last CACHE_DAYS days is answered from the cache
+(state/websearch.json), and when search keeps failing it returns [] so discovery falls back to the outlets' own search
+and pages already opened instead of stopping the run. Results from sites the project never uses (config/outlets.yaml
+`exclude`: Ballotpedia, AI-generated summary portals, Sway ...) are dropped before anything opens them.
 
     from gacrawl.websearch import Search
     s = Search(state_dir); s.search("Jane Doe Fulton County Commission")   -> [{"url", "title", "snippet"}]
@@ -16,21 +16,25 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import random
 import time
 from pathlib import Path
 
-import requests
-
-API = "https://api.search.brave.com/res/v1/web/search"
-MONTHLY_CAP = int(os.environ.get("WEBSEARCH_MONTHLY_CAP", "900"))   # Brave: $5 per 1,000 searches, $5 free each month
 RUN_CAP = int(os.environ.get("WEBSEARCH_RUN_CAP", "40"))
+MIN_GAP = float(os.environ.get("WEBSEARCH_MIN_GAP", "3"))       # seconds between queries
+RETRIES = int(os.environ.get("WEBSEARCH_RETRIES", "3"))
+GIVE_UP_AFTER = 3                                                  # failed queries in a row before stopping for the run
 CACHE_DAYS = 30
-UA = "GACivicCrawler/0.3 (civic research; +https://github.com/ClockworkBlack/Crawl-runner)"
+REGION = "us-en"
 
 
 class Search:
     def __init__(self, state_dir: Path, exclude: set[str] | None = None, log=print):
-        self.key = os.environ.get("BRAVE_API_KEY", "").strip()
+        try:
+            from ddgs import DDGS
+            self._DDGS = DDGS
+        except ImportError:
+            self._DDGS = None
         self.p = Path(state_dir) / "websearch.json"
         try:
             self.st = json.loads(self.p.read_text())
@@ -42,6 +46,7 @@ class Search:
         self.run_n = 0
         self._said = False
         self._last = 0.0
+        self._fails = 0
 
     @property
     def month(self) -> str:
@@ -51,7 +56,9 @@ class Search:
         return int(self.st["months"].get(self.month, 0))
 
     def left(self) -> int:
-        return max(0, min(MONTHLY_CAP - self.used(), RUN_CAP - self.run_n)) if self.key else 0
+        if self._DDGS is None or self._fails >= GIVE_UP_AFTER:
+            return 0
+        return max(0, RUN_CAP - self.run_n)
 
     def _excluded(self, url: str) -> bool:
         from .candidates import domain_of
@@ -64,34 +71,40 @@ class Search:
         c = self.st["cache"].get(q.lower())
         if c and (dt.date.today() - dt.date.fromisoformat(c["at"])).days < CACHE_DAYS:
             return [r for r in c["results"] if not self._excluded(r["url"])]
-        if not self.key:
-            if not self._said:
-                self.log("web search: no BRAVE_API_KEY secret; discovery uses the outlets' own search and pages already opened")
-                self._said = True
-            return []
         if self.left() <= 0:
             if not self._said:
-                self.log(f"web search: this month's cap reached ({self.used()}/{MONTHLY_CAP}) or this run's ({self.run_n}/{RUN_CAP})")
+                if self._DDGS is None:
+                    self.log("web search: the ddgs package is not installed; discovery uses the outlets' own search and pages already opened")
+                elif self._fails >= GIVE_UP_AFTER:
+                    self.log("web search: DuckDuckGo kept failing; no more searches this run")
+                else:
+                    self.log(f"web search: this run's cap reached ({self.run_n}/{RUN_CAP})")
                 self._said = True
             return []
-        wait = 1.1 - (time.monotonic() - self._last)     # one request a second at most
-        if wait > 0:
-            time.sleep(wait)
-        self._last = time.monotonic()
-        try:
-            r = requests.get(API, params={"q": q, "count": count, "country": "us", "search_lang": "en", "safesearch": "moderate"},
-                             headers={"X-Subscription-Token": self.key, "Accept": "application/json", "User-Agent": UA},
-                             timeout=20)
-        except requests.RequestException as e:
-            self.log(f"web search: {type(e).__name__}")
-            return []
+        raw = None
+        for attempt in range(RETRIES):
+            wait = MIN_GAP - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait + random.uniform(0, 1))
+            self._last = time.monotonic()
+            try:
+                with self._DDGS() as d:
+                    raw = list(d.text(q, region=REGION, safesearch="moderate", max_results=count) or [])
+                break
+            except Exception as e:   # rate limit, timeout, no results, a change on DuckDuckGo's side
+                if "no results" in str(e).lower():
+                    raw = []
+                    break
+                self.log(f"web search: {type(e).__name__}; retry {attempt + 1}/{RETRIES}")
+                time.sleep(5 * 2 ** attempt + random.uniform(0, 3))
         self.run_n += 1
         self.st["months"][self.month] = self.used() + 1
-        if r.status_code != 200:
-            self.log(f"web search: HTTP {r.status_code}")
+        if raw is None:
+            self._fails += 1
             return []
-        res = [{"url": w.get("url") or "", "title": w.get("title") or "", "snippet": w.get("description") or ""}
-               for w in ((r.json().get("web") or {}).get("results") or []) if (w.get("url") or "").startswith("http")]
+        self._fails = 0
+        res = [{"url": w.get("href") or w.get("url") or "", "title": w.get("title") or "", "snippet": w.get("body") or ""}
+               for w in raw if (w.get("href") or w.get("url") or "").startswith("http")]
         self.st["cache"][q.lower()] = {"at": dt.date.today().isoformat(), "results": res}
         return [x for x in res if not self._excluded(x["url"])]
 
