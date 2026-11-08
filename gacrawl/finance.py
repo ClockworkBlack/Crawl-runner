@@ -461,12 +461,18 @@ class Finance:
     def _fec(self, path: str, params: dict | None = None) -> dict | None:
         if not self.f:
             return None
-        key = os.environ.get("FEC_API_KEY", "DEMO_KEY")
+        key = os.environ.get("FEC_API_KEY", "").strip() or "DEMO_KEY"
         try:
             r = self.f.get(f"{FEC}{path}", params={**(params or {}), "api_key": key}, use_cache=False)
         except (Blocked, Disallowed):
             return None
         if r.status != 200:
+            # a refusal is said out loud once a run (it used to read as "nothing found": with no FEC_API_KEY secret
+            # the shared DEMO_KEY is refused within a few calls, and no federal money was read at all)
+            self.fec_refused = getattr(self, "fec_refused", 0) + 1
+            if self.fec_refused == 1:
+                why = " (no FEC_API_KEY secret: the shared DEMO_KEY allows only a few calls)" if key == "DEMO_KEY" else ""
+                self.log(f"::warning title=FEC API::the FEC API answered HTTP {r.status}{why}; federal money is not read this run")
             return None
         try:
             return r.json()
@@ -979,6 +985,8 @@ class Finance:
                     except Exception as exc:  # noqa: BLE001
                         self.log(f"  commission {c['id']}: {type(exc).__name__}: {exc}"[:200])
         out["fec"] = fec_n
+        if getattr(self, "fec_refused", 0):
+            out["fec_refused_calls"] = self.fec_refused
         out.update(self.resolve_all(candidates))
         enriched = 0
         for eid in self.org_queue(limit=org_limit):

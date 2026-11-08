@@ -45,6 +45,7 @@ jobs:
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
         run: |
+          [ -n "$FEC_API_KEY" ] || { echo "::error title=FEC API key::No FEC_API_KEY secret in this repository: the FEC refuses the shared DEMO_KEY after a few calls, so nothing can be re-read. Add the secret (a free key from api.open.fec.gov/developers) and run this again."; exit 1; }
           date -u +%Y-%m-%dT%H:%M:%S > start.txt
           gacrawl finance --reread-only --max-minutes 300 || echo "the re-read stopped; what it read is kept"
       - name: Hand it to the crawl (delta and lookups in the private release)

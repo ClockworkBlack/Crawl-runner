@@ -445,6 +445,7 @@ jobs:
         run: |
           M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          [ -n "$FEC_API_KEY" ] || echo "::warning title=FEC API key::No FEC_API_KEY secret: federal money cannot be read (the shared DEMO_KEY is refused after a few calls)"
           # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
           # otherwise on research runs, as before
           if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then gacrawl finance --max-minutes "$M" || true
