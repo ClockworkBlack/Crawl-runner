@@ -1,0 +1,79 @@
+name: news
+# The News tab's stories, on their own: the outlets' news APIs and feeds (gacrawl news, the same step the crawl's merge
+# job runs), then Electo's import of the digest (ga/crawl_import.py news_from: stories written by hand stay), then the
+# public site and data feed (Electo tools/site_data.sh). Runs every three hours and on demand, beside the crawl (its own
+# concurrency group, so it never waits for a long crawl run), and touches nothing else: no crawl state, no database.
+on:
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+  HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
+
+jobs:
+  news:
+    # the public runner only (the private repository holds the data and would run it twice)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state (the outlets' news APIs found by earlier runs)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: Political news (outlets' news APIs and feeds, the last ten days)
+        run: |
+          timeout -s INT -k 1m 12m gacrawl news --max-minutes 10 || echo "news stopped after 12 minutes"
+          mkdir -p dist/news
+          python3 - <<'PY'
+          from pathlib import Path
+          from gacrawl import config
+          from gacrawl.newsdigest import export_news
+          cfg = config.load()
+          store = config.make_store(cfg)
+          try:
+              print("news digest:", export_news(store, Path("dist/news/news.json")))
+          finally:
+              store.close()
+          PY
+      - name: Electo's News tab and the public site
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          set -e
+          BUNDLE="$PWD/dist/news"
+          python3 -c "import json,sys; d=json.load(open('$BUNDLE/news.json')); sys.exit(0 if d.get('items') else 1)" \
+            || { echo "no stories this time; the News tab keeps what it has"; exit 0; }
+          git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-news
+          cd /tmp/electo-news
+          python3 -I -c "import sys; sys.path.insert(0, 'ga'); import crawl_import as ci; ci.news_from(sys.argv[1])" "$BUNDLE"
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add ga/news.json
+          if git diff --cached --quiet; then echo "News tab already up to date"; else
+            git commit -qm "News from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
+            for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          fi
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
