@@ -47,7 +47,11 @@ AUTO_OUTLETS = 3        # a new person named by this many different trusted outl
 OFFICE_WORDS = ("governor", "lieutenant", "attorney general", "secretary of state", "superintendent", "commissioner",
                 "commission", "council", "mayor", "senate", "senator", "house", "representative", "congress", "sheriff",
                 "judge", "justice", "district attorney", "solicitor", "clerk", "coroner", "tax commissioner",
-                "board of education", "school board", "public service commission", "chair", "probate", "magistrate")
+                "board of education", "school board", "public service commission", "chair", "probate", "magistrate",
+                # Electo's Policing and School District tabs and city governments
+                "police", "public safety", "principal", "alder", "city manager", "county manager", "city administrator",
+                "board of elections", "elections board", "election board", "registrar", "constable", "marshal",
+                "public defender")
 VERSION = 1
 RETRY_DAYS = 30
 SOCIAL = ("facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com", "youtube.com", "linkedin.com", "threads.net",
@@ -85,8 +89,15 @@ def _office_words(office: str) -> set[str]:
         w |= {"house"}; w.discard("representative")
     if "commissioner" in w:
         w |= {"commission"}; w.discard("commissioner")
-    if "school board" in w:
+    if "school board" in w or ("board" in o and ("school" in o or "education" in o)):
         w |= {"board of education"}; w.discard("school board")
+    if "public safety" in w:
+        w |= {"police"}; w.discard("public safety")
+    for a, b in (("elections board", "board of elections"), ("election board", "board of elections")):
+        if a in w:
+            w |= {b}; w.discard(a)
+    if "alder" in w:
+        w |= {"council"}; w.discard("alder")         # aldermen sit on the city council (Savannah, Macon's past ...)
     return w
 
 
@@ -160,7 +171,8 @@ PEOPLE_ASK = """Stories:
 {stories}
 
 List every person these stories name who holds, won, lost or seeks a government office in Georgia (state, county, city,
-school board, courts, Congress for Georgia). One JSON object per line and nothing else:
+school board, courts, Congress for Georgia), or who leads a Georgia public body: a police chief, sheriff, school
+superintendent or principal, city or county manager, or elections board member. One JSON object per line and nothing else:
 {{"story": 1, "name": "First Last", "office": "office as the story states it", "place": "county or city, or Georgia"}}
 If a story names nobody like that, write nothing for it."""
 
@@ -192,6 +204,12 @@ class Discovery:
         for it in self.st["items"].values():
             if it.get("kind") == "new_person":
                 self.known.add(_norm(it.get("target", "")))
+        try:   # the chiefs and sheriffs the Policing tab already has (gacrawl police)
+            for d in json.loads((Path(state_dir) / "police.json").read_text()).values():
+                if isinstance(d, dict) and isinstance(d.get("chief"), dict) and d["chief"].get("name"):
+                    self.known.add(_norm(d["chief"]["name"]))
+        except (OSError, ValueError, AttributeError):
+            pass
         self.stats = {"searches": 0, "opened": 0, "judged": 0, "auto": 0, "pending": 0, "dropped": 0, "people": 0,
                       "out_of_scope": 0}
         self._ga = None

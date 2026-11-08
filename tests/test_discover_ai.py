@@ -145,3 +145,17 @@ def test_scope_keeps_to_georgia_officials_and_candidates():
     assert scope_check("activist", "Atlanta", ga)[0] == "out"
     assert scope_check("", "Atlanta", ga)[0] == "out"                                  # no office named
     assert scope_check("mayor", "Smallville", ga)[0] == "wait"                         # unknown place: owner decides
+
+
+def test_scope_covers_police_schools_and_city_roles():
+    from gacrawl.discover_ai import scope_check, _office_words
+    ga = {"atlanta", "savannah", "cobb", "cobb county", "dekalb", "dekalb county"}
+    for office, place in (("Atlanta police chief", "Atlanta"), ("chief of police", "Savannah"), ("sheriff", "Cobb County"),
+                          ("Cobb County Schools board member", "Cobb County"), ("school superintendent", "DeKalb County"),
+                          ("principal of Grady High School", "Atlanta"), ("alderman", "Savannah"),
+                          ("city council member", "Savannah"), ("city manager", "Savannah"),
+                          ("DeKalb elections board member", "DeKalb County"), ("director of public safety", "Atlanta")):
+        assert scope_check(office, place, ga)[0] == "ok", office
+    assert _office_words("alderman") == {"council"}
+    assert _office_words("Cobb County Schools board member") >= {"board of education"}
+    assert _office_words("school board chair") & _office_words("board of education member")
