@@ -743,8 +743,20 @@ def cmd_legis(cfg, args):
     try:
         deadline = time.monotonic() + float(args.max_minutes or 20) * 60
         out = {}
+        marker = cfg["state_dir"] / "legis_refused.json"
+        if args.action in ("update", "all") and getattr(args, "if_refused", False) and not marker.exists():
+            print(json.dumps({"update": "the earlier try was not refused; nothing to do"}))
+            return
         if args.action in ("update", "all"):
             out["update"] = update(_fetcher(cfg, deadline), store, config.ROOT, deadline=deadline, max_bills=args.max_bills)
+            # a refusal leaves a marker, so the merge job's second try later in the run knows to ask again; a try
+            # that is not refused clears it
+            if out["update"].get("refused"):
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text(json.dumps({"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                                              "why": out["update"]["refused"]}))
+            elif marker.exists():
+                marker.unlink()
         if args.action in ("reasons", "vetoes"):
             # the Governor's own veto statements (official pages: inside the off-peak window only)
             from .bill_reasons import vetoes
@@ -1229,6 +1241,8 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
     lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
     lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
+    lg.add_argument("--if-refused", action="store_true",
+                    help="update: only when legis.ga.gov refused this run's earlier try (a second try later in the run)")
     sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")

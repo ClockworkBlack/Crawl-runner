@@ -7,7 +7,8 @@ http:
   min_interval_seconds: 3      # per host; robots.txt Crawl-delay wins if larger
   host_intervals:              # per-host floors (seconds between requests to that host)
     webapi.legistar.com: 0.5   # API built for machine traffic; shared by every Legistar city
-    www.legis.ga.gov: 1        # the General Assembly's data service (bill text PDFs, details)
+    www.legis.ga.gov: 2        # the General Assembly's data service (bill text PDFs, details); 1 s drew token
+                               # refusals after about 25 minutes of steady requests (Nov 9)
     www.googleapis.com: 0.5    # YouTube Data API (quota is per day; many channels share this host)
     api.civicclerk.com: 1
     public.api.bsky.app: 1

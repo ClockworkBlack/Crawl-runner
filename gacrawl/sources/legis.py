@@ -58,19 +58,27 @@ class TokenRefused(RuntimeError):
 
 
 class Legis:
-    TOKEN_WAITS = (0, 5, 20)       # seconds before each try for a token
+    # seconds before each try for a token: legis.ga.gov refuses one now and then (Nov 9: for about six minutes, after
+    # 25 minutes of steady requests), so a refusal is met by waiting longer, not by asking again at once
+    TOKEN_WAITS = (0, 20, 60)
+    REFUSED_PAUSE = 900            # after a refusal, no token is asked for again in this run for this long
 
     def __init__(self, fetcher: Fetcher, log=print):
         self.f, self.log = fetcher, log
         self._tok, self._tok_at = None, 0.0
         self.members_by_session: dict[int, dict[int, dict]] = {}
+        self.refused_until = 0.0
+        self.refusals = 0
 
     # ------------------------------------------------------------------ transport
     def token(self) -> str:
         """The site's public access token (the same one its own pages ask for), renewed every 200 s. A refusal is
-        asked again after a short wait; TokenRefused if it keeps refusing (the caller stops for this run)."""
+        asked again after a wait (TOKEN_WAITS); TokenRefused if it keeps refusing, and then no token is asked for again
+        for REFUSED_PAUSE seconds (the caller stops this step: one refusal used to cost 25 s for every bill left)."""
         if self._tok and time.time() - self._tok_at < 200:
             return self._tok
+        if time.monotonic() < self.refused_until:
+            raise TokenRefused("legis token: refused earlier in this run; not asked again yet")
         status = 0
         for wait in self.TOKEN_WAITS:
             if wait:
@@ -83,6 +91,8 @@ class Legis:
             if status == 200:
                 self._tok, self._tok_at = r.json(), time.time()
                 return self._tok
+        self.refusals += 1
+        self.refused_until = time.monotonic() + self.REFUSED_PAUSE
         raise TokenRefused(f"legis token: HTTP {status}")
 
     def call(self, path: str, body=None):
@@ -266,7 +276,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                     try:
                         detail = api.member_detail(m["id"], sid, m.get("chamber") or 1)
                         out["member_details"] += 1
-                    except (Blocked, Disallowed):
+                    except (Blocked, Disallowed, TokenRefused):
                         raise
                     except Exception as exc:  # noqa: BLE001
                         log(f"  member {m['id']}: {type(exc).__name__}: {exc}"[:200])
@@ -323,7 +333,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                 continue  # fetched since the bill last moved
             try:
                 recs = api.roll_calls(lid, b["meta"]["number"], int(b["meta"]["session"]), b["meta"].get("session_name", ""), b["meta"].get("caption", ""))
-            except (Blocked, Disallowed):
+            except (Blocked, Disallowed, TokenRefused):
                 raise
             except Exception as exc:  # noqa: BLE001
                 log(f"  votes {lid}: {type(exc).__name__}: {exc}"[:200])
@@ -336,7 +346,27 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
         store.flush()
     except (Blocked, Disallowed) as exc:
         out["error"] = str(exc)
+    except TokenRefused as exc:
+        # the site said no for now: what was read is kept, the step stops (every bill left would only be refused
+        # too), and the refusal is counted so the coverage report shows how often it happens
+        store.flush()
+        out["refused"] = str(exc)
+        log(f"legis.ga.gov refused an access token ({exc}); this step stops here and carries on next time")
+    note_refusal(store, out.get("refused"))
     return out
+
+
+def note_refusal(store: Store, refused: str | None) -> None:
+    """Keep the last 60 runs' outcome of the legislature step in kv legis_refusals ({at, refused}), for the coverage
+    report: an occasional refusal recovers by itself; frequent ones mean bill and vote updates are lagging."""
+    import json
+
+    try:
+        hist = json.loads(store.kv_get("legis_refusals") or "[]")
+    except ValueError:
+        hist = []
+    hist.append({"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"), "refused": bool(refused)})
+    store.kv_set("legis_refusals", json.dumps(hist[-60:]))
 
 
 # ----------------------------------------------------------------------------- per person, in Electo's shapes

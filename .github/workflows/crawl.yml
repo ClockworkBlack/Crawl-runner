@@ -585,6 +585,15 @@ jobs:
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || echo "police news stopped after $((M + 5)) minutes"
+      - name: General Assembly, second try (only when legis.ga.gov refused the first one earlier in this run)
+        continue-on-error: true
+        run: |
+          # a refusal stops the legislature step at once (every bill left would be refused too) and leaves a marker;
+          # an hour or more later in the same run the site usually answers again, so it is asked once more here
+          [ -f state/legis_refused.json ] || { echo "the legislature step was not refused this run"; exit 0; }
+          M=$(bash scripts/budget.sh 15); [ "$M" -le 0 ] && { echo "no time left in this run for a second try; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --if-refused --max-minutes "$M" --max-bills 200 || echo "the second try stopped after $((M + 5)) minutes"
+          gacrawl legis people || true
       - name: Screenshot inbox (imports/screens/)
         continue-on-error: true
         timeout-minutes: 20

@@ -117,6 +117,22 @@ class Fetcher:
         u = re.sub(r"^https?://", "", url.lower())
         return any(u == e or u.startswith(e + "?") or u.startswith(e + "/") for e in self.api_endpoints)
 
+    def latency_kind(self, url: str, headers: dict | None = None, is_doc: bool = False, kind: str | None = None) -> str:
+        """Which answers a response's time is compared with (polite.RateLimiter.record): documents with documents,
+        pages with pages, and each API endpoint with itself. One host's endpoints answer at very different speeds
+        (a token in 0.2 s, a 100-line search in 5 s, a 10,000-file listing in 20 s); compared with each other, every
+        normal answer of the slow endpoint looked like a strained server and the host's spacing climbed to its cap."""
+        if kind:
+            return kind
+        if is_doc:
+            return "doc"
+        path = urlsplit(url).path or "/"
+        accept = str((headers or {}).get("Accept") or (headers or {}).get("accept") or "").lower()
+        if "json" in accept or "/api/" in path.lower() or self._is_api_endpoint(url):
+            tpl = re.sub(r"[A-Za-z]*\d[\w-]*", "#", path.rstrip("/"))     # ids and numbers: one endpoint, many records
+            return "api:" + "/".join(tpl.split("/")[:7])
+        return "page"
+
     @property
     def source_id(self) -> str | None:
         return getattr(self._tls, "source_id", None)
@@ -172,7 +188,8 @@ class Fetcher:
     MEMO_TTL = 900            # seconds: the same page asked for twice in one run (probe, then crawl; seed, then crawl)
     MEMO_MAX_BYTES = 2_000_000
 
-    def get(self, url: str, params: dict | None = None, headers: dict | None = None, use_cache: bool = True) -> FetchResult:
+    def get(self, url: str, params: dict | None = None, headers: dict | None = None, use_cache: bool = True,
+            kind: str | None = None) -> FetchResult:
         full = requests.Request("GET", url, params=params).prepare().url
         blocked = self.blocklist.is_blocked(full)
         if blocked:
@@ -184,7 +201,7 @@ class Fetcher:
             hit = self._memo.get(memo_key)
             if hit and time.monotonic() - hit[0] < self.MEMO_TTL:
                 return dataclasses.replace(hit[1], not_modified=True, elapsed=0.0)   # same content as earlier this run
-        res = self._get(full, headers, use_cache)
+        res = self._get(full, headers, use_cache, kind)
         if use_cache and res.status == 200 and len(res.content) <= self.MEMO_MAX_BYTES:
             with self._memo_lock:
                 if len(self._memo) >= 2000:
@@ -247,7 +264,7 @@ class Fetcher:
         if t is not None and now > t:
             raise OutOfTime("this source's time slice used up")
 
-    def _get(self, full: str, headers: dict | None, use_cache: bool) -> FetchResult:
+    def _get(self, full: str, headers: dict | None, use_cache: bool, kind: str | None = None) -> FetchResult:
         self._check_time()
         meta_p, body_p = self._cache_paths(full)
         req_headers = dict(headers or {})
@@ -302,7 +319,7 @@ class Fetcher:
             retry_after = parse_retry_after(r.headers.get("Retry-After"))
             # the server's answer time (headers), not the download: a big PDF is not a strained server
             answered = r.elapsed.total_seconds() if getattr(r, "elapsed", None) is not None else elapsed
-            self.limiter.record(full, r.status_code, answered, retry_after, kind="doc" if is_doc else "page")
+            self.limiter.record(full, r.status_code, answered, retry_after, kind=self.latency_kind(full, headers, is_doc, kind))
             hdrs = {k.lower(): v for k, v in r.headers.items()}
 
             reason = looks_blocked(r.status_code, body)
@@ -324,7 +341,8 @@ class Fetcher:
             return FetchResult(full, r.status_code, hdrs, body, elapsed)
         raise last_exc or RuntimeError(f"gave up on {full}")
 
-    def post(self, url: str, data: dict | None = None, headers: dict | None = None, json_body=None) -> FetchResult:
+    def post(self, url: str, data: dict | None = None, headers: dict | None = None, json_body=None,
+             kind: str | None = None) -> FetchResult:
         """A POST (form `data`, or JSON `json_body`) with the same politeness as get() (robots, rate limit, block
         list, back-off); never cached. Used only for read-only endpoints that a site's own pages load this way
         (BoardDocs meeting lists, the General Assembly's legislation search)."""
@@ -356,7 +374,10 @@ class Fetcher:
             elapsed = time.monotonic() - t0
             retry_after = parse_retry_after(r.headers.get("Retry-After"))
             answered = r.elapsed.total_seconds() if getattr(r, "elapsed", None) is not None else elapsed
-            self.limiter.record(full, r.status_code, answered, retry_after)
+            # a JSON body is an API call: its own endpoint's baseline (latency_kind)
+            self.limiter.record(full, r.status_code, answered, retry_after,
+                                kind=self.latency_kind(full, {"Accept": "application/json"} if json_body is not None else headers,
+                                                       False, kind))
             hdrs = {k.lower(): v for k, v in r.headers.items()}
             reason = looks_blocked(r.status_code, body)
             if reason:

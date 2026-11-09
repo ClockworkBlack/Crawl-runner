@@ -200,7 +200,8 @@ class RateLimiter:
         than 3x its kind's baseline, a 429 or a 503 doubles the host's spacing (up to max_multiplier), anything else
         relaxes it."""
         st = self._state(host_of(url))
-        strained = status in (429, 503)
+        refused = status in (429, 503)
+        strained = refused
         base = st.baseline_latency if kind == "page" else st.baselines.get(kind)
         if base is None and not strained and status < 400:
             base = latency
@@ -208,6 +209,11 @@ class RateLimiter:
             strained = True
         if strained:
             st.multiplier = min(self.max_multiplier, st.multiplier * 2)
+            if not refused and base and status < 400:
+                # slow, not refused: the baseline still learns (slowly). A first answer that happened to be quick (a
+                # small lookup) otherwise made every normal answer after it look strained, and the host's spacing
+                # climbed to the 16x cap and stayed there (Nov 9: EFile and GovInfo at 48 s a request)
+                base = 0.9 * base + 0.1 * latency
         else:
             st.multiplier = max(1.0, st.multiplier * 0.8)
             if base and status < 400:
