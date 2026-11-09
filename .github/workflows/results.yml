@@ -73,14 +73,22 @@ jobs:
           url = f"https://results.sos.ga.gov/results/public/api/elections/Georgia/{eid}/data"
           req = urllib.request.Request(url, headers={"Accept": "application/json", "Accept-Encoding": "gzip",
                                                      "User-Agent": "ga-results-map/1.1 (election-night page)"})
-          try:
-              with urllib.request.urlopen(req, timeout=60) as r:
-                  raw = r.read()
-                  if r.headers.get("Content-Encoding") == "gzip":
-                      raw = gzip.decompress(raw)
-              e = json.loads(raw)["election"]
-          except Exception as ex:
-              sys.exit(f"the results feed did not answer ({type(ex).__name__}: {str(ex)[:160]}); trying again next run")
+          import time
+          e, err = None, None
+          for wait in (0, 20, 60):          # a passing blip of the state's site is tried again before the run fails
+              time.sleep(wait)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      raw = r.read()
+                      if r.headers.get("Content-Encoding") == "gzip":
+                          raw = gzip.decompress(raw)
+                  e = json.loads(raw)["election"]
+                  break
+              except Exception as ex:
+                  err = f"{type(ex).__name__}: {str(ex)[:160]}"
+                  print(f"results feed: {err}", flush=True)
+          if e is None:
+              sys.exit(f"the results feed did not answer three times ({err}); trying again next run")
           feed, have = str(e.get("asOf") or "")[:19], str(built.get("version") or built.get("asOf") or "")[:19]
           official = bool(e.get("isOfficialResults"))
           go = force or feed > have or built.get("eid") not in (None, eid) or (official and not built.get("final"))
