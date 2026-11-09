@@ -334,16 +334,33 @@ def years(fetcher, base: str, log=print) -> list[str]:
 EXTRA = {"efile": {"filerRegistrationGuid": None}}
 
 
+# the largest page tried first: a page of 1,000 lines is one request where pages of 100 were ten (the same lines, a
+# tenth of the requests), so the full histories (about 3.2 million lines) take a tenth of the time at the same spacing
+PAGE_SIZES = (1000, 500, 250, 100, 50, 25, 10)
+
+
+def _page_items(d: dict) -> tuple[list, int]:
+    items = (d.get("data") or {}).get("items") or []
+    total = int((d.get("data") or {}).get("totalItems") or (items[0].get("totalRows") if items else 0) or 0)
+    return items, total
+
+
 def shape(fetcher, system: str, base: str, year: str, log=print):
-    """The page size and order this system answers (the search pages themselves ask for 10 at a time, newest first)."""
+    """The largest page size and an order this system answers (the search pages themselves ask for 10 at a time,
+    newest first). A size the API caps (fewer lines than asked while the year holds more) counts as the size it
+    answers; the full read checks every page against the total as well (run), since a small year can't show a cap."""
     last = ""
-    for size in (100, 50, 25, 10):
+    for size in PAGE_SIZES:
         for sort in ("asc", "desc"):
             try:
-                _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(year, 1, size, sort, **EXTRA.get(system, {})))
-                return size, sort
+                d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(year, 1, size, sort, **EXTRA.get(system, {})))
             except Exception as e:  # noqa: BLE001
                 last = str(e)[:300]
+                continue
+            items, total = _page_items(d)
+            if total and 10 <= len(items) < min(size, total):
+                return len(items), sort          # capped: the API's own largest page
+            return size, sort
     log(f"ethics {system}: no page size answered; last: {last}")
     return None
 
@@ -402,18 +419,25 @@ def run(fetcher, store, root, candidates, deadline, log=print, mode: str = "all"
     newest lines of every year, complete or not, up to the first page with nothing new (the crawl's own step while
     ga-money owns the full reads; it leaves their place untouched); "auto" is "refresh" while the ga-money job's
     hand-off keeps arriving, else "all" (resolve_mode)."""
+    import threading
     import time
 
     mode = resolve_mode(store, mode)
     cands = candidate_index([c for c in candidates if "federal" not in (c.get("levels") or [])])
     st = {"added": 0, "pages": 0, "skipped": 0, "years": {}, "mode": mode}
-    end = deadline
-    for i, (system, base) in enumerate(SYSTEMS.items()):
-        deadline = time.monotonic() + (end - time.monotonic()) / (len(SYSTEMS) - i)    # each system its share
+    lock = threading.Lock()
+
+    def count(k: str, n: int = 1) -> None:
+        with lock:
+            st[k] += n
+
+    def read_system(system: str, base: str) -> None:
+        # each system on its own host, read at the same time as the other: the per-host spacing holds for each, so
+        # two hosts read together take half the time (they were read one after the other, each with half the run)
         ys = years(fetcher, base, log)
         sh = shape(fetcher, system, base, ys[0], log)
         if not sh:
-            continue
+            return
         size, order = sh
         log(f"ethics {system}: years {ys}, {size} lines a page, {order}, {mode}")
         for y in ys:
@@ -425,23 +449,36 @@ def run(fetcher, store, root, candidates, deadline, log=print, mode: str = "all"
                 continue                 # complete: its newest lines are the crawl's refresh
             if mode == "refresh":
                 full = True              # newest first, stop at the first page with nothing new; the full read's place is kept
+            psize = size
             page = 1 if full else int(cur.get("page", 1))
+            if not full and cur.get("size") and int(cur["size"]) != psize and page > 1:
+                # the place was kept in pages of another size: the same line, counted in pages of this size (the
+                # lines between are read again, never skipped)
+                page = ((page - 1) * int(cur["size"])) // psize + 1
             sort = "desc" if full else order
             got = 0
             first = page
             while time.monotonic() < deadline and not (mode == "refresh" and page - first >= REFRESH_PAGES):
                 try:
-                    d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, size, sort, **EXTRA.get(system, {})))
+                    d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, psize, sort, **EXTRA.get(system, {})))
                 except Exception as e:  # noqa: BLE001
                     log(f"ethics {system} {y} page {page}: {type(e).__name__}: {str(e)[:160]}")
                     break
-                items = (d.get("data") or {}).get("items") or []
-                st["pages"] += 1
+                items, total = _page_items(d)
+                count("pages")
+                if total and items and len(items) < psize and (page - 1) * psize + len(items) < total:
+                    # fewer lines than asked while the year holds more: the API caps its pages here. Read on in
+                    # pages of what it answers, from the same line (never mark the year read in full early)
+                    at = (page - 1) * psize
+                    psize = len(items)
+                    page = at // psize + 1
+                    log(f"ethics {system} {y}: pages of {psize} lines from here (the API's largest)")
+                    continue
                 new = 0
                 for t in items:
                     rec = record_of(system, t, cands)
                     if rec is None:
-                        st["skipped"] += 1
+                        count("skipped")
                         continue
                     old = store.get_meta(rec.key)
                     if old is None:
@@ -450,19 +487,33 @@ def run(fetcher, store, root, candidates, deadline, log=print, mode: str = "all"
                         keep_links(rec.meta, old)
                     if store.add(rec):
                         got += 1
-                total = int((d.get("data") or {}).get("totalItems") or (items[0].get("totalRows") if items else 0) or 0)
                 if not full:
-                    store.kv_set(ck, json.dumps({"page": page + 1, "total": total, "size": size, "at": _now()}))
-                if len(items) < size or (full and new == 0):
+                    store.kv_set(ck, json.dumps({"page": page + 1, "total": total, "size": psize, "at": _now()}))
+                if len(items) < psize or (full and new == 0):
                     if not full:
-                        store.kv_set(ck, json.dumps({"complete": True, "total": total, "size": size, "at": _now()}))
+                        store.kv_set(ck, json.dumps({"complete": True, "total": total, "size": psize, "at": _now()}))
                     break
                 page += 1
-            st["added"] += got
-            st["years"][f"{system}:{y}"] = got
+            with lock:
+                st["added"] += got
+                st["years"][f"{system}:{y}"] = got
             log(f"ethics {system} {y}: {got} lines added or changed ({'refresh' if full else 'full read'}, page {page})")
             if time.monotonic() >= deadline:
                 break
+
+    def guarded(system: str, base: str) -> None:
+        try:
+            read_system(system, base)
+        except Exception as e:  # noqa: BLE001
+            log(f"ethics {system}: {type(e).__name__}: {str(e)[:300]}")      # the other system reads on
+
+    threads = [threading.Thread(target=guarded, args=(s, b), name=f"ethics-{s}") for s, b in SYSTEMS.items()]
+    for th in threads:
+        th.start()
+    for th in threads:
+        while th.is_alive():
+            th.join(timeout=1.0)     # short waits: an interrupt (the workflow's watchdog) still reaches this thread
+    store.flush()
     st["superseded"] = drop_superseded(store) if superseded else 0
     log(f"ethics: {st['added']} lines, {st['skipped']} not counted (Two Business Day reports, interest, returns), "
         f"{st['superseded']} replaced by amended reports")

@@ -42,7 +42,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-GIFT_CAP = 25000
+GIFT_CAP = 12000             # what Electo's Donors tab keeps (ga/crawl_import.py donors_from): more was cut there, by size
+GIFT_FLOOR, GIFT_TOP = 10, 60   # every recipient's own largest gifts kept first: at least GIFT_FLOOR, up to GIFT_TOP each
 # Earmarking platforms: a line "from" one of these is many people's gifts passed through, not one donor. Counted in
 # what the recipient raised, listed as a conduit, kept out of donor rankings and donor geography.
 CONDUITS = {"C00694323": "WinRed", "C00401224": "ActBlue"}   # a platform's lump line; an earmark through a PAC is the
@@ -51,7 +52,7 @@ CONDUIT_NAME = re.compile(r"^(winred|actblue|democracy engine|anedot)\b", re.I)
 CONDUIT_LABEL = {"winred": "WinRed", "actblue": "ActBlue", "democracy engine": "Democracy Engine", "anedot": "Anedot"}
 JFC = re.compile(r"\b(victory (fund|committee)|joint fund|jfc)\b", re.I)
 ORGISH = re.compile(r"\b(llc|inc|corp|co|company|group|strategies|partners|associates|pac|committee|fund|party|union|association|foundation)\b\.?$|\b(llc|inc|strategies)\b", re.I)
-SPEND_CAP = 8000
+SPEND_CAP = 4000             # what Electo keeps (donors_from)
 DONOR_CAP = 6000
 SHARDS = 128
 PROFILE_RECIPS = 60          # recipients listed in one profile (the rest summed as "others")
@@ -91,6 +92,28 @@ def _level(c: dict) -> str:
     if "u.s." in o or "congress" in o or "senate" in o and "state" not in o:
         return "federal"
     return "local" if c.get("jurisdiction") else ""
+
+
+def capped(items, cap: int, candidates: set | None = None) -> list[dict]:
+    """The `cap` items (gifts or spending, each with its recipient "r") the page lists, largest first. Every candidate's
+    own largest come first (at least GIFT_FLOOR each, more when the cap allows, up to GIFT_TOP), then the largest of the
+    rest: ranked only by size, one Senate campaign's thousands of large gifts left every other campaign's donors out of
+    the list, and a candidate's page showed none."""
+    items = list(items)
+    if len(items) <= cap:
+        return sorted(items, key=lambda g: -g["total"])
+    by_r: dict = defaultdict(list)
+    for g in items:
+        by_r[g["r"]].append(g)
+    own = [r for r in by_r if candidates is None or r in candidates]
+    per = max(GIFT_FLOOR, min(GIFT_TOP, int(cap * 0.75) // max(1, len(own))))
+    first = []
+    for r in own:
+        first += sorted(by_r[r], key=lambda g: -g["total"])[:per]
+    first = sorted(first, key=lambda g: -g["total"])[:cap]
+    taken = {id(g) for g in first}
+    rest = sorted((g for g in items if id(g) not in taken), key=lambda g: -g["total"])[:cap - len(first)]
+    return sorted(first + rest, key=lambda g: -g["total"])
 
 
 def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log=print) -> dict:
@@ -256,10 +279,11 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         R["office"] = (R["office"] or "").split(";")[0].strip()
         for k in ("raised", "spent", "loans", "in_kind", "in_ga", "small", "orgs"):
             R[k] = round(R[k], 2)
-    gift_list = sorted(gifts.values(), key=lambda g: -g["total"])[:GIFT_CAP]
+    cand_r = {R["i"] for R in recips.values() if R.get("cid")}
+    gift_list = capped(gifts.values(), GIFT_CAP, cand_r)
     for g in gift_list:
         g["total"] = round(g["total"], 2)
-    spend_list = sorted(spend.values(), key=lambda s: -s["total"])[:SPEND_CAP]
+    spend_list = capped(spend.values(), SPEND_CAP, cand_r)
     for s in spend_list:
         s["total"] = round(s["total"], 2)
     multi = [d for d in donors.values() if len(d["r"]) > 1]

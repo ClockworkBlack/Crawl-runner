@@ -91,8 +91,8 @@ class _Resp:
 class FakeApi:
     """The Commission's API for both systems: election years, and pages of lines by transaction date."""
 
-    def __init__(self, lines):          # {system: {year: [line, ...] oldest first}}
-        self.lines, self.pages = lines, []
+    def __init__(self, lines, max_size=100):   # {system: {year: [line, ...] oldest first}}; pages capped at max_size
+        self.lines, self.pages, self.max_size = lines, [], max_size
 
     def post(self, url, json_body=None, headers=None, **kw):
         system = "efile" if "recordsearch" in url else "peachfile"
@@ -103,7 +103,7 @@ class FakeApi:
         rows = list(self.lines[system].get(b["electionYear"], []))
         if b["sortType"] == "desc":
             rows.reverse()
-        size, page = b["pageSize"], b["pageNumber"]
+        size, page = min(b["pageSize"], self.max_size or b["pageSize"]), b["pageNumber"]
         self.pages.append((system, b["electionYear"], page, b["sortType"]))
         return _Resp({"data": {"items": rows[(page - 1) * size: page * size], "totalItems": len(rows)}})
 
@@ -199,3 +199,52 @@ def test_keep_links_only_while_the_line_is_unchanged():
     old = {"name": "Doe, Jane", "city": "Macon", "donor_entity": "p1", "recipient_entity": "c1"}
     assert ethics.keep_links({"name": "Doe, Jane", "city": "Macon"}, old)["donor_entity"] == "p1"
     assert "donor_entity" not in ethics.keep_links({"name": "Doe, Jane", "city": "Atlanta"}, old)   # amended: given again
+
+
+def test_large_pages_when_the_api_answers_them(tmp_path):
+    """A page of 1,000 lines is one request where pages of 100 were ten: the same lines, read in full."""
+    s, api = Store(tmp_path / "x.db"), FakeApi({"efile": {"2024": _lines("efile", "2024", 2500)},
+                                                "peachfile": {"2026": _lines("peachfile", "2026", 120)}}, max_size=None)
+    st = _run(api, s, tmp_path, "full")
+    assert st["added"] == 2620 and st["pages"] == 3 + 1
+    prog = ethics.progress(s)
+    assert prog["efile:2024"]["complete"] and prog["peachfile:2026"]["complete"]
+
+
+def test_a_cap_found_mid_read_never_ends_the_year_early(tmp_path):
+    """The probe year is small (no cap shows), a big year is capped at 100: read on in pages of 100, every line."""
+    s = Store(tmp_path / "x.db")
+    api = FakeApi({"efile": {"2025": _lines("efile", "2025", 40), "2024": _lines("efile", "2024", 350)},
+                   "peachfile": {"2026": _lines("peachfile", "2026", 30)}}, max_size=100)
+    st = _run(api, s, tmp_path, "full")
+    assert st["added"] == 420
+    prog = ethics.progress(s)
+    assert prog["efile:2024"]["complete"] and prog["efile:2024"]["total"] == 350
+
+
+def test_a_place_kept_in_pages_of_another_size(tmp_path):
+    """A read stopped at page 6 of 100-line pages goes on from line 501 in pages of 1,000 (never skips lines)."""
+    s = Store(tmp_path / "x.db")
+    s.kv_set("ga_ethics:efile:2024", json.dumps({"page": 6, "total": 2500, "size": 100, "at": "2026-11-09T00:00:00+00:00"}))
+    api = FakeApi({"efile": {"2024": _lines("efile", "2024", 2500)}, "peachfile": {"2026": []}}, max_size=None)
+    st = _run(api, s, tmp_path, "full")
+    reads = [x for x in api.pages if x[0] == "efile" and x[1] == "2024"]
+    assert reads[1:] == [("efile", "2024", 1, "asc"), ("efile", "2024", 2, "asc"), ("efile", "2024", 3, "asc")]
+    assert st["added"] == 2500 and ethics.progress(s)["efile:2024"]["complete"]
+
+
+def test_both_systems_are_read_at_the_same_time(tmp_path):
+    """EFile and PeachFile are two hosts: each read in its own thread, both with the whole run."""
+    import threading
+
+    seen, lock = set(), threading.Lock()
+
+    class Slow(FakeApi):
+        def post(self, url, json_body=None, headers=None, **kw):
+            with lock:
+                seen.add(threading.current_thread().name)
+            time.sleep(0.01)
+            return super().post(url, json_body=json_body, headers=headers, **kw)
+    s = Store(tmp_path / "x.db")
+    st = _run(Slow(_api_lines()), s, tmp_path, "full")
+    assert {"ethics-efile", "ethics-peachfile"} <= seen and st["added"] == 370

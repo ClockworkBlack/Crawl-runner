@@ -313,9 +313,16 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p fecd
-          if gh release download "$DATA_TAG" -p fec-delta.db.zst -p fec-kv.json -D fecd --clobber 2>/dev/null && [ -f fecd/fec-delta.db.zst ]; then
-            zstd -d -q -f fecd/fec-delta.db.zst -o fecd/fec-delta.db
-            gacrawl finance apply --delta fecd/fec-delta.db --kv fecd/fec-kv.json && touch fecd/applied
+          # by asset id, as the Georgia hand-off: the re-read hands over after every round, so a newer hand-off may
+          # arrive while this run works, and only the one applied here may be deleted once stored
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          A=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+          D=$(echo "$A" | tr ' ' '\n' | grep '^fec-delta.db.zst=' || true); K=$(echo "$A" | tr ' ' '\n' | grep '^fec-kv.json=' || true)
+          if [ -n "$D" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$(echo "$D" | cut -d= -f2)" > fecd/fec-delta.db.zst
+            if [ -n "$K" ]; then gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$(echo "$K" | cut -d= -f2)" > fecd/fec-kv.json; else echo "{}" > fecd/fec-kv.json; fi
+            zstd -d -q -f fecd/fec-delta.db.zst -o fecd/fec-delta.db && rm -f fecd/fec-delta.db.zst
+            gacrawl finance apply --delta fecd/fec-delta.db --kv fecd/fec-kv.json && echo "$D $K" > fecd/applied
             # the hand-off is deleted only once the database holding it is stored (the next step that stores it):
             # a run that dies before then leaves it for the next run instead of losing it
           else echo "no parallel FEC re-read waiting"; fi
@@ -365,8 +372,12 @@ jobs:
         run: |
           bash scripts/ci_db.sh push
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then
-            gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
-            gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+            for a in $(cat fecd/applied); do
+              if echo " $NOW " | grep -q " $a "; then gh api -X DELETE "repos/$REPO/releases/assets/$(echo "$a" | cut -d= -f2)" || true
+              else echo "a newer FEC re-read hand-off arrived while this run worked: kept for the next run"; fi
+            done
             rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
           fi
           if [ -f gad/applied ] && [ "$IS_MAIN" = "true" ]; then
@@ -557,10 +568,12 @@ jobs:
           # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
           # otherwise on research runs, as before. The hard stop is for the entity pass, which has no clock of its own
           # (Nov 9: 110,600 lines took an hour); stopped, it keeps what it resolved and the next run does the rest
+          # --defer-reread: while the fec-reread job's hand-offs keep arriving (2 days) the campaigns awaiting the re-read
+          # are left to it (the same pages read here at the same time cost the one FEC key twice); otherwise as before
           if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --defer-reread --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
           else
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --defer-reread --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
           fi
       - name: Georgia state and local money (State Ethics Commission)
         run: |
@@ -669,8 +682,12 @@ jobs:
         run: |
           bash scripts/ci_db.sh push
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then        # the FEC hand-off is in the stored database now
-            gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
-            gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+            for a in $(cat fecd/applied); do
+              if echo " $NOW " | grep -q " $a "; then gh api -X DELETE "repos/$REPO/releases/assets/$(echo "$a" | cut -d= -f2)" || true
+              else echo "a newer FEC re-read hand-off arrived while this run worked: kept for the next run"; fi
+            done
             rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
           fi
           if [ -f gad/applied ] && [ "$IS_MAIN" = "true" ]; then
@@ -692,6 +709,33 @@ jobs:
             done < modeld/applied
             rm -f modeld/applied
           fi
+      - name: Money read while this run worked (the FEC re-read's and the Georgia money job's newest hand-offs)
+        # they hand over and push money to the site every round (scripts/money_to_electo.sh); this run's export would
+        # otherwise put money as old as the merge's start back on the site. Applied again here (the same lines change
+        # nothing) and linked; they are deleted by the run that stores them after applying them at its start
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          mkdir -p late
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          get() { local id; id=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$1\") | .id" 2>/dev/null || true)
+                  [ -n "$id" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$id" > "late/$1" && [ -s "late/$1" ]; }
+          n=0
+          if get fec-delta.db.zst; then
+            zstd -d -q -f late/fec-delta.db.zst -o late/fec.db
+            get fec-kv.json || echo "{}" > late/fec-kv.json
+            gacrawl finance apply --delta late/fec.db --kv late/fec-kv.json | tail -1; n=1
+          fi
+          if get ga-delta.db.zst; then
+            zstd -d -q -f late/ga-delta.db.zst -o late/ga.db
+            gacrawl finance apply --delta late/ga.db | tail -1; n=1
+            if get ga-kv.json; then
+              gacrawl ethics apply-kv --kv late/ga-kv.json
+            fi
+          fi
+          rm -rf late
+          if [ "$n" = "1" ]; then timeout -s INT -k 2m 20m gacrawl finance link | tail -c 300 || echo "linking stopped; the next run finishes it"
+          else echo "no money hand-off arrived while this run worked"; fi
       - name: Task list, status, Electo bundle
         timeout-minutes: 30
         id: bundle

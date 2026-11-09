@@ -621,6 +621,19 @@ def cmd_transcripts(cfg, args):
         store.close()
 
 
+REREAD_FRESH_DAYS = 2
+
+
+def _reread_handed_off(store) -> bool:
+    """Has the fec-reread job's hand-off been applied in the last two days (kv fec_reread_applied)?"""
+    at = store.kv_get("fec_reread_applied") or ""
+    try:
+        when = dt.datetime.fromisoformat(at)
+    except ValueError:
+        return False
+    return (dt.datetime.now(dt.timezone.utc) - when).total_seconds() < REREAD_FRESH_DAYS * 86400
+
+
 def cmd_finance(cfg, args):
     """Campaign finance: imports, posted CCDRs, FEC, entity resolution, organization lookups.
     export-kv / apply: the FEC re-read done by the parallel fec-reread job reaches the main database (its lines as a
@@ -674,8 +687,20 @@ def cmd_finance(cfg, args):
                 if k.startswith("fec:a2:"):          # a cursor is set only when the committee was read in full
                     gone += store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
                                                "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (k[7:],))
+            if args.kv and Path(args.kv).exists():
+                # the FEC re-read's hand-off (lines and its lookups): the crawl leaves the re-read to that job while these
+                # keep arriving (--defer-reread). A Georgia money delta is applied with this command too, without --kv
+                store.kv_set("fec_reread_applied", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+                print(f"finance: the FEC re-read applied; {gone} old lines of re-read committees removed")
             store.flush()
-            print(f"finance: the FEC re-read applied; {gone} old lines of re-read committees removed")
+        finally:
+            store.close()
+        return
+    if args.action == "link":
+        # donor and recipient ids only (no reading): lines brought in by a hand-off, before money is exported
+        try:
+            fin = Finance(config.ROOT, cfg, None, store)
+            print(json.dumps(fin.resolve_all(load_candidates(config.ROOT, cfg))))
         finally:
             store.close()
         return
@@ -699,6 +724,16 @@ def cmd_finance(cfg, args):
                 "json_extract(meta,'$.fec_v') IS NULL GROUP BY c ORDER BY n DESC").fetchall()
         pending = {r["c"]: r["n"] for r in legacy if r["c"]}
         minutes = float(args.max_minutes or 30)
+        if pending and getattr(args, "defer_reread", False) and _reread_handed_off(store):
+            # the fec-reread job owns the re-read while its hand-offs keep arriving: the crawl reading the same
+            # campaigns at the same time read every page twice on the one FEC key (1,000 calls an hour between them)
+            print(f"finance: {sum(pending.values())} FEC lines of {len(pending)} people await the re-read; left to the fec-reread job")
+            if args.reread_only:
+                return
+            skip_pending = set(pending)
+            pending = {}
+        else:
+            skip_pending = set()
         if pending:
             # up to an hour for the re-read, unless the caller gave its own minutes: the crawl's merge job fits each
             # optional step into what the job has left (an hour forced here made every run an hour longer, and the
@@ -717,13 +752,18 @@ def cmd_finance(cfg, args):
         cands = load_candidates(config.ROOT, cfg)
         if args.candidate:
             cands = [c for c in cands if c["id"] == args.candidate or c.get("electo_key") == args.candidate]
-        if pending:     # the re-read first, largest first
-            cands.sort(key=lambda c: -pending.get(c["id"], 0))
+        if pending:
+            # the re-read first, smallest first: most campaigns are a few hundred pages, one Senate campaign is thousands
+            # (largest first, Jon Ossoff's ~370,000 lines held every other federal campaign off the site for days)
+            cands.sort(key=lambda c: (c["id"] not in pending, pending.get(c["id"], 0)))
+        if skip_pending:
+            cands = [c for c in cands if c["id"] not in skip_pending]
         if args.reread_only:
             cands = [c for c in cands if c["id"] in pending]
         since = args.since or cfg.get("limits", {}).get("since", "2016-01-01")
-        out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit) if args.org_limit else None)
-        if pending and not args.candidate and fin.f and time.monotonic() < deadline:
+        out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit) if args.org_limit else None,
+                      orgs=not args.reread_only)
+        if pending and not args.candidate and not skip_pending and fin.f and time.monotonic() < deadline:
             # old lines of people no longer researched: read by committee, so the re-read can finish
             out["fec_orphans"] = fin.reread_orphans({c["id"] for c in load_candidates(config.ROOT, cfg)}, since, deadline)
             fin.flush()
@@ -1278,7 +1318,9 @@ def build_parser() -> argparse.ArgumentParser:
     po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
     dv = sub.add_parser("derive"); dv.add_argument("--only"); dv.add_argument("--full", action="store_true"); dv.add_argument("--max-minutes", type=float)
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
-    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money", "orgs"])
+    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money", "orgs", "link"])
+    fi.add_argument("--defer-reread", action="store_true",
+                    help="leave FEC lines awaiting the re-read to the fec-reread job while its hand-offs keep arriving (2 days)")
     fi.add_argument("--delta"); fi.add_argument("--kv"); fi.add_argument("--out")
     fi.add_argument("--candidate"); fi.add_argument("--since"); fi.add_argument("--max-minutes", type=float); fi.add_argument("--org-limit", type=int)
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")

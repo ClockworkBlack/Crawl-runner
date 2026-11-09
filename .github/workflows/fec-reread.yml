@@ -3,16 +3,28 @@ name: fec-reread
 # FEC line ids and memo codes (gacrawl finance --reread-only), beside the crawl rather than inside it. It works
 # on a copy of the crawl database, so it never races the crawl's own upload; what it read reaches the main database
 # as a delta (fec-delta.db.zst and fec-kv.json in the private crawl-data release), which the crawl merge job
-# applies (gacrawl finance apply) before anything else reads money. Meanwhile the corrected money goes to the site at
-# once: the Donors tab and each profile's money only (Electo tools/money_import.py), nothing else.
+# applies (gacrawl finance apply) before anything else reads money, and deletes once stored (by its asset id: a newer
+# hand-off uploaded meanwhile stays for the next run).
 #
-# A GitHub-hosted job may run 6 hours at most, so one run reads for 5 and hands over what it read. While old FEC lines
-# remain, it starts again by itself every 6 hours (skipping when the last run's delta has not been applied yet, or when
-# nothing is left to read), so the re-read finishes in a few runs without anyone starting them.
+# Smallest campaigns first, in rounds of 45 minutes: after each round the delta is handed over and the corrected money
+# goes to the site (scripts/money_to_electo.sh: the Donors tab, every donor's profile and each profile's money, built
+# on the newest stored database with every money hand-off applied), so most federal campaigns are on the site within
+# the first hour, not after five (Nov 9: largest first, one Senate campaign of ~370,000 lines held every other
+# federal campaign off the site for days, and the money waited for five hours of organization lookups that belong to
+# the model job). A hand-off the crawl has not applied yet is carried (applied to this copy and handed over again
+# with this run's lines), so a run never sits out waiting for the crawl.
+#
+# A GitHub-hosted job may run 6 hours at most, so one run reads for about 4.5 and hands over what it read. While old
+# FEC lines remain, it starts again by itself every 6 hours; with nothing left it ends in a minute.
 on:
   schedule:
     - cron: "40 */6 * * *"
   workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes for the rounds of reading and site pushes (default 270)"
+        required: false
+        default: "270"
 
 permissions:
   contents: read
@@ -45,61 +57,68 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
-      - name: Is a re-read still needed?
-        id: need
+      - name: A copy of the crawl database (and a re-read hand-off still waiting for the crawl, carried)
         run: |
-          if gh release view "$DATA_TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx fec-delta.db.zst; then
-            echo "the last re-read's delta is still waiting for the crawl's merge job: not starting another"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          bash scripts/ci_db.sh pull
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          SINCE=$(date -u +%Y-%m-%dT%H:%M:%S)
+          A=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)"] | join(" ")' 2>/dev/null || true)
+          DID=$(echo "$A" | tr ' ' '\n' | sed -n 's/^fec-delta.db.zst=//p'); KID=$(echo "$A" | tr ' ' '\n' | sed -n 's/^fec-kv.json=//p')
+          if [ -n "$DID" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$DID" > waiting.db.zst
+            if [ -n "$KID" ]; then gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$KID" > waiting-kv.json; else echo "{}" > waiting-kv.json; fi
+            zstd -d -q -f waiting.db.zst -o waiting.db && rm -f waiting.db.zst
+            gacrawl finance apply --delta waiting.db --kv waiting-kv.json
+            # the carried lines go out again with this run's: the delta starts where the waiting one started
+            OLD=$(python3 - <<'PY'
+          import json, sqlite3
+          s = json.load(open("waiting-kv.json")).get("_since", "")
+          if not s:
+              s = (sqlite3.connect("waiting.db").execute("SELECT min(changed_at) FROM records").fetchone()[0] or "")[:19]
+          print(s)
+          PY
+          )
+            [ -n "$OLD" ] && [ "$OLD" \< "$SINCE" ] && SINCE="$OLD"
+            rm -f waiting.db waiting-kv.json
+            echo "a re-read hand-off was still waiting: carried (lines since $SINCE)"
           fi
-          echo "go=true" >> "$GITHUB_OUTPUT"
-      - name: A copy of the crawl database
-        if: steps.need.outputs.go == 'true'
-        run: bash scripts/ci_db.sh pull
+          echo "FEC_SINCE=$SINCE" >> "$GITHUB_ENV"
       - name: Old FEC lines left to read
         id: left
-        if: steps.need.outputs.go == 'true'
         run: |
           n=$(python3 scripts/fec_left.py)
           echo "old FEC lines left: $n"; echo "n=$n" >> "$GITHUB_OUTPUT"
-      - name: Read every federal campaign again from the FEC
-        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0'
+      - name: Read every federal campaign again (smallest first); after each round, hand over and put the money on Electo
+        id: read
+        if: steps.left.outputs.n != '0'
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
-        run: |
-          [ -n "$FEC_API_KEY" ] || { echo "::error title=FEC API key::No FEC_API_KEY secret in this repository: the FEC refuses the shared DEMO_KEY after a few calls, so nothing can be re-read. Add the secret (a free key from api.open.fec.gov/developers) and run this again."; exit 1; }
-          date -u +%Y-%m-%dT%H:%M:%S > start.txt
-          gacrawl finance --reread-only --max-minutes 300 || echo "the re-read stopped; what it read is kept"
-      - name: Hand it to the crawl (delta and lookups in the private release)
-        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0'
-        run: |
-          START=$(cat start.txt)
-          gacrawl delta --since "$START" --out fec-delta.db
-          gacrawl finance export-kv --kv fec-kv.json
-          zstd -T0 -3 -q -f fec-delta.db -o fec-delta.db.zst
-          gh release upload "$DATA_TAG" fec-delta.db.zst fec-kv.json --clobber
-          echo "uploaded $(du -h fec-delta.db.zst | cut -f1) for the crawl's next merge"
-      - name: The corrected money to the site now (Donors tab and profile money only)
-        if: steps.need.outputs.go == 'true' && steps.left.outputs.n != '0' && (env.IS_MAIN == 'true')
-        env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
-          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
-          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
         run: |
-          set -e
-          gacrawl finance export-money --out "$PWD/dist/money"
-          gacrawl coverage || true
-          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-money
-          cd /tmp/electo-money
-          CRAWL_BUNDLE="$GITHUB_WORKSPACE/dist/money" python3 -I tools/money_import.py
-          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add -A ga/crawl/donors.json ga/crawl/donors ga/crawl/people.json    # the Donors tab, every donor's profile, profiles' money
-          if git diff --cached --quiet; then echo "money unchanged"; else
-            git commit -qm "Campaign money re-read from the FEC: $(date -u +%Y-%m-%dT%H:%MZ)"
-            for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
-          fi
-          GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          [ -n "$FEC_API_KEY" ] || { echo "::error title=FEC API key::No FEC_API_KEY secret in this repository: the FEC refuses the shared DEMO_KEY after a few calls, so nothing can be re-read. Add the secret (a free key from api.open.fec.gov/developers) and run this again."; exit 1; }
+          END=$(( $(date +%s) + ${{ inputs.minutes || '270' }} * 60 ))
+          round=0
+          while :; do
+            LEFT=$(( (END - $(date +%s)) / 60 ))
+            [ "$LEFT" -ge 8 ] || { echo "the run's minutes are used; the next run carries on"; break; }
+            round=$((round + 1))
+            M=$(( LEFT - 6 < 45 ? LEFT - 6 : 45 ))          # a round, and a few minutes for its push
+            echo "::group::round $round: $M minutes of reading"
+            timeout -s INT -k 3m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || echo "the re-read stopped; what it read is kept"
+            echo "::endgroup::"
+            bash scripts/fec_handoff.sh
+            if [ "$IS_MAIN" = "true" ]; then
+              bash scripts/money_to_electo.sh "FEC re-read, round $round" fec-delta.db || echo "::warning::the money push of round $round did not finish; the next round or the crawl brings it"
+            fi
+            n=$(python3 scripts/fec_left.py); echo "old FEC lines left after round $round: $n"
+            [ "$n" = "0" ] && { echo "the re-read is complete"; break; }
+          done
+      - name: Hand it to the crawl (whatever was read, when the rounds stopped before their own hand-off)
+        if: always() && steps.left.outputs.n != '0' && steps.read.outcome != 'success'
+        run: bash scripts/fec_handoff.sh
       - name: Keep the coverage report (money checks)
-        if: always() && steps.need.outputs.go == 'true'
+        if: always()
         run: |
+          gacrawl coverage || true
           bash scripts/ci_runner.sh push-state "fec re-read $(date -u +%Y-%m-%dT%H:%MZ)" data/coverage.md || true

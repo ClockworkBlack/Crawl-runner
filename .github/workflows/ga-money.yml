@@ -3,10 +3,13 @@ name: ga-money
 # about 2.56 million lines) and PeachFile (2026 on, about 630,000 so far) are about 32,000 pages of the State Ethics
 # Commission's public API, and the crawl's merge job could give them 25 minutes a run (EFile reached page 264 in three
 # days). This job reads the full histories for five hours a run (gacrawl ethics run --mode full: only the years not yet
-# read in full, from the page each stopped at), on a copy of the crawl database, and hands what it read to the crawl:
+# read in full, from the page each stopped at; the two systems at once, each on its own host, in the largest pages
+# the API answers), on a copy of the crawl database, in rounds of an hour, and hands what it read to the crawl:
 # ga-delta.db.zst (its lines) and ga-kv.json (where each read stopped) in the private crawl-data release, which the
 # crawl's merge job applies before its own Georgia step (gacrawl ethics run --mode refresh: the newest lines only, then
 # donor ids and amended reports for everything). Donor ids are never given here: only the crawl's database gives them.
+# After each round the money also goes to the site at once (scripts/money_to_electo.sh: built on the newest stored
+# database with every money hand-off applied, ids given on that scratch copy only), so it is on Electo the same hour.
 #
 # Every 6 hours; while every year is read in full (and read again within the month) each run ends in a minute. A
 # hand-off still waiting for the crawl is carried into this run's (applied to this copy first, handed over again with
@@ -76,37 +79,44 @@ jobs:
           fi
           echo "GA_SINCE=$SINCE" >> "$GITHUB_ENV"
           gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
-      - name: Read the full histories (EFile, PeachFile), from where each read stopped
+      - name: Read the full histories (EFile and PeachFile at once) in rounds; after each, hand over and put the money on Electo
         id: read
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: |
-          MAXGB=${{ vars.GA_MONEY_MAX_DB_GB || '10' }}
-          GB=$(python3 -c "import os;print(int(os.path.getsize('data/crawl.db')/1e9))")
-          if [ "$GB" -ge "$MAXGB" ]; then
-            echo "::warning title=Georgia money::the crawl database is ${GB} GB (limit GA_MONEY_MAX_DB_GB=${MAXGB}); the full read pauses so the crawl's runners keep their disk space. Raise the variable to go on."
-            echo "read=0" >> "$GITHUB_OUTPUT"; exit 0
-          fi
           # only the years not read in full yet, or read in full more than a month ago (late filings carry old dates);
-          # when there are none the run ends in a minute and hands nothing over
-          M=${{ inputs.minutes || '290' }}
-          timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || echo "the read stopped after $((M + 8)) minutes; what it read is kept"
-          tail -c 3000 run.out
-          PAGES=$(tail -n 1 run.out | python3 -c "import json,sys
+          # when there are none the run ends in a minute and hands nothing over. Rounds of an hour: after each, the
+          # lines go to the crawl (ga-delta) and the money to the site (scripts/money_to_electo.sh), so what is read
+          # is on Electo the same hour instead of after the run and the crawl's next merge
+          MAXGB=${{ vars.GA_MONEY_MAX_DB_GB || '10' }}
+          END=$(( $(date +%s) + ${{ inputs.minutes || '290' }} * 60 ))
+          round=0
+          while :; do
+            GB=$(python3 -c "import os;print(int(os.path.getsize('data/crawl.db')/1e9))")
+            if [ "$GB" -ge "$MAXGB" ]; then
+              echo "::warning title=Georgia money::the crawl database is ${GB} GB (limit GA_MONEY_MAX_DB_GB=${MAXGB}); the full read pauses so the crawl's runners keep their disk space. Raise the variable to go on."
+              break
+            fi
+            LEFT=$(( (END - $(date +%s)) / 60 ))
+            [ "$LEFT" -ge 12 ] || { echo "the run's minutes are used; the next run carries on"; break; }
+            round=$((round + 1))
+            M=$(( LEFT - 10 < 60 ? LEFT - 10 : 60 ))          # a round, and minutes for its push
+            echo "::group::round $round: $M minutes of reading"
+            timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || echo "the read stopped after $((M + 8)) minutes; what it read is kept"
+            tail -c 3000 run.out
+            echo "::endgroup::"
+            PAGES=$(tail -n 1 run.out | python3 -c "import json,sys
           try: print(json.loads(sys.stdin.read()).get('pages', 1))
           except ValueError: print(1)")
-          if [ "$PAGES" = "0" ]; then echo "every full read is complete and recent; nothing to hand over"; echo "read=0" >> "$GITHUB_OUTPUT"
-          else echo "read=1" >> "$GITHUB_OUTPUT"; fi
+            if [ "$PAGES" = "0" ]; then echo "every full read is complete and recent; nothing more to hand over"; break; fi
+            bash scripts/ga_handoff.sh
+            if [ "$IS_MAIN" = "true" ]; then
+              bash scripts/money_to_electo.sh "Georgia money, round $round" ga-delta.db || echo "::warning::the money push of round $round did not finish; the next round or the crawl brings it"
+            fi
+          done
           gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
           df -h / | tail -1
-      - name: Hand it to the crawl (ga-delta.db.zst and ga-kv.json in the private release)
-        if: steps.read.outputs.read == '1'
-        run: |
-          gacrawl delta --since "$GA_SINCE" --key-like 'ga2|%' --out ga-delta.db
-          gacrawl ethics export-kv --kv ga-kv.json
-          python3 - <<'PY'
-          import json, os
-          d = json.load(open("ga-kv.json")); d["_since"] = os.environ["GA_SINCE"]
-          json.dump(d, open("ga-kv.json", "w"))
-          PY
-          zstd -T0 -3 -q -f ga-delta.db -o ga-delta.db.zst
-          gh release upload "$DATA_TAG" ga-delta.db.zst ga-kv.json --clobber
-          echo "uploaded $(du -h ga-delta.db.zst | cut -f1) of Georgia lines for the crawl's next merge"
+      - name: Hand it to the crawl (whatever was read, when the rounds stopped before their own hand-off)
+        if: always() && steps.read.outcome != 'success' && steps.read.outcome != 'skipped'
+        run: bash scripts/ga_handoff.sh

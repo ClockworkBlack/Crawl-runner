@@ -95,3 +95,20 @@ def test_giving_record():
     assert giving_record(P) == ("Giving since 2017, in 3 of the 8 years through 2024; the most in 2020 ($9,000). Has given to both "
                                 "Democrats and Republicans. Gives to federal and to state or local candidates.")
     assert giving_record({"years": {"2026": 100}, "to": []}) == "Giving since 2026."
+
+
+def test_every_candidate_keeps_its_own_largest_gifts_in_the_capped_list(monkeypatch):
+    """Ranked only by size, one Senate campaign's thousands of large gifts left every other campaign's donors out of
+    the list Electo keeps; each candidate's own largest now come first."""
+    from gacrawl import donors
+
+    monkeypatch.setattr(donors, "GIFT_FLOOR", 3)
+    big = [{"r": 0, "total": 5000.0 + i} for i in range(200)]          # one big campaign
+    small = [{"r": r, "total": 100.0 + i} for r in (1, 2, 3) for i in range(5)]
+    committee = [{"r": 9, "total": 9000.0}]                              # not a candidate: only by size
+    out = donors.capped(big + small + committee, 40, candidates={0, 1, 2, 3})
+    assert len(out) == 40 and [g["total"] for g in out] == sorted((g["total"] for g in out), reverse=True)
+    for r in (1, 2, 3):
+        assert sorted(g["total"] for g in out if g["r"] == r)[-3:] == [102.0, 103.0, 104.0]    # each one's largest
+    assert sum(1 for g in out if g["r"] == 0) >= 20 and out[0]["total"] == 9000.0
+    assert donors.capped(small, 100) == sorted(small, key=lambda g: -g["total"])             # under the cap: all

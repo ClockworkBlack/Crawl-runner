@@ -1289,7 +1289,7 @@ class Finance:
 
     # ------------------------------------------------------------------ run
     def run(self, candidates: list[dict], since: str = "2016-01-01", deadline: float | None = None,
-            org_limit: int = 40) -> dict:
+            org_limit: int = 40, orgs: bool = True) -> dict:
         # the copies of FEC lines and Commission exports candidate research once kept as `connection` records, without
         # the FEC's memo codes (candidates._connections no longer makes them; money is counted from these records only)
         junk = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.filing_source')="
@@ -1323,6 +1323,11 @@ class Finance:
         if getattr(self, "fec_refused", 0):
             out["fec_refused_calls"] = self.fec_refused
         out.update(self.resolve_all(candidates))
+        if not orgs:
+            # the FEC re-read: what the organizations are is the model job's (gacrawl finance orgs); here the lookups
+            # held every re-read run to its last minute, and the corrected money reached the site five hours late
+            self.flush()
+            return out
         try:
             org = self.enrich_orgs(deadline, limit=org_limit or None)
             out["organizations"], out["organization_lookups"] = org.get("done", 0), org

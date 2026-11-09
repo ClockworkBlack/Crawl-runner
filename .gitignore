@@ -22,3 +22,4 @@ state/legis_people.json
 state/entities.json
 state/orgs.json
 state/profile_inputs.json
+.money-push/
