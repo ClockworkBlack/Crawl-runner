@@ -70,8 +70,13 @@ jobs:
           python3 -I -c "import sys; sys.path.insert(0, 'ga'); import crawl_import as ci; ci.news_from(sys.argv[1])" "$BUNDLE"
           # summaries by the open model for the stories that have none yet (a failure keeps the outlets' excerpts)
           [ -f tools/ai/news_ai.py ] && timeout 40m python3 -I tools/ai/news_ai.py --text "$BUNDLE/news_text.json" --minutes 30 || echo "no model summaries this run"
+          # what used to be researched by hand, from the same stories: upcoming races (the model, each quoting its
+          # story), Georgia bills in the news (from the legislature's own record, no model) and committee backgrounds
+          [ -f tools/ai/research_ai.py ] && timeout 20m python3 -I tools/ai/research_ai.py --text "$BUNDLE/news_text.json" --minutes 15 || echo "no research updates this run"
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add ga/news.json research/train/news_ai_log.jsonl 2>/dev/null || git add ga/news.json
+          for f in ga/news.json research/train/news_ai_log.jsonl ga/upcoming.json ga/bills.json ga/recipient_notes.json research/train/research_ai_log.jsonl; do
+            [ -e "$f" ] && git add "$f"
+          done
           if git diff --cached --quiet; then echo "News tab already up to date"; else
             git commit -qm "News from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
             for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
