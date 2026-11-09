@@ -101,12 +101,21 @@ jobs:
       - name: Patch the Electo bundle (police.json, media.json, records_contacts.json)
         if: always() && steps.window.outputs.go == 'true'
         run: |
-          mkdir -p patch
-          gh release download "$DATA_TAG" -p electo-bundle.tar.gz -D patch --clobber || { echo "no bundle yet; the nightly export will carry these"; exit 0; }
-          tar -xzf patch/electo-bundle.tar.gz -C patch
-          gacrawl export --policing-only --out patch/electo
-          tar -cf - -C patch electo | gzip -1 > electo-bundle.tar.gz
-          gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber
+          # the crawl's merge job stores a newer bundle now and then: when it did while this one was being patched, the
+          # newer one is patched instead (uploading this copy would put the older bundle back)
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          at() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="electo-bundle.tar.gz") | "\(.id) \(.updated_at)"' 2>/dev/null || true; }
+          for i in 1 2 3; do
+            A0=$(at); [ -n "$A0" ] || { echo "no bundle yet; the nightly export will carry these"; exit 0; }
+            rm -rf patch && mkdir -p patch
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${A0%% *}" > patch/electo-bundle.tar.gz
+            tar -xzf patch/electo-bundle.tar.gz -C patch
+            gacrawl export --policing-only --out patch/electo
+            tar -cf - -C patch electo | gzip -1 > electo-bundle.tar.gz
+            if [ "$(at)" = "$A0" ]; then gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber; exit 0; fi
+            echo "the crawl stored a newer bundle while this one was patched: patching that one"
+          done
+          echo "::warning title=Bundle::the bundle kept changing; not patched this run (the next export carries the Policing files)"
       - name: Push the Policing files to Electo and import them there
         if: always() && steps.window.outputs.go == 'true' && env.HAS_ELECTO_TOKEN == 'true'
         env:
@@ -115,21 +124,31 @@ jobs:
           ELECTO_PATH: ${{ vars.ELECTO_PATH || 'data/crawl' }}
         run: |
           [ -f patch/electo/police.json ] || { echo "no patched bundle"; exit 0; }
-          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
-          mkdir -p "/tmp/electo/${ELECTO_PATH}"
-          # only these files: the nightly run replaces the whole folder, this one never removes anything
-          for f in manifest.json jurisdictions.json police.json media.json records_contacts.json police_incidents.json; do
-            [ -e "patch/electo/$f" ] && cp "patch/electo/$f" "/tmp/electo/${ELECTO_PATH}/"
-          done
-          cd /tmp/electo
-          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          # Electo's own importer, here (its crawl-policing workflow would spend Electo's minutes)
-          CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only | tail -1 | cut -c1-300 || true
-          git add "${ELECTO_PATH}"
-          for f in police media records sites police_news bill_reasons donors; do [ -e "ga/crawl/$f.json" ] && git add "ga/crawl/$f.json"; done
-          git diff --cached --quiet && { echo "no change"; exit 0; }
-          git commit -qm "police data: $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3; do git pull --rebase --autostash -q && git push -q && exit 0; sleep 5; done
+          P="$PWD/patch/electo"
+          # on a fresh clone each try: the crawl's import, the money pushes and the AI jobs push to Electo too, and a
+          # rebase over their files stops on a conflict that fails every later try (explicit returns: errexit is off
+          # inside a function whose status is tested)
+          push_once() {
+            rm -rf /tmp/electo
+            git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo || return 1
+            mkdir -p "/tmp/electo/${ELECTO_PATH}"
+            # only these files: the nightly run replaces the whole folder, this one never removes anything
+            for f in manifest.json jurisdictions.json police.json media.json records_contacts.json police_incidents.json; do
+              [ -e "$P/$f" ] && cp "$P/$f" "/tmp/electo/${ELECTO_PATH}/"
+            done
+            cd /tmp/electo || return 1
+            git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+            # Electo's own importer, here (its crawl-policing workflow would spend Electo's minutes)
+            CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only | tail -1 | cut -c1-300 || true
+            git add "${ELECTO_PATH}"
+            # the Policing tab's files; not donors.json, which this bundle holds as old as the crawl's last export while
+            # the money jobs push newer money every round (committing it here put older money back on the Donors tab)
+            for f in police media records sites police_news bill_reasons; do [ -e "ga/crawl/$f.json" ] && git add "ga/crawl/$f.json"; done
+            git diff --cached --quiet && { echo "no change"; return 0; }
+            git commit -qm "police data: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1
+            git push -q origin HEAD:main
+          }
+          for i in 1 2 3; do (push_once) && exit 0; sleep $((i * 10)); done
           exit 1
       - name: Summary
         if: always()

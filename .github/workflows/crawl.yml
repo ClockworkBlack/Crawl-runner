@@ -838,38 +838,44 @@ jobs:
         run: |
           # never replace Electo's packets with nothing: the folder below is emptied and refilled from the bundle
           [ -f dist/electo/manifest.json ] || { echo "::error::no bundle in dist/electo; nothing pushed to Electo"; exit 1; }
+          B="$PWD/dist/electo"
           git clone --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
-          cd /tmp/electo && git sparse-checkout set "$ELECTO_PATH" && cd -
-          rm -rf "/tmp/electo/${ELECTO_PATH}" && mkdir -p "/tmp/electo/${ELECTO_PATH}"
-          for f in manifest.json schema.md jurisdictions.json rumor_mill.json rumor_mill_video.json screenshots.json connections.json \
-                   organizations.json elections.json ballot_questions.json police.json media.json records_contacts.json \
-                   police_incidents.json bill_reasons.json donors.json packets profiles councils; do
-            [ -e "dist/electo/$f" ] && cp -r "dist/electo/$f" "/tmp/electo/${ELECTO_PATH}/"
-          done
-          cd /tmp/electo
-          # GitHub refuses a file over 100 MB, and the whole push with it (Nov 9: connections.json at 113 MB). Such a
-          # file is stored gzipped (Electo's ga/crawl_import.py reads <name>.gz); still too big, Electo keeps its copy
-          find "${ELECTO_PATH}" -type f -size +90M | while read -r big; do
-            gzip -n -9 -f "$big"
-            if [ "$(stat -c %s "$big.gz")" -gt 94000000 ]; then
-              rm -f "$big.gz"
-              git checkout -q HEAD -- "$big" 2>/dev/null || git checkout -q HEAD -- "$big.gz" 2>/dev/null || true
-              echo "::warning title=Packets::$big is over 90 MB even gzipped; Electo keeps its previous copy"
-            else
-              echo "::warning title=Packets::$big is over 90 MB; stored gzipped as $big.gz ($(du -h "$big.gz" | cut -f1))"
-            fi
-          done
+          cd /tmp/electo && git sparse-checkout set "$ELECTO_PATH"
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add "${ELECTO_PATH}"
+          fill() {     # Electo's folder <- this bundle's files, staged
+            rm -rf "${ELECTO_PATH}" && mkdir -p "${ELECTO_PATH}"
+            for f in manifest.json schema.md jurisdictions.json rumor_mill.json rumor_mill_video.json screenshots.json connections.json \
+                     organizations.json elections.json ballot_questions.json police.json media.json records_contacts.json \
+                     police_incidents.json bill_reasons.json donors.json packets profiles councils; do
+              [ -e "$B/$f" ] && cp -r "$B/$f" "${ELECTO_PATH}/"
+            done
+            # GitHub refuses a file over 100 MB, and the whole push with it (Nov 9: connections.json at 113 MB). Such a
+            # file is stored gzipped (Electo's ga/crawl_import.py reads <name>.gz); still too big, Electo keeps its copy
+            find "${ELECTO_PATH}" -type f -size +90M | while read -r big; do
+              gzip -n -9 -f "$big"
+              if [ "$(stat -c %s "$big.gz")" -gt 94000000 ]; then
+                rm -f "$big.gz"
+                git checkout -q HEAD -- "$big" 2>/dev/null || git checkout -q HEAD -- "$big.gz" 2>/dev/null || true
+                echo "::warning title=Packets::$big is over 90 MB even gzipped; Electo keeps its previous copy"
+              else
+                echo "::warning title=Packets::$big is over 90 MB; stored gzipped as $big.gz ($(du -h "$big.gz" | cut -f1))"
+              fi
+            done
+            git add -A "${ELECTO_PATH}"
+          }
+          fill
           git diff --cached --quiet && { echo "Electo already has these packets"; exit 0; }
           git commit -qm "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)"
-          # retried as the import below is: Electo's other writers (its own builds, the AI jobs, the police job's
-          # files in the same folder) push in between. This folder is the bundle's, so its version wins a conflict;
-          # a rebase that still stops is abandoned before the next try (else every later try fails on it)
+          # Electo's other writers (its own builds, the AI jobs, the police job's files in this folder) push in between.
+          # This folder is the bundle's whole: when the push is refused, it is filled again on top of their newest
+          # commit (no rebase that can stop on a conflict and fail every later try)
           for i in 1 2 3 4 5; do
-            git pull --rebase -X theirs --autostash -q && git push -q && exit 0
-            git rebase --abort 2>/dev/null || true
+            git push -q origin HEAD:main && exit 0
             sleep $((i*5))
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || continue
+            fill
+            git diff --cached --quiet && { echo "Electo already has these packets"; exit 0; }
+            git commit -qm "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)"
           done
           exit 1
       - name: Import into Electo (profiles, councils, schools, places, records review) from the full bundle
@@ -885,34 +891,47 @@ jobs:
           set -e
           BUNDLE="$PWD/dist/electo"
           [ -f "$BUNDLE/manifest.json" ] || { echo "::error::no bundle in dist/electo; nothing imported into Electo"; exit 1; }
-          git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full
-          cd /tmp/electo-full
-          export CRAWL_BUNDLE="$BUNDLE"
-          # the order ga/build_all.sh uses, minus the steps that need the live web
-          python3 -I ga/merge_profiles.py | tail -1
-          python3 -I research/build_aliases.py | head -1
-          python3 -I ga/merge_prim.py | tail -1
           python3 -c "import matplotlib" 2>/dev/null || pip install -q matplotlib || echo "matplotlib did not install; places not rebuilt"
-          python3 -I ga/places.py | tail -1
-          python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
-          (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)
-          python3 -I ga/crawl_import.py --policing-only --force | tail -1 | cut -c1-300   # police, media, records, bill reasons, donors
-          # the rest of build_all.sh, none of which needs the live web: the bill list (statuses, act numbers, new bills)
-          # from legislation.json, the Code as amended by every enacted act from code_acts.json (a run that changes
-          # nothing rewrites nothing), and the name registry last (record-only council voters get their pages)
-          [ ! -f civics/refresh_acts.py ] || python3 -I civics/refresh_acts.py "$BUNDLE/legislation.json" | tail -1
-          [ ! -f civics/apply_acts.py ] || timeout 10m python3 -I civics/apply_acts.py "$BUNDLE/code_acts.json" | grep -E '"(coverage|sections_changed|published)"|apply_acts:' | tr -d '\n'; echo
-          python3 -I ga/names.py | tail -1
-          # the News tab has its own job (news.yml, every 3 hours, fresher than this run's bundle): what the importer
-          # wrote there is dropped, so the site data below publishes that job's stories
-          git checkout -q -- ga/news.json 2>/dev/null || true
-          # only what the import writes
-          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add -A ga/crawl ga/councils.json ga/places.json ga/pipeline_archive/profiles.json ga/pipeline_archive/names.json ga/pipeline_archive/crawl_elections.json ga/profiles_local.json ga/pipeline_civics/acts.json ga/pipeline_civics/ocga_cur research/crawl_quarantine.json research/crawl_review.json 2>/dev/null || true
-          git diff --cached --quiet && { echo "Electo already up to date"; exit 0; }
-          git diff --cached --stat | tail -1
-          git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
+          export CRAWL_BUNDLE="$BUNDLE"
+          # made on a fresh clone of Electo's main each try: the money jobs (scripts/money_to_electo.sh, every round), the
+          # police job and the AI jobs push to Electo too, and a rebase over their files (ga/crawl/people.json and
+          # donors.json are the money push's as well) stops on a conflict and failed every later try. The explicit
+          # returns matter: errexit does not apply inside a function whose status is tested
+          import_once() {
+            rm -rf /tmp/electo-full
+            git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full || return 1
+            cd /tmp/electo-full || return 1
+            # the order ga/build_all.sh uses, minus the steps that need the live web
+            python3 -I ga/merge_profiles.py | tail -1
+            python3 -I research/build_aliases.py | head -1
+            python3 -I ga/merge_prim.py | tail -1
+            python3 -I ga/places.py | tail -1
+            python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
+            (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)
+            python3 -I ga/crawl_import.py --policing-only --force | tail -1 | cut -c1-300   # police, media, records, bill reasons, donors
+            # the rest of build_all.sh, none of which needs the live web: the bill list (statuses, act numbers, new bills)
+            # from legislation.json, the Code as amended by every enacted act from code_acts.json (a run that changes
+            # nothing rewrites nothing), and the name registry last (record-only council voters get their pages)
+            [ ! -f civics/refresh_acts.py ] || python3 -I civics/refresh_acts.py "$BUNDLE/legislation.json" | tail -1
+            [ ! -f civics/apply_acts.py ] || timeout 10m python3 -I civics/apply_acts.py "$BUNDLE/code_acts.json" | grep -E '"(coverage|sections_changed|published)"|apply_acts:' | tr -d '\n'; echo
+            python3 -I ga/names.py | tail -1
+            # the News tab has its own job (news.yml, every 3 hours, fresher than this run's bundle): what the importer
+            # wrote there is dropped, so the site data below publishes that job's stories
+            git checkout -q -- ga/news.json 2>/dev/null || true
+            # only what the import writes
+            git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+            git add -A ga/crawl ga/councils.json ga/places.json ga/pipeline_archive/profiles.json ga/pipeline_archive/names.json ga/pipeline_archive/crawl_elections.json ga/profiles_local.json ga/pipeline_civics/acts.json ga/pipeline_civics/ocga_cur research/crawl_quarantine.json research/crawl_review.json 2>/dev/null || true
+            git diff --cached --quiet && { echo "Electo already up to date"; return 0; }
+            git diff --cached --stat | tail -1
+            git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1
+            git push -q origin HEAD:main || return 1
+            echo "imported into Electo ($(git rev-parse --short HEAD))"
+          }
+          for i in 1 2 3; do
+            (import_once) && exit 0
+            echo "Electo's main moved while importing (or the push was refused): importing again on its newest commit"
+            sleep $((i * 10))
+          done
           exit 1
       - name: Site data for the page's Check for updates (the public electo-data feed)
         timeout-minutes: 30
@@ -924,10 +943,15 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: |
-          cd /tmp/electo-full && git pull -q --rebase --autostash || true
+          # the site is built from Electo's newest main (the import above is on it once pushed); a copy the import left
+          # unpushed is set aside, and one it never made is cloned now
+          [ -d /tmp/electo-full/.git ] || git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full || true
+          cd /tmp/electo-full || { echo "site data not refreshed (no copy of Electo)"; exit 0; }
+          git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || echo "::warning title=Site data::Electo's newest main not fetched; building from the import's copy"
           [ -f tools/site_data.sh ] && timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
       - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
         timeout-minutes: 10

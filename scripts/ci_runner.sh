@@ -81,20 +81,35 @@ case "$cmd" in
   push-state)
     msg="$1"; shift
     if [ "${PUBLIC_RUNNER:-false}" = "true" ]; then
-      rm -rf .data
-      git clone -q --depth 1 "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data
-      for p in "$@"; do
-        [ -e "$p" ] || continue
-        case "$p" in data/openrecords*) continue ;; esac   # the tracker is written only by the private repository's mail run
-        mkdir -p ".data/$(dirname "$p")"; rm -rf ".data/$p"; cp -r "$p" ".data/$p"
+      # each try copies this run's kept files over a fresh clone of the private repository, so a push another job made
+      # first (the police job also keeps state/blocked.json; fec-reread data/coverage.md) is built on, never rebased
+      # into a conflict that would fail every later try
+      for i in 1 2 3 4 5; do
+        rm -rf .data
+        git clone -q --depth 1 "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data || { sleep $((i*5)); continue; }
+        for p in "$@"; do
+          [ -e "$p" ] || continue
+          case "$p" in data/openrecords*) continue ;; esac   # the tracker is written only by the private repository's mail run
+          mkdir -p ".data/$(dirname "$p")"; rm -rf ".data/$p"; cp -r "$p" ".data/$p"
+        done
+        git -C .data config user.name "gacrawl-bot"; git -C .data config user.email "gacrawl-bot@users.noreply.github.com"
+        for p in "$@"; do if [ -e ".data/$p" ]; then git -C .data add -A "$p"; fi; done
+        git -C .data diff --cached --quiet && { echo "nothing new to keep"; rm -rf .data; exit 0; }
+        git -C .data commit -qm "$msg"
+        git -C .data push -q && { echo "kept in $DATA_REPO"; rm -rf .data; exit 0; }
+        sleep $((i*5))
       done
-      cd .data
+      exit 1
     fi
     git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
     for p in "$@"; do if [ -e "$p" ]; then git add -A "$p"; fi; done
     git diff --cached --quiet && { echo "nothing new to keep"; exit 0; }
     git commit -qm "$msg"
-    for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && { echo "kept in ${DATA_REPO:-this repository}"; exit 0; }; sleep $((i*5)); done
+    for i in 1 2 3 4 5; do
+      git pull --rebase --autostash -q && git push -q && { echo "kept in this repository"; exit 0; }
+      git rebase --abort 2>/dev/null || true     # a rebase stopped on a conflict would fail every later try
+      sleep $((i*5))
+    done
     exit 1
     ;;
   *) echo "usage: ci_runner.sh mode|pull-state|pack|unpack|push-state"; exit 2 ;;
