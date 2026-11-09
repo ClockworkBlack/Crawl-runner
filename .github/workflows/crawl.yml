@@ -291,6 +291,7 @@ jobs:
       - name: Fetch database
         run: bash scripts/ci_db.sh pull
       - name: Merge shards
+        id: merged
         run: |
           shopt -s nullglob
           DELTAS=(shards/*/deltas/*.db); STATES=(shards/*/state)
@@ -551,14 +552,18 @@ jobs:
           else
             echo "inbox empty"
           fi
+      - name: Store the database now (whatever a later step does, this run's reading is kept)
+        if: always() && steps.merged.outcome == 'success'
+        run: bash scripts/ci_db.sh push
       - name: Task list, status, Electo bundle
+        id: bundle
         run: |
           gacrawl tasks
           gacrawl status
           gacrawl export --out dist/electo
       - name: Store database and bundle (release assets)
         run: |
-          bash scripts/ci_db.sh push
+          bash scripts/ci_db.sh push       # again: the export steps write to it too
           tar -cf - -C dist electo | gzip -1 > electo-bundle.tar.gz   # fast level: built every night
           gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber
       - name: Run summary (the job's Summary tab)

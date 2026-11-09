@@ -64,3 +64,13 @@ def test_blank_forms_are_not_reports():
                                      "Contributor Employer Amount")
     assert NOT_A_DONOR.search("GEORGIA GOVERNMENT TRANSPARENCY AND CAMPAIGN FINANCE COMMISSION 200 Piedmont Avenue SE")
     assert not NOT_A_DONOR.search("SMITH, JOHN A")
+
+
+def test_packet_money_lines_have_a_source_kind():
+    from gacrawl.electo import build_packet
+    rec = {"rid": 1, "url": "https://example.com/ga", "kind": "contribution", "published": "2026-10-01",
+           "meta": {"type": "contribution", "name": "DOE, JANE", "amount": 500, "date": "2026-10-01", "recipient": "Ann Able",
+                    "candidate_id": "a", "filing_source": "Georgia State Ethics Commission", "line": "1"}}
+    pk = build_packet({"id": "a", "name": "Ann Able"}, {"contribution": [rec]}, [], set())
+    assert pk["finance"][0]["amount"] == 500
+    assert pk["sources"][pk["finance"][0]["src"][0]]["kind"] == "contribution"

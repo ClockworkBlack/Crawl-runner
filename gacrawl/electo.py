@@ -291,8 +291,8 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
         m = L["meta"]
         if L["type"] == "contribution" and L["amount"] > 0:
             finance.append({"name": m.get("name"), "amount": L["amount"], "date": m.get("date"), "employer": m.get("employer"),
-                            "via": L["via"], "src": [src({"url": L["url"], "meta": m, "title": m.get("name") or "",
-                                                          "published": L["published"]})]})
+                            "via": L["via"], "src": [src({"url": L["url"], "meta": m, "title": m.get("name") or "", "kind": "contribution",
+                                                          "evidence": "primary", "published": L["published"]})]})
     finance.sort(key=lambda x: -(x["amount"] or 0))
     finance = finance[:200]
     social = [{"d": d10(r), "text": (r.get("text") or "")[:400], "author": r.get("meta", {}).get("author"),
