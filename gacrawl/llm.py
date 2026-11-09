@@ -12,7 +12,9 @@ import json, os, re, time
 
 REPO = os.environ.get("ELECTO_LLM_REPO", "Qwen/Qwen3-8B-GGUF")
 QUANT = os.environ.get("ELECTO_LLM_QUANT", "Q4_K_M")
-NAME = "Qwen3-8B"
+# another open model for another task (the inferences use microsoft/phi-4-gguf, Q4_K_S): set both variables
+NAME = os.environ.get("ELECTO_LLM_NAME") or REPO.split("/")[-1].replace("-GGUF", "").replace("-gguf", "")
+QWEN = "qwen" in REPO.lower()
 MAX_LOG = 20000
 _LLM = None
 
@@ -28,6 +30,8 @@ def load(n_ctx=8192):
         from llama_cpp import Llama
 
         files = [f for f in list_repo_files(REPO) if f.endswith(".gguf") and QUANT.lower() in f.lower()]
+        exact = [f for f in files if re.search(r"[-_.]" + re.escape(QUANT.lower()) + r"\.gguf$", f.lower())]
+        files = exact or files                  # "Q4_K_S" must not pick "Q4_K_S" over "Q4_K" or the reverse
         if not files:
             raise SystemExit(f"no {QUANT} file in {REPO}")
         path = hf_hub_download(REPO, files[0])
@@ -38,10 +42,11 @@ def load(n_ctx=8192):
 
 
 def chat(messages, max_tokens=400):
-    """One answer, greedy, thinking off (Qwen3's /no_think switch on the last user turn)."""
+    """One answer, greedy, thinking off (Qwen3's /no_think switch on the last user turn; other models get none)."""
     llm = load()
     msgs = [dict(m) for m in messages]
-    msgs[-1]["content"] = msgs[-1]["content"].rstrip() + " /no_think"
+    if QWEN:
+        msgs[-1]["content"] = msgs[-1]["content"].rstrip() + " /no_think"
     out = llm.create_chat_completion(messages=msgs, max_tokens=max_tokens, temperature=0.0, top_p=1.0, top_k=1,
                                      repeat_penalty=1.0)
     text = out["choices"][0]["message"]["content"] or ""

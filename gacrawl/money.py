@@ -107,5 +107,8 @@ def clean(records, own: dict | None = None, stats: dict | None = None):
             st["transfer"] += 1
             continue
         st["lines"] += 1
-        yield {"rid": r.get("rid"), "url": r.get("url"), "published": r.get("published"), "meta": m, "amount": amt,
+        # the line's own identity (the store's rows carry their row id as "id"; a record built in memory has only its key):
+        # the connections graph keeps two lines with the same donor, recipient, date, amount and page apart by it
+        yield {"rid": r.get("rid") or r.get("id") or r.get("key") or (m.get("transaction_id") or m.get("line")),
+               "key": r.get("key"), "url": r.get("url"), "published": r.get("published"), "meta": m, "amount": amt,
                "type": m.get("type") or "contribution", "via": via_of(m), "platform": platform_of(m)}

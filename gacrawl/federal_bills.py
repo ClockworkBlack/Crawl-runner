@@ -219,12 +219,9 @@ class Outlook:
         kind, maj, bip = _feat(meta)
         tab = self._table(day)
         n = won = 0
-        how = ""
-        for key, h in (((kind, st, maj, bip), "the same stage, a sponsor in the same position and the same kind of support"),
-                       ((kind, st, maj), "the same stage and a sponsor in the same position"),
-                       ((kind, st), "the same stage")):
+        k = 0
+        for k, key in enumerate(((kind, st, maj, bip), (kind, st, maj), (kind, st))):
             n, won = tab.get(key, (0, 0))
-            how = h
             if n >= 30:
                 break
         if not n:
@@ -233,16 +230,14 @@ class Outlook:
         yes = pct >= 50
         far = abs(pct - 50)
         conf = "Very likely" if far >= 40 else "Fairly confident" if far >= 25 else "Lean"
-        what = "agreed to" if kind != "bill" else "became law"
-        party = meta["sponsor"].get("party") or "?"
-        why = [f"Of {n:,} bills in the 114th-118th Congresses that stood where this one stands ({STAGE_LABEL[st].lower()}) "
-               f"{day} days into their Congress, with {how}, {won:,} ({pct}%) {what}.",
-               f"Sponsor: {meta['sponsor'].get('name') or 'unknown'} ({party}), "
-               + ("in the majority party of the chamber." if maj else "in the minority party of the chamber."),
-               f"{meta['cos']} cosponsor{'s' if meta['cos'] != 1 else ''}"
-               + (f", {meta['cos_other']} from the other party." if bip else ", none from the other party."),
-               f"The {c}th Congress ends on January 3, {congress_start(c + 1).year}: a bill not enacted by then dies."]
-        return {"v": "y" if yes else "n", "label": "Pass Likely" if yes else "Pass Not Likely", "pct": pct, "n": n, "conf": conf, "why": why}
+        # compact: the page writes the reasons out from these and the bill's own row (OUTLOOK_HOW names the match)
+        return {"v": "y" if yes else "n", "label": "Pass Likely" if yes else "Pass Not Likely", "pct": pct, "n": n,
+                "won": won, "conf": conf, "k": k, "st": st, "day": day, "maj": maj}
+
+
+OUTLOOK_HOW = ["the same stage, a sponsor in the same position (majority or minority party of the chamber) and the same kind of support (cosponsors from the other party or not)",
+               "the same stage and a sponsor in the same position (majority or minority party of the chamber)",
+               "the same stage"]
 
 
 # ------------------------------------------------------------------------------------------------- reading
@@ -338,6 +333,11 @@ COLS = ["t", "n", "title", "intro", "sponsor", "party", "state", "cos", "cos_oth
         "law", "area", "summary", "outlook", "ai"]
 
 
+def _clip(t: str, n: int) -> str:
+    t = re.sub(r"\s+", " ", t or "").strip()
+    return t if len(t) <= n else t[: t.rfind(" ", 0, n - 1) if t.rfind(" ", 0, n - 1) > n // 2 else n - 1].rstrip(",;: ") + "…"
+
+
 def export_federal(store, out_dir: Path, log=print, today: dt.date | None = None) -> dict:
     """federal_bills/{congress}.json: {"c", "cols", "rows"} (one row per bill, columns as COLS), and meta.json."""
     import shutil
@@ -366,14 +366,20 @@ def export_federal(store, out_dir: Path, log=print, today: dt.date | None = None
             o = ol.rate(m, today) if c == now_c else None
             sp = m.get("sponsor") or {}
             a = about.get(f"{c}|{m['t']}|{m['n']}")
-            rows.append([m["t"], m["n"], m["title"], m["intro"], sp.get("name", ""), sp.get("party", ""), sp.get("state", ""),
-                         m["cos"], m["cos_other"], m.get("cos_ga") or [], stage_of(m), m["last"]["d"], m["last"]["text"],
-                         m.get("law", ""), m.get("area", ""), (m.get("summary") or "")[:400], o,
-                         a if a and a.get("t") else None])
+            stg = stage_of(m)
+            ga = sp.get("state") == "GA" or bool(m.get("cos_ga"))
+            # the summary only where people read it (a bill that moved, one Georgia's members are on, one with an
+            # outlook): the rest keep their title and link, which keeps each Congress's file small enough for a phone
+            keep_sum = stg != "introduced" or ga
+            rows.append([m["t"], m["n"], _clip(m["title"], 220), m["intro"], sp.get("name", ""), sp.get("party", ""), sp.get("state", ""),
+                         m["cos"], m["cos_other"], m.get("cos_ga") or [], stg, m["last"]["d"], _clip(m["last"]["text"], 140),
+                         m.get("law", ""), m.get("area", ""), _clip(m.get("summary") or "", 320) if keep_sum else "", o,
+                         {"t": a["t"], "m": a.get("m", "")} if a and a.get("t") else None])
         (out_dir / f"{c}.json").write_text(json.dumps({"c": c, "cols": COLS, "rows": rows}, ensure_ascii=False, separators=(",", ":")),
                                            encoding="utf-8")
         counts[c] = len(rows)
     (out_dir / "meta.json").write_text(json.dumps({"congresses": sorted(counts), "now": now_c, "counts": counts,
+                                                  "outlook_how": OUTLOOK_HOW, "ends": f"January 3, {congress_start(now_c + 1).year}",
                                                   "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                                                   "source": "GovInfo Bill Status bulk data (Library of Congress)",
                                                   "source_url": f"{BASE}/BILLSTATUS"}, separators=(",", ":")), encoding="utf-8")

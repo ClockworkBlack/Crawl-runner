@@ -57,6 +57,9 @@ class Graph:
         self.out: dict[str, list[dict]] = defaultdict(list)      # node -> edges leaving it
         self.inn: dict[str, list[dict]] = defaultdict(list)      # node -> edges arriving at it
         self.pattern_index: dict[str, list[int]] = {}            # node -> indexes into the patterns list
+        # money a recipient raised with no donor named (a filer's unitemized small gifts, a platform's lump line):
+        # recipient (candidate id or entity) -> {platform label: total}; counted in what they raised, never as a donor
+        self.lumps: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
     def node(self, eid: str, kind: str | None = None, name: str | None = None, **attrs) -> str:
         if eid not in self.nodes:
@@ -118,6 +121,10 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
         r = {"url": L["url"]}
         donor, rcp = m.get("donor_entity"), m.get("recipient_entity")
         if not donor:
+            if L["platform"] and m.get("type", "contribution") == "contribution" and L["amount"] > 0:
+                who = m.get("candidate_id") or rcp
+                if who:
+                    g.lumps[who][L["platform"]] += L["amount"]
             continue
         g.node(donor)
         if rcp:
@@ -439,7 +446,12 @@ def money_for(g: Graph, store: Store, entities: EntityIndex, candidate_id: str, 
         if e.get("via"):
             via[e["via"]] += e.get("amount") or 0
     out_fec = fec_check(store, candidate_id, sum(e.get("amount") or 0 for e in ins if e.get("filing") == "FEC"))
-    return {"entity": eid, "total_raised": round(sum(e.get("amount") or 0 for e in ins), 2), "contributions": len(ins),
+    lump: dict[str, float] = defaultdict(float)
+    for k in {candidate_id, eid}:
+        for name, v in (g.lumps.get(k) or {}).items():
+            lump[name] += v
+    return {"entity": eid, "total_raised": round(sum(e.get("amount") or 0 for e in ins) + sum(lump.values()), 2), "contributions": len(ins),
+            "unattributed": [{"name": k, "total": round(v, 2)} for k, v in sorted(lump.items(), key=lambda kv: -kv[1])],
             "fec": out_fec, "via": [{"name": k, "total": round(v, 2)} for k, v in sorted(via.items(), key=lambda kv: -kv[1])][:12],
             "total_spent": round(sum(e.get("amount") or 0 for e in outs), 2), "expenditures": len(outs),
             "donors": sorted(by_donor.values(), key=lambda d: -d["total"])[:60],

@@ -937,7 +937,14 @@ def cmd_ethics(cfg, args):
         deadline = time.monotonic() + float(args.max_minutes or 60) * 60
         from .candidates import load_candidates
 
-        print(json.dumps(ethics.run(_fetcher(cfg, deadline), store, config.ROOT, load_candidates(config.ROOT, cfg), deadline)))
+        cands = load_candidates(config.ROOT, cfg)
+        st = ethics.run(_fetcher(cfg, deadline), store, config.ROOT, cands, deadline)
+        # donor and recipient ids for the new lines now (the finance step ran before this one), so this run's export
+        # already puts them in profiles' money, the connections graph and the donor profiles
+        from .finance import Finance
+
+        st["entities"] = Finance(config.ROOT, cfg, None, store).resolve_all(cands)
+        print(json.dumps(st))
     finally:
         store.close()
 

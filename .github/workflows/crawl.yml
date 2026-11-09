@@ -304,11 +304,9 @@ jobs:
           mkdir -p fecd
           if gh release download "$DATA_TAG" -p fec-delta.db.zst -p fec-kv.json -D fecd --clobber 2>/dev/null && [ -f fecd/fec-delta.db.zst ]; then
             zstd -d -q -f fecd/fec-delta.db.zst -o fecd/fec-delta.db
-            gacrawl finance apply --delta fecd/fec-delta.db --kv fecd/fec-kv.json
-            if [ "$IS_MAIN" = "true" ]; then
-              gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
-              gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
-            fi
+            gacrawl finance apply --delta fecd/fec-delta.db --kv fecd/fec-kv.json && touch fecd/applied
+            # the hand-off is deleted only once the database holding it is stored (the next step that stores it):
+            # a run that dies before then leaves it for the next run instead of losing it
           else echo "no parallel FEC re-read waiting"; fi
       - name: Purge sources removed for cause (config/purge.yaml)
         run: gacrawl purge
@@ -554,7 +552,13 @@ jobs:
           fi
       - name: Store the database now (whatever a later step does, this run's reading is kept)
         if: always() && steps.merged.outcome == 'success'
-        run: bash scripts/ci_db.sh push
+        run: |
+          bash scripts/ci_db.sh push
+          if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then        # the FEC hand-off is in the stored database now
+            gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
+            gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
+            rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
+          fi
       - name: Task list, status, Electo bundle
         id: bundle
         run: |

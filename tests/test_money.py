@@ -74,3 +74,42 @@ def test_packet_money_lines_have_a_source_kind():
     pk = build_packet({"id": "a", "name": "Ann Able"}, {"contribution": [rec]}, [], set())
     assert pk["finance"][0]["amount"] == 500
     assert pk["sources"][pk["finance"][0]["src"][0]]["kind"] == "contribution"
+
+
+def test_two_alike_gifts_stay_two_in_the_graph(tmp_path):
+    """Two real gifts with the same donor, recipient, date, amount and page (a filer's search page, as the Georgia
+    Ethics Commission's lines have) are two lines: the graph keeps them apart by the line's identity."""
+    from gacrawl.connections import build
+    from gacrawl.entities import EntityIndex
+    from gacrawl.store import Record, Store
+
+    s = Store(tmp_path / "data")
+    for i in (1, 2):
+        s.add(Record("ga", "contribution", "https://peachfile.ethics.ga.gov/public/cf/contributions", key=f"ga2|peachfile|{i}",
+                     meta={"type": "contribution", "name": "DOE, JANE", "amount": 100, "date": "2026-10-01", "recipient": "Ann Able",
+                           "candidate_id": "a", "donor_entity": "p1", "recipient_entity": "p2", "line": str(i),
+                           "filing_source": "Georgia State Ethics Commission"}))
+    s.flush()
+    g = build(s, EntityIndex(tmp_path / "entities.json", store=s))
+    assert sum(e.get("amount") or 0 for e in g.inn.get("p2", ()) if e["type"] == "contributed") == 200
+
+
+def test_profile_total_counts_unitemized_like_the_donors_tab(tmp_path):
+    from gacrawl.connections import build, money_for
+    from gacrawl.entities import EntityIndex
+    from gacrawl.store import Record, Store
+
+    s = Store(tmp_path / "data")
+    ix = EntityIndex(tmp_path / "entities.json", store=s)
+    ix.add_candidate({"id": "a", "name": "Ann Able"})
+    eid = ix.by_candidate("a")
+    base = {"type": "contribution", "date": "2026-10-01", "recipient": "Ann Able", "candidate_id": "a", "recipient_entity": eid,
+            "filing_source": "Georgia State Ethics Commission"}
+    s.add(Record("ga", "contribution", "https://peachfile.ethics.ga.gov/public/cf/contributions", key="ga2|p|1",
+                 meta={**base, "name": "DOE, JANE", "amount": 300, "donor_entity": "p1", "line": "1"}))
+    s.add(Record("ga", "contribution", "https://peachfile.ethics.ga.gov/public/cf/contributions", key="ga2|p|2",
+                 meta={**base, "name": "", "amount": 5000, "unitemized": True, "line": "2"}))
+    s.flush()
+    m = money_for(build(s, ix), s, ix, "a")
+    assert m["total_raised"] == 5300 and m["contributions"] == 1
+    assert m["unattributed"] == [{"name": "Unitemized small gifts", "total": 5000}]
