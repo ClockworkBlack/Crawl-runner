@@ -308,8 +308,33 @@ jobs:
             # the hand-off is deleted only once the database holding it is stored (the next step that stores it):
             # a run that dies before then leaves it for the next run instead of losing it
           else echo "no parallel FEC re-read waiting"; fi
+      - name: Apply the open model job's writing (model-work workflow), before anything exports it
+        continue-on-error: true
+        run: |
+          # donor backgrounds, Rumor Mill readings and federal bill descriptions are written by the open model on its own
+          # runner (model-work.yml, up to five hours a run); its hand-off is applied here and deleted only once stored
+          mkdir -p modeld
+          if gh release download "$DATA_TAG" -p model-handoff.json -D modeld --clobber 2>/dev/null && [ -f modeld/model-handoff.json ]; then
+            gacrawl model-handoff apply --in modeld/model-handoff.json && touch modeld/applied
+          else echo "no open model hand-off waiting"; fi
       - name: Purge sources removed for cause (config/purge.yaml)
         run: gacrawl purge
+      - name: Store the merged database at once (the night's crawl and the FEC re-read, before the long steps)
+        # The merge job's later steps run for hours; when one hung and the job was cancelled, nothing of the night was
+        # stored (the database stayed a day old, and every FEC re-read applied to it was lost with it, so the re-read
+        # started over from the same old lines each time). Stored here as soon as it is merged, and again at the end.
+        if: always() && steps.merged.outcome == 'success'
+        run: |
+          bash scripts/ci_db.sh push
+          if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then
+            gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
+            gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
+            rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
+          fi
+          if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
+            gh release delete-asset "$DATA_TAG" model-handoff.json -y || true
+            rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
+          fi
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
         run: |
           M=${{ vars.DERIVE_MINUTES || '5' }}; [ "$IS_MAIN" != "true" ] && M=2
@@ -394,6 +419,10 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: hf-qwen3-8b-q4km-v1
+      - name: Store the database again (research and news so far), before the open model's long steps
+        if: always() && steps.merged.outcome == 'success'
+        timeout-minutes: 15
+        run: bash scripts/ci_db.sh push
       - name: Discovery by the open model (new people in the news; sites for people and places with none)
         run: |
           # gacrawl/discover_ai.py: DuckDuckGo search through the free ddgs library (no key), pages opened by the crawler's own
@@ -465,23 +494,6 @@ jobs:
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --max-minutes "$M" || echo "the Georgia money step stopped after $((M + 10)) minutes"
-      - name: Donor profiles by the open model (what each organization that gave money is, from its registrations)
-        run: |
-          # gacrawl/donors_ai.py: only organizations and committees, only from what the finance step opened (FEC
-          # registration, IRS data, the organization's own about page); checked like the news summaries
-          M=${{ vars.DONORS_AI_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          python3 -c "import llama_cpp" 2>/dev/null || pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
-            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || { echo "llama.cpp did not install; no summaries this run"; exit 0; }
-          timeout -s INT -k 2m "$((M + 6))m" gacrawl donors-ai --max-minutes "$M" || echo "donor summaries stopped after $((M + 6)) minutes"
-      - name: Rumor Mill readings by the open model (is the person named; what each item rests on)
-        run: |
-          # gacrawl/rumors_ai.py: reads the outlet text the crawler kept (never published); the answer is kept only when
-          # its quote is copied exactly from the text. Electo's import turns these into Rumor Has It's ratings.
-          M=${{ vars.RUMORS_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed (the donor step installs it); no readings this run"; exit 0; }
-          timeout -s INT -k 2m "$((M + 6))m" gacrawl rumors-ai --max-minutes "$M" || echo "rumor readings stopped after $((M + 6)) minutes"
       - name: Meeting channels by the open model (taught by the owner's channel decisions)
         run: |
           # gacrawl/channel_ai.py: every channel still in the Rumor Mill - Video bucket judged against the owner's decisions
@@ -501,12 +513,6 @@ jobs:
           else
             timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --captions-only --max-minutes "$M" || echo "captions stopped after $((M + 6)) minutes"
           fi
-      - name: Federal bill descriptions by the open model (plain words from the official summary, checked)
-        run: |
-          M=${{ vars.FEDERAL_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed; no descriptions this run"; exit 0; }
-          timeout -s INT -k 2m "$((M + 6))m" gacrawl federal-bills --ai --max-minutes "$M" || echo "descriptions stopped after $((M + 6)) minutes"
       - name: Open records requests (replies, follow-ups, new batch)
         env:
           ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}
@@ -558,6 +564,10 @@ jobs:
             gh release delete-asset "$DATA_TAG" fec-delta.db.zst -y || true
             gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
             rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
+          fi
+          if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
+            gh release delete-asset "$DATA_TAG" model-handoff.json -y || true
+            rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
           fi
       - name: Task list, status, Electo bundle
         id: bundle

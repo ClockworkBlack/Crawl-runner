@@ -124,3 +124,100 @@ def test_fec_refunds_and_offsets_are_not_gifts():
     st = {}
     kept = [L["meta"]["name"] for L in clean(rows, {}, st)]
     assert kept == ["DOE, JANE", "SOME PAC", "OTHER COMMITTEE", "LENDER"] and st["not_a_gift"] == 3
+
+
+class _FecFake:
+    """A stand-in for the FEC API: committees by designation, schedule A pages, committee lookups."""
+
+    def __init__(self, coms, pages, stop_after=None):
+        self.coms, self.pages, self.calls, self.stop_after = coms, pages, [], stop_after
+
+    def __call__(self, path, params=None):
+        self.calls.append((path, dict(params or {})))
+        if path == "/committees/":
+            return {"results": self.coms}
+        if path.startswith("/committee/") and path.endswith("/totals/"):
+            return {"results": []}
+        if path.startswith("/committee/"):
+            cid = path.split("/")[2]
+            return {"results": [c for c in self.coms if c["committee_id"] == cid]}
+        if path == "/schedules/schedule_a/":
+            if self.stop_after is not None and sum(1 for p, _ in self.calls if p == path) > self.stop_after:
+                return None             # the run's time is up / the API stopped answering
+            i = int((params or {}).get("last_index") or 0)
+            rows = self.pages.get(params["committee_id"], [])[i:i + 100]
+            nxt = {"last_index": str(i + 100), "last_contribution_receipt_date": "2026-01-01"} if i + 100 < len(self.pages.get(params["committee_id"], [])) else {}
+            return {"results": rows, "pagination": {"last_indexes": nxt}}
+        return {"results": []}
+
+
+def _fin(tmp_path, fake):
+    from gacrawl.finance import Finance
+
+    s = Store(tmp_path / "db")
+    f = Finance.__new__(Finance)
+    f.root, f.cfg, f.f, f.store, f.log, f.opts = tmp_path, {}, object(), s, (lambda *a: None), {}
+    f._fec = fake
+    f.fec_candidate_ids = lambda c: ["S0"]
+    return f, s
+
+
+def _line(i, amt=100.0, **kw):
+    return {"sub_id": f"S{i}", "transaction_id": f"T{i}", "contributor_name": f"DONOR {i}", "contribution_receipt_amount": amt,
+            "contribution_receipt_date": "2026-03-01", "line_number": "11AI", "entity_type": "IND", **kw}
+
+
+def test_committee_designations(tmp_path):
+    coms = [{"committee_id": "CP", "name": "X FOR SENATE", "designation": "P"},
+            {"committee_id": "CD", "name": "X LEADERSHIP PAC", "designation": "D"},
+            {"committee_id": "CJ", "name": "X VICTORY FUND", "designation": "J"}]
+    fake = _FecFake(coms, {"CP": [_line(1, 500), _line(2, 250)], "CD": [_line(3, 5000)], "CJ": [_line(4, 99999)]})
+    f, s = _fin(tmp_path, fake)
+    # a line kept earlier from the joint fundraising committee
+    s.add(rec("old-j", name="BIG", amount=1e6, filing_source="FEC", committee="CJ", candidate_id="x", recipient="X"))
+    s.flush()
+    f.fec({"id": "x", "name": "X"}, "2016-01-01")
+    s.flush()
+    L = list(money.lines(s))
+    by = {}
+    for x in L:
+        by.setdefault(x["meta"].get("candidate_id"), []).append(x["amount"])
+    assert sorted(by["x"]) == [250, 500]                       # the campaign's money only
+    pac = [x for x in L if x["meta"].get("leadership_pac_of") == "x"]
+    assert len(pac) == 1 and pac[0]["meta"]["recipient"] == "X LEADERSHIP PAC" and pac[0]["meta"]["candidate_id"] is None
+    assert not any(x["meta"].get("committee") == "CJ" for x in L)
+    assert s.db.execute("SELECT count(*) FROM records WHERE json_extract(meta,'$.committee')='CJ'").fetchone()[0] == 0
+    assert not any(p == "/schedules/schedule_a/" and q.get("committee_id") == "CJ" for p, q in fake.calls)
+
+
+def test_big_committee_read_resumes(tmp_path):
+    coms = [{"committee_id": "CP", "name": "X FOR SENATE", "designation": "P"}]
+    lines_ = [_line(i) for i in range(350)]
+    fake = _FecFake(coms, {"CP": lines_}, stop_after=2)
+    f, s = _fin(tmp_path, fake)
+    for i in range(5):            # lines from before the FEC's fields were kept
+        s.add(rec(f"legacy{i}", name="OLD", amount=1, filing_source="FEC", committee="CP", candidate_id="x", recipient="X"))
+    s.flush()
+    f.fec({"id": "x", "name": "X"}, "2016-01-01")
+    r = json.loads(s.kv_get("fec:a2r:CP"))
+    assert r["pages"] == 2 and r["last"]["last_index"] == "200" and not s.kv_get("fec:a2:CP")
+    fake.calls.clear(); fake.stop_after = None
+    f.fec({"id": "x", "name": "X"}, "2016-01-01")
+    first = [q for p, q in fake.calls if p == "/schedules/schedule_a/"][0]
+    assert first.get("last_index") == "200"                     # carried on, not started over
+    s.flush()
+    assert s.kv_get("fec:a2:CP") and not s.kv_get("fec:a2r:CP")
+    assert len(list(money.lines(s))) == 350                     # every line once; the old lines replaced
+    assert s.db.execute("SELECT count(*) FROM records WHERE key LIKE 'legacy%'").fetchone()[0] == 0
+
+
+def test_orphan_lines_are_read_again(tmp_path):
+    coms = [{"committee_id": "CL", "name": "JOHN LEWIS FOR CONGRESS", "designation": "P"}]
+    fake = _FecFake(coms, {"CL": [_line(1, 40)]})
+    f, s = _fin(tmp_path, fake)
+    s.add(rec("old1", name="OLD", amount=40, filing_source="FEC", committee="CL", candidate_id="john-lewis", recipient="John Lewis"))
+    s.flush()
+    n = f.reread_orphans({"someone-else"}, "2016-01-01", None)
+    s.flush()
+    assert n == 1
+    assert s.db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.fec_v') IS NULL").fetchone()[0] == 0

@@ -631,7 +631,7 @@ def cmd_finance(cfg, args):
     if args.action == "export-kv":
         try:
             with store._lock:
-                rows = store.db.execute("SELECT k, v FROM kv WHERE k IN ('fec_ids2','fec_totals') OR k LIKE 'fec:a2:%'").fetchall()
+                rows = store.db.execute("SELECT k, v FROM kv WHERE k IN ('fec_ids2','fec_totals') OR k LIKE 'fec:a2:%' OR k LIKE 'fec:a2r:%'").fetchall()
             Path(args.kv).write_text(json.dumps({r[0]: r[1] for r in rows}))
             print(f"finance: {len(rows)} FEC lookups and cursors -> {args.kv}")
         finally:
@@ -666,6 +666,8 @@ def cmd_finance(cfg, args):
                     store.kv_set(k, json.dumps(cur, separators=(",", ":")))
                 elif k.startswith("fec:a2:") and (store.kv_get(k) or "") < v:
                     store.kv_set(k, v)
+                elif k.startswith("fec:a2r:"):
+                    store.kv_set(k, v)      # where a big committee's read stopped (the re-read carries on from there)
             gone = 0
             for k in kv:
                 if k.startswith("fec:a2:"):          # a cursor is set only when the committee was read in full
@@ -704,8 +706,13 @@ def cmd_finance(cfg, args):
             cands.sort(key=lambda c: -pending.get(c["id"], 0))
         if args.reread_only:
             cands = [c for c in cands if c["id"] in pending]
-        print(json.dumps(fin.run(cands, since=args.since or cfg.get("limits", {}).get("since", "2016-01-01"),
-                                 deadline=deadline, org_limit=int(args.org_limit or fin.opts.get("org_limit", 40))), indent=1))
+        since = args.since or cfg.get("limits", {}).get("since", "2016-01-01")
+        out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit or fin.opts.get("org_limit", 40)))
+        if pending and not args.candidate and fin.f and time.monotonic() < deadline:
+            # old lines of people no longer researched: read by committee, so the re-read can finish
+            out["fec_orphans"] = fin.reread_orphans({c["id"] for c in load_candidates(config.ROOT, cfg)}, since, deadline)
+            fin.flush()
+        print(json.dumps(out, indent=1))
     finally:
         store.close()
 
@@ -891,6 +898,25 @@ def cmd_federal_bills(cfg, args):
             print(json.dumps(federal_bills.ai_run(store, config.ROOT, deadline)))
         else:
             print(json.dumps(federal_bills.run(_fetcher(cfg, deadline), store, deadline)))
+    finally:
+        store.close()
+
+
+def cmd_model_handoff(cfg, args):
+    """The open model job's work to the crawl: mark (its start), export (what it wrote), apply (in the crawl)."""
+    from . import model_handoff as mh
+
+    store = config.make_store(cfg)
+    try:
+        if args.action == "mark":
+            Path(args.out).write_text(json.dumps(mh.mark(store, config.ROOT)), encoding="utf-8")
+        elif args.action == "export":
+            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")))
+            Path(args.out).write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
+            print(json.dumps({k: len(v) for k, v in h["kv"].items()} | {"rumors": len(h["rumors"]),
+                             "train": sum(len(v) for v in h["train"].values())}))
+        else:
+            print(json.dumps(mh.apply(store, config.ROOT, json.loads(Path(args.inp).read_text(encoding="utf-8")))))
     finally:
         store.close()
 
@@ -1131,6 +1157,11 @@ def build_parser() -> argparse.ArgumentParser:
     fbp = sub.add_parser("federal-bills", help="U.S. House and Senate bills since 2015 (GovInfo Bill Status bulk data)")
     fbp.add_argument("--max-minutes", type=float, default=20)
     fbp.add_argument("--ai", action="store_true", help="the open model's plain descriptions instead of reading")
+    mhp = sub.add_parser("model-handoff", help="the open model job's work to the crawl (mark | export | apply)")
+    mhp.add_argument("action", choices=["mark", "export", "apply"])
+    mhp.add_argument("--out", default="model-handoff.json")
+    mhp.add_argument("--mark", default="mark.json")
+    mhp.add_argument("--in", dest="inp", default="model-handoff.json")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
@@ -1229,7 +1260,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "ethics": cmd_ethics}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

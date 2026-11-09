@@ -116,7 +116,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                                "level": _level(c) if c else ("committee" if m.get("recipient_kind") == "committee" else ""),
                                "county": ((c or {}).get("counties") or [""])[0], "jur": (c or {}).get("jurisdiction") or "",
                                "raised": 0.0, "n": 0, "spent": 0.0, "nx": 0, "loans": 0.0, "in_kind": 0.0, "in_ga": 0.0, "small": 0.0,
-                               "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": ""}
+                               "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": "", "_fec": 0.0,
+                               **({"pac_of": m["leadership_pac_of"], "pac_of_name": (by_id.get(m["leadership_pac_of"]) or {}).get("name", ""),
+                                   "pac_of_key": m.get("leadership_pac_of_key") or ""} if m.get("leadership_pac_of") else {})}
         return R
 
     # every line once, by the shared rules (gacrawl/money.py): no memo lines, no line twice, no FEC line read before
@@ -154,6 +156,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         if t == "in_kind":
             R["in_kind"] += amt
         R["raised"] += amt
+        if m.get("filing_source") == "FEC":
+            R["_fec"] += amt
         if amt <= 0:
             continue      # a refund or a correction: nets out of the total, counts as nothing else
         R["n"] += 1
@@ -221,6 +225,21 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             G["via"][L["via"]] = G["via"].get(L["via"], 0.0) + amt
 
     rec_list = sorted(recips.values(), key=lambda x: x["i"])
+    # each federal campaign checked against what the FEC itself reports its committees raised: itemized lines can never
+    # add up to more than the committee's receipts, so more than 5% over means a line is counted twice or belongs to
+    # someone else (the page then says so beside the total)
+    from .connections import fec_check
+
+    for R in rec_list:
+        fx = R.pop("_fec", 0.0)
+        if R.get("cid") and fx:
+            try:
+                chk = fec_check(store, R["cid"], fx)
+            except Exception:  # noqa: BLE001
+                chk = None
+            if chk and chk.get("check") != "unchecked":
+                R["fec"] = {"receipts": chk.get("receipts"), "itemized": chk.get("itemized"), "check": chk["check"],
+                            "cycles": chk.get("cycles") or []}
     for R in rec_list:
         emp = sorted(R["employers"].items(), key=lambda kv: -kv[1])[:8]
         R["employers"] = [{"name": k, "total": round(v, 2)} for k, v in emp]
@@ -261,7 +280,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     doc = {"note": "Campaign money as filed: FEC itemized receipts and disbursements for federal candidates, and Georgia "
                    "Campaign Contribution Disclosure Reports the crawler read or that were imported. Each gift is the filer's "
                    "own line (u is the filing it was read from); donors are matched across filings by name and address, "
-                   "which can split one person or merge two with the same name. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
+                   "which can split one person or merge two with the same name. Only a candidate's own campaign committees count as what the candidate raised; a leadership PAC the candidate runs is listed as its own committee (pac_of), and a joint fundraising committee's money is counted where it was transferred. Each federal campaign carries fec: the FEC's own receipts total for its committees, against which the itemized lines are checked. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
                    "employer, occupation and address. review marks rows parsed from a scanned PDF.",
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
            "by": by_out, "conduits": [{"name": k, "total": round(v, 2)} for k, v in sorted(conduits_total.items(), key=lambda kv: -kv[1])],

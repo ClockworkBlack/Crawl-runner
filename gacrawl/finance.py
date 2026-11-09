@@ -562,19 +562,48 @@ class Finance:
         for cid in self.fec_candidate_ids(c):
             d = self._fec("/committees/", {"candidate_id": cid, "per_page": 20})
             for com in (d or {}).get("results", []):
-                n += self._fec_committee(c, com, since, deadline)
+                role = self.COMMITTEE_ROLE.get((com.get("designation") or "").upper(), "campaign")
+                if role == "skip":
+                    # a joint fundraising committee (its money reaches the campaign as a transfer, counted there; the
+                    # rest goes to the party and other members) or one the candidate does not authorize: not the
+                    # candidate's money. Lines kept from it earlier go, so they are neither counted nor left waiting
+                    gone = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
+                                                   "json_extract(meta,'$.filing_source')='FEC'", (com["committee_id"],))
+                    if gone:
+                        self.log(f"  fec {com['committee_id']} ({com.get('designation_full') or com.get('designation')}): "
+                                 f"{gone} lines removed; not {c['name']}'s campaign money")
+                    continue
+                n += self._fec_committee(c, com, since, deadline, role=role)
                 self._fec_totals(com["committee_id"])
         return n
 
-    def _fec_committee(self, c: dict, com: dict, since: str, deadline: float | None) -> int:
+    # FEC committee designations: P principal campaign committee, A authorized by the candidate (both the campaign's
+    # money); D leadership PAC (the candidate's PAC: its money is its own, shown as a committee the candidate runs, not
+    # as what the campaign raised); J joint fundraising, U unauthorized, B lobbyist PAC: not the candidate's money
+    COMMITTEE_ROLE = {"P": "campaign", "A": "campaign", "D": "leadership", "J": "skip", "U": "skip", "B": "skip"}
+
+    def _fec_committee(self, c: dict, com: dict, since: str, deadline: float | None, role: str = "campaign") -> int:
         com_id = com["committee_id"]
         ck = f"fec:a2:{com_id}"
+        rk = f"fec:a2r:{com_id}"              # where a read that ran out of time stopped (resumed next time)
         cursor = self.store.kv_get(ck)
         floor = since[:10]
         if cursor:
             floor = max(floor, (dt.date.fromisoformat(cursor) - dt.timedelta(days=60)).isoformat())
         params = {"committee_id": com_id, "per_page": 100, "sort": "-contribution_receipt_date", "min_date": floor}
         newest, n, complete = cursor or "", 0, False
+        try:
+            resume = json.loads(self.store.kv_get(rk) or "{}")
+        except ValueError:
+            resume = {}
+        if resume.get("floor") == floor and resume.get("last"):
+            # a big committee (a Senate campaign files hundreds of thousands of lines) takes several runs: carry on
+            # from where the last one stopped instead of starting again from the newest line every time
+            params.update(resume["last"])
+            newest = max(newest, resume.get("newest") or "")
+            self.log(f"  fec {com_id}: resuming the read where it stopped ({resume.get('pages', 0)} pages in)")
+        pages = int(resume.get("pages") or 0) if resume.get("floor") == floor else 0
+        leader = role == "leadership"
         for _ in range(2000):
             if deadline and time.monotonic() > deadline:
                 break
@@ -590,10 +619,14 @@ class Finance:
                        "city": s.get("contributor_city") or "", "state": s.get("contributor_state") or "",
                        "kind": "contribution", "line": s.get("sub_id") or ""}
                 rec = contribution_record(f"cand:{c['id']}", s.get("pdf_url") or f"{FEC}/schedules/schedule_a/?committee_id={com_id}",
-                                          row, c["name"], "candidate", "FEC", jurisdiction=c.get("jurisdiction", ""), channel="api")
+                                          row, (com.get("name") or c["name"]) if leader else c["name"],
+                                          "committee" if leader else "candidate", "FEC", jurisdiction=c.get("jurisdiction", ""), channel="api")
                 tid = s.get("transaction_id") or s.get("sub_id") or ""
                 rec.key = f"fec2|{com_id}|{tid}"
-                rec.meta.update({"candidate_id": c["id"], "electo_key": c.get("electo_key"), "committee": com_id,
+                # a leadership PAC's money is the PAC's (a committee the candidate runs), not what the campaign raised
+                rec.meta.update({"candidate_id": None if leader else c["id"], "electo_key": None if leader else c.get("electo_key"),
+                                 **({"leadership_pac_of": c["id"], "leadership_pac_of_key": c.get("electo_key")} if leader else {}),
+                                 "committee": com_id, "committee_designation": com.get("designation") or "",
                                  "committee_name": com.get("name"), "fec_v": 2,
                                  "contributor_committee_id": s.get("contributor_id")
                                  if (s.get("entity_type") or "") in ("PAC", "COM", "PTY", "ORG", "CCM") else None})
@@ -608,18 +641,51 @@ class Finance:
                 if self.store.add(rec):
                     n += 1
             last = (rr.get("pagination") or {}).get("last_indexes") or {}
+            pages += 1
             if len(rows) < 100 or not last:
                 complete = True
                 break
             params = {**params, **last}
+            self.store.kv_set(rk, json.dumps({"floor": floor, "last": last, "newest": newest, "pages": pages}))
         if newest and complete:
             self.store.kv_set(ck, newest)
+            self.store.kv_set(rk, "")
         if complete and not cursor:
             # this committee is now read in full with the FEC's fields: its lines from the earlier scheme go
             gone = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
                                            "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (com_id,))
             if gone:
                 self.log(f"  fec {com_id}: {gone} lines from before the FEC's fields were kept, replaced")
+        return n
+
+    def reread_orphans(self, loaded: set, since: str, deadline: float | None) -> int:
+        """FEC lines kept before the FEC's own fields whose person is no longer researched (a retired member, a
+        candidate no longer on Electo): read again by their committee id, so they count correctly and the re-read can
+        finish (they used to wait forever, and the re-read job ran again every six hours)."""
+        with self.store._lock:
+            rows = self.store.db.execute(
+                "SELECT json_extract(meta,'$.committee') AS k, json_extract(meta,'$.candidate_id') AS c, "
+                "max(json_extract(meta,'$.recipient')) AS r, max(json_extract(meta,'$.committee_name')) AS cn, count(*) AS n "
+                "FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' AND "
+                "json_extract(meta,'$.committee') IS NOT NULL AND json_extract(meta,'$.fec_v') IS NULL GROUP BY k, c ORDER BY n DESC").fetchall()
+        n = 0
+        for r in rows:
+            if deadline and time.monotonic() > deadline:
+                break
+            if r["c"] in loaded:
+                continue
+            d = self._fec(f"/committee/{r['k']}/")
+            com = ((d or {}).get("results") or [{}])[0] or {}
+            com = {"committee_id": r["k"], "name": com.get("name") or r["cn"] or "", "designation": com.get("designation") or ""}
+            role = self.COMMITTEE_ROLE.get(com["designation"].upper(), "campaign") if d else "campaign"
+            if role == "skip":
+                self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
+                                        "json_extract(meta,'$.filing_source')='FEC'", (r["k"],))
+                continue
+            c = {"id": r["c"] or f"fec-{r['k']}", "name": r["r"] or com["name"], "jurisdiction": ""}
+            self.log(f"  fec {r['k']}: {r['n']} old lines of {c['name']} (no longer researched) read again")
+            n += self._fec_committee(c, com, since, deadline, role=role)
+            self._fec_totals(r["k"])
         return n
 
     def _fec_totals(self, com_id: str) -> None:

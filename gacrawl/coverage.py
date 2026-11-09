@@ -220,6 +220,26 @@ def money_checks(store) -> str:
     L.append(f"- FEC lines read before the FEC's own fields were kept, awaiting the re-read (not counted): **{legacy:,}**")
     tot = json.loads(store.kv_get("fec_totals") or "{}")
     L.append(f"- Committees with the FEC's official totals on hand (each profile's total is checked against them): **{len(tot)}**")
+    with store._lock:
+        part = store.db.execute("SELECT k, v FROM kv WHERE k LIKE 'fec:a2r:%' AND v != ''").fetchall()
+        sums = store.db.execute("SELECT json_extract(meta,'$.candidate_id') AS c, sum(json_extract(meta,'$.amount')) AS t FROM records "
+                                "WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' AND json_extract(meta,'$.fec_v') IS NOT NULL "
+                                "AND coalesce(json_extract(meta,'$.memo_code'),'') != 'X' AND json_extract(meta,'$.candidate_id') IS NOT NULL "
+                                "GROUP BY c").fetchall()
+    L.append(f"- Committees part-way through a read (carried on next run): **{len(part)}**"
+             + (": " + ", ".join(f"{r[0][8:]} ({json.loads(r[1]).get('pages', 0)} pages)" for r in part[:12]) if part else ""))
+    from .connections import fec_check
+
+    bad = []
+    for r in sums:
+        try:
+            chk = fec_check(store, r["c"], float(r["t"] or 0))
+        except Exception:  # noqa: BLE001
+            chk = None
+        if chk and chk.get("check") == "mismatch":
+            bad.append(f"{r['c']} (counted ${chk['itemized']:,.0f}, the FEC reports ${chk['receipts']:,.0f} received)")
+    L.append(f"- Federal campaigns whose counted lines add up to more than the FEC says they received: **{len(bad)}**"
+             + (": " + "; ".join(bad[:20]) if bad else ""))
     return "\n".join(L) + "\n"
 
 
