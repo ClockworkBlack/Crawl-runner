@@ -680,6 +680,7 @@ jobs:
           python3 -I ga/merge_profiles.py | tail -1
           python3 -I research/build_aliases.py | head -1
           python3 -I ga/merge_prim.py | tail -1
+          python3 -c "import matplotlib" 2>/dev/null || pip install -q matplotlib || echo "matplotlib did not install; places not rebuilt"
           python3 -I ga/places.py | tail -1
           python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
           (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)

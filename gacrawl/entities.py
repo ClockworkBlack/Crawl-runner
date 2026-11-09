@@ -112,7 +112,9 @@ def norm_person(name: str) -> str:
     if not v:
         return re.sub(r"[^a-z ]", "", (name or "").lower()).strip()
     w = v[0].split()
-    w = [x for x in w if len(x.rstrip(".")) > 1]  # drop initials
+    w = [x for x in w if len(x.rstrip(".")) > 1] or w  # drop initials (unless the name is nothing but initials)
+    if not w:
+        return v[0].lower()
     first, last = w[0], w[-1]
     return f"{first} {last}".lower() if len(w) >= 2 else v[0].lower()
 
