@@ -47,3 +47,20 @@ def test_patterns_capped_per_kind(tmp_path, monkeypatch):
     connections.export_graph(g, pats, tmp_path / "c.json")
     kept = [p for p in json.loads((tmp_path / "c.json").read_text())["patterns"] if p["kind"] == "org_chain"]
     assert len(kept) == 1 and kept[0]["path"][2]["id"] == "c1"            # the larger chain
+
+
+def test_the_file_stays_under_the_size_cap(tmp_path, monkeypatch):
+    """Over the cap (GitHub's 100 MB; Nov 9: 113 MB and Electo refused the push), the smallest gift edges go first."""
+    g = _graph()
+    pats = connections.patterns(g)
+    full = connections.export_graph(g, pats, tmp_path / "full.json")["file"]["bytes"]
+    monkeypatch.setenv("CONNECTIONS_MAX_MB", str((full - 50) / 1_000_000))
+    counts = connections.export_graph(g, pats, tmp_path / "c.json")
+    doc = json.loads((tmp_path / "c.json").read_text())
+    assert counts["file"]["bytes"] <= full - 50 and doc["counts"]["trimmed"]["money_edges"] >= 1
+    kept = {(e["a"], e["b"]) for e in doc["edges"]}
+    assert ("m1", "c2") not in kept and ("o1", "m1") in kept           # the smallest total left out, the largest kept
+    assert "largest of 3 gift and payment edges" in doc["note"]
+    monkeypatch.delenv("CONNECTIONS_MAX_MB")
+    connections.export_graph(g, pats, tmp_path / "d.json")
+    assert "trimmed" not in json.loads((tmp_path / "d.json").read_text())["counts"]      # under the cap: nothing left out

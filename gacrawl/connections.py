@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -557,25 +558,43 @@ def export_graph(g: Graph, pats: list[dict], out: Path) -> dict:
     for A in agg.values():
         A.pop("_top", None)
         A["amount"] = round(A["amount"], 2)
-    kept_pats = []
     by_kind: dict[str, list[dict]] = defaultdict(list)
     for p in pats:
         by_kind[p["kind"]].append(p)
-    for k, ps in by_kind.items():
-        kept_pats += sorted(ps, key=_pattern_size, reverse=True)[:PATTERN_CAP] if len(ps) > PATTERN_CAP else ps
-    used = {i for e in edges for i in (e["a"], e["b"])}
-    for p in kept_pats:
-        used.update(v for k, v in p.items() if k in ("donor", "recipient", "person", "endorser") and isinstance(v, str))
-        for k in ("path", "recipients", "donors", "organizations", "candidates"):
-            used.update(x["id"] for x in p.get(k) or [] if isinstance(x, dict) and x.get("id"))
-    doc = {"note": "Observations from filings and registries, each with the records it rests on. Patterns are starting "
-                   "points for a researcher, not findings; items with evidence 'lead' must be verified before use. Gifts "
-                   "are one edge per donor and recipient (amount: their total; n: the filed lines). Private individuals' "
-                   "gifts are counted in donors.json, the donor profiles and each candidate's money, not drawn here; "
-                   f"each kind of pattern lists its {PATTERN_CAP:,} largest.",
-           "counts": {"nodes": len(used), "edges": len(edges), "patterns": len(kept_pats),
-                      "graph": {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats)}},
-           "nodes": [n for i, n in nodes.items() if i in used], "edges": edges, "patterns": kept_pats}
-    out.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    for k in by_kind:
+        by_kind[k].sort(key=_pattern_size, reverse=True)
+    # the file must stay under GitHub's 100 MB (Nov 9: 113 MB, and Electo refused the whole push): over the cap, the
+    # smallest gift and payment edges and the smallest patterns of each kind are left out until it fits, and the
+    # file says so (the profiles, donors.json and each candidate's money still count everything)
+    cap = float(os.environ.get("CONNECTIONS_MAX_MB") or 90) * 1_000_000
+    money = sorted((e for e in edges if e["type"] in ("contributed", "paid")), key=lambda e: -(e.get("amount") or 0))
+    n_money, pcap = len(money), PATTERN_CAP
+    while True:
+        keep = {id(e) for e in money[:n_money]}
+        kept_edges = [e for e in edges if e["type"] not in ("contributed", "paid") or id(e) in keep]
+        kept_pats = [p for ps in by_kind.values() for p in ps[:pcap]]
+        used = {i for e in kept_edges for i in (e["a"], e["b"])}
+        for p in kept_pats:
+            used.update(v for k, v in p.items() if k in ("donor", "recipient", "person", "endorser") and isinstance(v, str))
+            for k in ("path", "recipients", "donors", "organizations", "candidates"):
+                used.update(x["id"] for x in p.get(k) or [] if isinstance(x, dict) and x.get("id"))
+        trimmed = n_money < len(money) or pcap < PATTERN_CAP
+        doc = {"note": "Observations from filings and registries, each with the records it rests on. Patterns are starting "
+                       "points for a researcher, not findings; items with evidence 'lead' must be verified before use. Gifts "
+                       "are one edge per donor and recipient (amount: their total; n: the filed lines). Private individuals' "
+                       "gifts are counted in donors.json, the donor profiles and each candidate's money, not drawn here; "
+                       f"each kind of pattern lists its {pcap:,} largest."
+                       + (f" To keep the file under GitHub's size limit, only the {n_money:,} largest of {len(money):,} gift and "
+                          "payment edges are drawn." if n_money < len(money) else ""),
+               "counts": {"nodes": len(used), "edges": len(kept_edges), "patterns": len(kept_pats),
+                          "graph": {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats)},
+                          **({"trimmed": {"money_edges": len(money) - n_money, "pattern_cap": pcap}} if trimmed else {})},
+               "nodes": [n for i, n in nodes.items() if i in used], "edges": kept_edges, "patterns": kept_pats}
+        text = json.dumps(doc, ensure_ascii=False)
+        if len(text.encode("utf-8")) <= cap or (n_money == 0 and pcap <= 100):
+            break
+        n_money, pcap = int(n_money * 0.75), max(100, int(pcap * 0.75))
+    edges = kept_edges
+    out.write_text(text, encoding="utf-8")
     return {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats),
             "file": {"nodes": len(used), "edges": len(edges), "patterns": len(kept_pats), "bytes": out.stat().st_size}}
