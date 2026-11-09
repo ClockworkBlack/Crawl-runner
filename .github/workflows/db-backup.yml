@@ -6,6 +6,9 @@ name: db-backup
 #   action restore: copy crawl-backup.db.zst back over crawl.db.zst (only if the reprocessing went wrong)
 # asset: the release file to copy (default the database). Any other file X (a hand-off: ga-delta.db.zst, ga-kv.json,
 # fec-delta.db.zst, ...) is kept as backup-X, e.g. before a side job holding a hand-off is cancelled and run again.
+# temp: name the copy tempsave-X instead (save, remove and restore all use that name). A temp save is deleted by the
+# crawl's merge job by itself once a run that read the stored database after the save has pushed its data to Electo;
+# a cancelled crawl run makes tempsave-crawl.db.zst on its own.
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +20,10 @@ on:
         description: "the release file (default crawl.db.zst)"
         required: false
         default: crawl.db.zst
+      temp:
+        description: "a temp save (tempsave-<file>), deleted by itself once a later crawl run's data is on Electo"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,7 +54,8 @@ jobs:
           id_of() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$1\") | .id"; }
           SRC="${{ inputs.asset || 'crawl.db.zst' }}"
           case "$SRC" in */*|"") echo "::error::a release file name"; exit 1 ;; esac
-          if [ "$SRC" = "crawl.db.zst" ]; then BK=crawl-backup.db.zst; else BK="backup-$SRC"; fi
+          if [ "${{ inputs.temp }}" = "true" ]; then BK="tempsave-$SRC"
+          elif [ "$SRC" = "crawl.db.zst" ]; then BK=crawl-backup.db.zst; else BK="backup-$SRC"; fi
           check() { case "$1" in *.zst) zstd -t -q "$1" ;; *.json) python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1" ;; esac; }
           case "${{ inputs.action }}" in
             save)

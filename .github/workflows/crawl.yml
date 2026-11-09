@@ -299,7 +299,10 @@ jobs:
           done
       - name: Fetch database
         timeout-minutes: 30
-        run: bash scripts/ci_db.sh pull
+        run: |
+          # a temp save made before this moment is held in the database read here (see the temp save steps below)
+          echo "DB_FETCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          bash scripts/ci_db.sh pull
       - name: Merge shards
         id: merged
         timeout-minutes: 60
@@ -709,6 +712,17 @@ jobs:
             done < modeld/applied
             rm -f modeld/applied
           fi
+      - name: Temp save of a stopped run's data (tempsave-crawl.db.zst, deleted once a later run's data is on Electo)
+        # a run cancelled by hand or by the watchdog stores what it read in the steps above; a copy of that database is
+        # also kept as tempsave-crawl.db.zst until a later run that read it has pushed its data to Electo (the step after
+        # the Electo import deletes it then), so nothing a stopped run gathered depends on a single upload
+        if: cancelled() && env.IS_MAIN == 'true' && steps.merged.outcome == 'success'
+        timeout-minutes: 20
+        run: |
+          if [ ! -f crawl.db.zst ] || [ data/crawl.db -nt crawl.db.zst ]; then bash scripts/ci_db.sh push; fi
+          cp crawl.db.zst tempsave-crawl.db.zst
+          gh release upload "$DATA_TAG" tempsave-crawl.db.zst --clobber
+          echo "temp save: tempsave-crawl.db.zst ($(du -h tempsave-crawl.db.zst | cut -f1)), kept until a later run's data is on Electo"
       - name: Money read while this run worked (the FEC re-read's and the Georgia money job's newest hand-offs)
         # they hand over and push money to the site every round (scripts/money_to_electo.sh); this run's export would
         # otherwise put money as old as the merge's start back on the site. Applied again here (the same lines change
@@ -829,6 +843,7 @@ jobs:
           tar -xzf crawl-bundle/electo-bundle.tar.gz -C dist && rm -rf crawl-bundle
           echo "Electo bundle from $DATA_REPO: $(ls dist/electo | wc -l) entries"
       - name: Push research packets to Electo
+        id: packets
         timeout-minutes: 15
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
         env:
@@ -879,6 +894,7 @@ jobs:
           done
           exit 1
       - name: Import into Electo (profiles, councils, schools, places, records review) from the full bundle
+        id: imported
         timeout-minutes: 30
         # Electo's own importer, run here because only this job holds the complete bundle (the data pushed above is a
         # subset). Everything it writes is committed to Electo's main with the same token; a failure here never fails the crawl.
@@ -933,6 +949,22 @@ jobs:
             sleep $((i * 10))
           done
           exit 1
+      - name: Temp saves this run's data covers are deleted (its data is on Electo now)
+        # tempsave-* files in the private release (a stopped run's database, or one saved by hand with db-backup's temp
+        # option) saved before this run read the stored database are in this run's data; with the packets and the
+        # import both on Electo they are no longer needed. One saved later stays for the next run that pushes.
+        if: ${{ !cancelled() && steps.packets.outcome == 'success' && steps.imported.outcome == 'success' && env.IS_MAIN == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          [ -n "${DB_FETCHED_AT:-}" ] || { echo "no time for this run's database read; temp saves kept"; exit 0; }
+          gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name | startswith("tempsave-")) | "\(.id) \(.name) \(.updated_at)"' |
+          while read -r id name at; do
+            if [[ "$at" < "$DB_FETCHED_AT" ]]; then
+              gh api -X DELETE "repos/$REPO/releases/assets/$id" && echo "$name (saved $at) is in this run's data, now on Electo: deleted"
+            else echo "$name (saved $at) came after this run read the database ($DB_FETCHED_AT): kept for the next run"; fi
+          done
       - name: Site data for the page's Check for updates (the public electo-data feed)
         timeout-minutes: 30
         # the page (and the app) reads newer data files from the public repository ClockworkBlack/electo-data with no
