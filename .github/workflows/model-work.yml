@@ -94,5 +94,7 @@ jobs:
         run: |
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
           gacrawl model-handoff export --mark mark.json --out model-handoff.json
+          if python3 -c "import json,sys; h=json.load(open('model-handoff.json')); sys.exit(0 if any(h.get(k) and any(h[k].values()) if k == 'kv' else h.get(k) for k in ('kv','rumors','train')) else 1)"; then :
+          else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
           gh release upload "$DATA_TAG" model-handoff.json --clobber
           echo "uploaded $(du -h model-handoff.json | cut -f1) for the crawl's next merge"
