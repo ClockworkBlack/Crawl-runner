@@ -359,12 +359,17 @@ Thanks to **NinaBEz**. She knows why.
 ## Automatic import into Electo
 
 Every nightly or full run ends with two pushes to Electo's `main` using the `ELECTO_TOKEN` secret: the packets
-(`data/crawl/`, which starts Electo's `crawl-policing` import of the Policing, records, bill-reason and donor files),
-then **Import into Electo**, which clones Electo and runs its own importer against the complete bundle (profiles with
-stances and controversies, councils, schools, places, the records review) and commits what changed
-(`ga/crawl/`, `ga/councils.json`, `ga/places.json`, `ga/pipeline_archive/profiles.json`, `research/crawl_*.json`). It
-is `continue-on-error`: a failure there never fails the crawl. The published page itself still has to be rebuilt and
-republished from Electo (`bash qa/mksite.sh` and the Artifact publish).
+(`data/crawl/`; Electo's own `crawl-policing` import of them is switched off, since this job and the police job import
+those files themselves), then **Import into Electo**, which clones Electo and runs its own importer against the complete
+bundle (profiles with stances and controversies, councils, schools, places, city-run results, the records review), the
+bill list (`civics/refresh_acts.py`), the Code as amended (`civics/apply_acts.py`) and the name registry
+(`ga/names.py`), and commits what changed (`ga/crawl/`, `ga/councils.json`, `ga/places.json`,
+`ga/pipeline_archive/{profiles,names,crawl_elections}.json`, `ga/pipeline_civics/{acts.json,ocga_cur/}`,
+`research/crawl_*.json`; the News tab is left to the `news` job). It is `continue-on-error`: a failure there never fails
+the crawl. The public site (GitHub Pages from `electo-data`) is then rebuilt from Electo's main by the same job, and by
+`publish-site` for any other change to Electo; the page's Live results by the `results` job. Only the claude.ai copy of
+the page needs a republish by hand. What runs by itself and what still needs a person: Electo's `HANDOFF.md`, *Nov 9
+(evening): running on its own*.
 
 ## Public runner, private data
 

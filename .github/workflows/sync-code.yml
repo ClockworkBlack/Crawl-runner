@@ -48,7 +48,14 @@ jobs:
           cd pub
           git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && { echo "already in sync ($SHA)"; exit 0; }
+          if git diff --cached --quiet; then
+            # GitHub turns a public repository's schedules off after 60 days without activity, and a quiet stretch with
+            # no code change would stop every job here, the watchdog with them: an empty commit every 45 days keeps them on
+            if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt $(( 45 * 86400 )) ]; then
+              git commit -q --allow-empty -m "Keep the schedules on (no code change in 45 days)" && git push -q origin HEAD:main && echo "keep-alive commit pushed"
+            fi
+            echo "already in sync ($SHA)"; exit 0
+          fi
           git commit -qm "Code from the private repository ($SHA)"
           git push -q origin HEAD:main
           echo "synced $SHA"
@@ -59,17 +66,50 @@ jobs:
           set -uo pipefail
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" logs-repo
           git -C logs-repo sparse-checkout set --no-cone /logs/runner/
-          n=0; done_ids=""
-          for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at)"'); do
-            IFS=, read -r id name created <<< "$row"
-            if [ "$name" = "crawl" ] || [ "$name" = "police" ]; then
+          n=0; done_ids=""; rows=$(mktemp)
+          for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at),\(.conclusion),\(.updated_at)"'); do
+            IFS=, read -r id name created concl updated <<< "$row"
+            # every crawl and police run's logs, and any other job's when it failed (else nothing would say why)
+            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ]; then
               d="logs-repo/logs/runner/${created:0:7}"; mkdir -p "$d"
               f="$d/${created:0:10}_${name}_${id}.zip"
               gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null || { rm -f "$f"; echo "logs for $id not ready yet"; continue; }
               n=$((n+1))
             fi
             done_ids="$done_ids $id"
+            echo "$row" >> "$rows"
           done
+          # each job's last outcome and last success (runner-status.json, an asset of the private crawl-data release, so it
+          # adds no commits): the watchdog reads it to find a job that keeps failing or has stopped running, which the
+          # deleted runs would otherwise hide
+          mkdir -p status && GH_TOKEN="$DATA_TOKEN" gh release download crawl-data -R ClockworkBlack/Crawl -p runner-status.json -D status --clobber 2>/dev/null || true
+          python3 - "$rows" status/runner-status.json <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
+          import json, os, sys
+          rows, path = sys.argv[1], sys.argv[2]
+          try:
+              st = json.load(open(path))
+          except (OSError, ValueError):
+              st = {}
+          seen = []
+          for line in open(rows):
+              p = line.strip().split(",")
+              if len(p) >= 5 and p[0].isdigit():
+                  seen.append((p[2], int(p[0]), p[1], p[3], p[4]))
+          for created, rid, name, concl, updated in sorted(seen):
+              w = st.setdefault(name, {"fails_in_row": 0, "recent": []})
+              if rid in w.get("recent", []):
+                  continue                      # recorded before (its deletion failed)
+              w["recent"] = (w.get("recent", []) + [rid])[-20:]
+              w["last"] = {"id": rid, "started": created, "at": updated, "conclusion": concl}
+              if concl == "success":
+                  w["last_success"] = {"id": rid, "at": updated}
+                  w["fails_in_row"] = 0
+              elif concl in ("failure", "timed_out", "startup_failure"):
+                  w["fails_in_row"] = w.get("fails_in_row", 0) + 1
+          if seen:
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              json.dump(st, open(path, "w"), indent=1, sort_keys=True)
+          PY
           # keep 30 days of runner logs in the private repository (by the date in the file name)
           CUT=$(date -u -d '30 days ago' +%Y-%m-%d)
           for f in logs-repo/logs/runner/*/*.zip; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done

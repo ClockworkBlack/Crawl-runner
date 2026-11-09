@@ -1,0 +1,115 @@
+name: results
+# Electo's Live results kept current until the state certifies them, with no one running Electo's ga/build.py by hand.
+# Runs in the PUBLIC runner repository only (free minutes), every 20 minutes:
+#   1. reads Electo's ga/built.json (the Secretary of State posting the page was built from) and stops there when that
+#      build is marked final (the count was official);
+#   2. asks the state's results feed (results.sos.ga.gov, the election id in Electo's ga/build.py) for its latest
+#      posting; when it is newer than the page's, or the count has just become official, or the election id changed,
+#   3. rebuilds the page with Electo's own ga/build.py (one consistent snapshot of every race, never older than the
+#      last build; --final once the state marks the results official), commits ga-election-night.html, built.json and
+#      template.built.html to Electo, and starts publish-site so the public site follows within minutes.
+# A failed read of the feed fails the run (sync-code records it; the watchdog reports a job that keeps failing).
+# A new election needs its id (EID) and race lists set in ga/build.py; until then this job keeps the last one.
+on:
+  schedule:
+    - cron: "9,29,49 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "rebuild from the feed even if it has nothing newer"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write        # start publish-site after a new build is committed
+
+concurrency:
+  group: results
+  cancel-in-progress: false
+
+jobs:
+  results:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      FORCE: ${{ inputs.force && 'true' || 'false' }}
+    steps:
+      - name: Is there a newer posting than the page shows?
+        id: check
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, json, os, re, subprocess, sys, urllib.request
+
+          def electo(path):
+              r = subprocess.run(["gh", "api", f"repos/{os.environ['ELECTO_REPO']}/contents/{path}", "--jq", ".content"],
+                                 capture_output=True, text=True)
+              if r.returncode:
+                  sys.exit(f"cannot read Electo's {path}: {r.stderr.strip()[:200]}")
+              return base64.b64decode(r.stdout).decode("utf-8")
+
+          built = json.loads(electo("ga/built.json"))
+          m = re.search(r'^EID = "([^"]+)"', electo("ga/build.py"), re.M)
+          eid = m.group(1) if m else ""
+          force = os.environ.get("FORCE") == "true"
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          if built.get("final") and built.get("eid") == eid and not force:
+              print(f"the page holds the final, official count of {eid}; nothing to do until a new election is set")
+              out.write("go=false\n"); sys.exit(0)
+          url = f"https://results.sos.ga.gov/results/public/api/elections/Georgia/{eid}/data"
+          req = urllib.request.Request(url, headers={"Accept": "application/json", "Accept-Encoding": "gzip",
+                                                     "User-Agent": "ga-results-map/1.1 (election-night page)"})
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  raw = r.read()
+                  if r.headers.get("Content-Encoding") == "gzip":
+                      raw = gzip.decompress(raw)
+              e = json.loads(raw)["election"]
+          except Exception as ex:
+              sys.exit(f"the results feed did not answer ({type(ex).__name__}: {str(ex)[:160]}); trying again next run")
+          feed, have = str(e.get("asOf") or "")[:19], str(built.get("version") or built.get("asOf") or "")[:19]
+          official = bool(e.get("isOfficialResults"))
+          go = force or feed > have or built.get("eid") not in (None, eid) or (official and not built.get("final"))
+          print(f"{eid}: feed posting {feed or '?'}{' (official)' if official else ''}; page built from {have or 'nothing'}"
+                f"{' (final)' if built.get('final') else ''} -> {'rebuild' if go else 'up to date'}")
+          out.write(f"go={'true' if go else 'false'}\nofficial={'true' if official else 'false'}\n")
+          PY
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: Rebuild the page from the feed and commit it to Electo
+        id: build
+        if: steps.check.outputs.go == 'true'
+        run: |
+          set -u
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-res
+          cd /tmp/electo-res
+          # only what ga/build.py reads and writes (the page, its template, the maps and the sidecars it embeds)
+          git sparse-checkout set --no-cone /ga/build.py /ga/template.html /ga/template.built.html /ga/ga-election-night.html \
+            /ga/built.json /ga/calls.json /ga/base2024.json /ga/map.svg.html /ga/leg.svg.html /ga/law.json /ga/outlook_seed.json \
+            /ga/profiles.json /ga/bills.json /ga/bills_local.json /ga/news.json /ga/elections.json /ga/mapsvg.py /ga/legsvg.py
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          FLAGS=""; [ "$FORCE" = "true" ] && FLAGS="--force"; [ "${{ steps.check.outputs.official }}" = "true" ] && FLAGS="--final"
+          for i in 1 2 3 4; do
+            # each try starts from Electo's newest main (another writer may have committed the page meanwhile)
+            git fetch -q --depth 1 origin main && git reset -q --hard origin/main
+            rc=0; python3 -I ga/build.py $FLAGS || rc=$?
+            [ $rc = 3 ] && { echo "the page already has this posting"; exit 0; }
+            [ $rc = 0 ] || { echo "::error::ga/build.py ended with $rc (feed error)"; exit 1; }
+            cp ga/template.html ga/template.built.html
+            git add ga/ga-election-night.html ga/built.json ga/template.built.html
+            git diff --cached --quiet && { echo "nothing changed"; exit 0; }
+            AS=$(python3 -c "import json; print(json.load(open('ga/built.json'))['asOf'][:16])")
+            git commit -qm "Results from the Secretary of State: posting of ${AS}Z" && git push -q origin HEAD:main && { echo "pushed=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            sleep $((i * 10))
+          done
+          echo "::error::could not push the results to Electo"; exit 1
+      - name: Publish the site now
+        if: steps.build.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

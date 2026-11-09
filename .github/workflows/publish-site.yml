@@ -6,7 +6,8 @@ name: publish-site
 # changed costs one small request.
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    # off the :00/:20/:40 marks, when GitHub, busiest then, delays or skips scheduled runs (Nov 9: two in a row)
+    - cron: "4,24,44 * * * *"
   workflow_dispatch:
 
 permissions:

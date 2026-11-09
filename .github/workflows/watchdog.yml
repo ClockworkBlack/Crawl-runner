@@ -2,7 +2,11 @@
 # hours. It checks that each part of the chain has done its work recently and repairs what it can on its own:
 #   - the crawl, police and news runs have left fresh commits (else it starts that workflow again, once, if none is
 #     already queued or running)
-#   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news)
+#   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news), and has not
+#     waited over an hour for Electo's newest commit (else it starts publish-site)
+#   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, the ai-* jobs)
+#     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
+#     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
 #   - the tokens the chain depends on are not about to expire (it cannot renew them; it warns two weeks ahead)
 # Anything it can't fix, or that stays broken after a restart, goes into one "Watchdog" issue in the private Crawl
 # repository (GitHub emails you); the issue closes itself once everything is healthy again. No Claude needed.
@@ -28,6 +32,7 @@ jobs:
     env:
       DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
       ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
       SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
       RUNNER_TOKEN: ${{ github.token }}
       RUNNER_REPO: ${{ github.repository }}
@@ -124,7 +129,13 @@ jobs:
                               return w, j, s
               return None
 
+          restarted = set()
+
           def restart(workflow, why, force=False):
+              if workflow in restarted:          # once per check, whatever asked for it
+                  repairs.append(f"{workflow}: {why} (already started again in this check)")
+                  return
+              restarted.add(workflow)
               if not force and busy(workflow):
                   repairs.append(f"{workflow}: {why}, but a run is already going; leaving it be")
                   return
@@ -179,6 +190,61 @@ jobs:
                       problems.append(f"**The public site** hasn't been updated in {age:.0f} hours, even after restarts.")
           else:
               problems.append(f"Couldn't read {os.environ['SITE_DATA_REPO']} ({sc.get('_error') if isinstance(sc, dict) else 'empty'}); check the site token.")
+
+          # 3b. Electo commits the site hasn't been rebuilt from (a change to the page or a hand import waits for
+          #     publish-site, whose 20-minute schedule GitHub sometimes skips under load)
+          if isinstance(sc, list) and sc:
+              head = api(f"repos/{os.environ['ELECTO_REPO']}/commits/main", os.environ.get("ELECTO_TOKEN") or data_tok)
+              cur = api(f"repos/{os.environ['SITE_DATA_REPO']}/contents/current.json", site_tok)
+              try:
+                  import base64
+                  built_from = json.loads(base64.b64decode(cur["content"]))["commit"]
+              except Exception:
+                  built_from = ""
+              if isinstance(head, dict) and head.get("sha") and built_from and not head["sha"].startswith(built_from):
+                  waiting = hours_since(head["commit"]["committer"]["date"])
+                  if waiting > 1:
+                      restart("publish-site.yml", f"Electo's newest commit ({head['sha'][:7]}) has waited {waiting:.1f}h for the site")
+                  if waiting > 4:
+                      problems.append(f"**The public site** is {waiting:.0f} hours behind Electo's main ({head['sha'][:7]}; built from {built_from}), even after restarts.")
+
+          # 3c. every other scheduled job: sync-code records each finished run (runner-status.json in the private
+          #     crawl-data release) before it deletes the run here. A job with no success for twice its usual gap is
+          #     started again; one still without a success, or failing three times in a row, is reported.
+          import subprocess
+          r = subprocess.run(["gh", "release", "download", "crawl-data", "-R", data_repo, "-p", "runner-status.json", "-O", "-"],
+                             capture_output=True, text=True, env=dict(os.environ, GH_TOKEN=data_tok))
+          try:
+              status = json.loads(r.stdout) if r.returncode == 0 else {}
+          except ValueError:
+              status = {}
+          # workflow name -> (file, hours a success may be apart before a restart)
+          jobs = {"news": ("news.yml", 8), "publish-site": ("publish-site.yml", 2), "results": ("results.yml", 2),
+                  "sync-code": ("sync-code.yml", 2), "fec-reread": ("fec-reread.yml", 20), "ga-money": ("ga-money.yml", 20),
+                  "model-work": ("model-work.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
+                  "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40),
+                  "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
+          for name, (wf, max_h) in jobs.items():
+              w = status.get(name)
+              if not w:
+                  continue                       # not recorded yet (new job, or the status file is new)
+              ok_at = (w.get("last_success") or {}).get("at")
+              fails = w.get("fails_in_row") or 0
+              last = w.get("last") or {}
+              age = hours_since(ok_at) if ok_at else None
+              # three failures in a row matter once the job has also gone its usual gap without a success (a job that
+              # runs every 20 minutes can fail three times to a passing outage of the site it reads)
+              if fails >= 3 and (max_h is None or age is None or age > max_h):
+                  problems.append(f"**{wf}** has failed {fails} times in a row (last: {last.get('conclusion')} at {last.get('at')}). "
+                                  f"Its logs are in logs/runner/ in the private Crawl repository.")
+              if max_h is None:
+                  continue
+              if age is not None and age > max_h:
+                  restart(wf, f"no successful run in {age:.0f}h")
+                  if age > max_h * 2:
+                      problems.append(f"**{wf}** hasn't succeeded in {age:.0f} hours, even after restarts.")
+          if r.returncode != 0 and "release asset" not in (r.stderr or "") and "no assets" not in (r.stderr or "").lower():
+              repairs.append(f"run status not read ({(r.stderr or '').strip()[:120]})")
 
           # 4. report: one issue in the private repo, opened/updated on problems, closed when healthy
           print("\n".join(["repairs:"] + repairs + ["problems:"] + problems))
