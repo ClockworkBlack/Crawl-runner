@@ -3,7 +3,7 @@
 # each full read stopped (ga-kv.json, with _since, so a run that carries it knows where it starts), in the private
 # crawl-data release. The crawl's merge job applies it and deletes it by its asset id once stored.
 set -euo pipefail
-: "${GA_SINCE:?GA_SINCE (where this run's lines start)}"
+: "${GA_SINCE:?GA_SINCE (where the lines of this run start)}"
 gacrawl delta --since "$GA_SINCE" --key-like 'ga2|%' --out ga-delta.db >/dev/null
 gacrawl ethics export-kv --kv ga-kv.json >/dev/null
 python3 - <<'PY'

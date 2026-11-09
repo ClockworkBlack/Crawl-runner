@@ -358,3 +358,65 @@ def test_deadlines_open_one_issue_and_comment_new(tmp_path, monkeypatch):
     reqs.tracker.log("big", "acknowledged", "reply")
     reqs.deadlines(gh=gh)
     assert calls[-1][2]["state"] == "closed"
+
+
+# ----------------------------------------------------------------------------- places with a downloaded code
+def _registry(root: Path):
+    (root / "config").mkdir(parents=True, exist_ok=True)
+    (root / "config" / "jurisdictions.yaml").write_text(
+        "counties:\n- {id: co-franklin, name: Franklin County, kind: county}\n- {id: co-fulton, name: Fulton County, kind: county}\n"
+        "- {id: co-small, name: Small County, kind: county}\n"
+        "municipalities:\n- {id: franklin, name: Franklin, kind: city}\n- {id: big, name: Bigtown, kind: city}\n"
+        "- {id: canton, name: Canton, kind: city}\n- {id: macon-bibb, name: Macon, kind: consolidated}\n")
+
+
+def test_downloaded_places_from_folder_names(tmp_path):
+    from gacrawl.openrecords import downloaded_places
+    _registry(tmp_path)
+    inbox = tmp_path / "imports" / "ordinances"
+    for rel in ["GA/franklin/code_of_ordinances/code.html", "GA/fulton_county/code_of_ordinances/nodes/1.json",
+                "GA/macon_bibb_county/code_of_ordinances/code.html", "Bigtown/Zoning.pdf", "canton__charter.pdf",
+                "README.md", "GA/ordinance_download_coverage.csv"]:
+        (inbox / rel).parent.mkdir(parents=True, exist_ok=True)
+        (inbox / rel).write_text("x")
+    # a bare Municode slug is the city; Franklin County has no code of its own here
+    assert downloaded_places(tmp_path) == {"franklin", "co-fulton", "macon-bibb", "big", "canton"}
+
+
+def test_covered_places_are_not_asked_and_open_requests_are_withdrawn(tmp_path):
+    _registry(tmp_path)
+    inbox = tmp_path / "imports" / "ordinances" / "GA" / "bigtown" / "code_of_ordinances"
+    inbox.mkdir(parents=True)
+    (inbox / "code.html").write_text("x")
+    FakeSMTP.sent = []
+    r = orr.Requests(tmp_path, CFG, orr.Mailbox(ENV), log=lambda *_: None)
+    r._have = set()                        # before the download: both asked
+    r.send_batch(J, smtp_factory=FakeSMTP)
+    assert {m["To"] for m in FakeSMTP.sent} == {"records@bigtown.gov", "clerk@smallcounty.ga.us"}
+    assert r.tracker.data["portal"]["status"] == "portal_only"
+    r._have = None                         # Bigtown's code has been downloaded since
+    r._have = r.have | {"portal"}
+    assert "big" in r.have
+    FakeSMTP.sent = []
+    out = r.withdraw(smtp_factory=FakeSMTP)
+    assert out == {"due": 1, "withdrawn": 1, "closed": 1}
+    w = FakeSMTP.sent[0]
+    assert w["To"] == "records@bigtown.gov" and w["Subject"].startswith("Re: ")
+    assert w["In-Reply-To"] == r.tracker.data["big"]["message_id"] and "withdrawing the request" in w.get_content()
+    assert r.tracker.data["big"]["status"] == "withdrawn" and r.tracker.data["portal"]["status"] == "withdrawn"
+    assert r.withdraw(smtp_factory=FakeSMTP)["withdrawn"] == 0              # once
+    # no follow-up and never asked again, even after the cool-down
+    r.tracker.data["co-small"]["sent_at"] = r.tracker.data["big"]["sent_at"] = "2020-01-01T00:00:00+00:00"
+    FakeSMTP.sent = []
+    r.follow_ups(smtp_factory=FakeSMTP)
+    assert [m["To"] for m in FakeSMTP.sent] == ["clerk@smallcounty.ga.us"]
+    assert "big" not in [i["jurisdiction"]["id"] for i in orr.plan(J, r.tracker, have=r.have)]
+
+
+def test_withdraw_sends_nothing_when_disabled(tmp_path):
+    r = orr.Requests(tmp_path, {"openrecords": {"enabled": False, "requester": "X"}}, orr.Mailbox(ENV), log=lambda *_: None)
+    r.tracker.log("big", "sent", "to x", to="records@bigtown.gov", message_id="<m@x>", subject="s", sent_at="2026-11-01T00:00:00+00:00")
+    r._have = {"big"}
+    FakeSMTP.sent = []
+    assert r.withdraw(smtp_factory=FakeSMTP) == {"due": 1, "withdrawn": 0, "closed": 0}
+    assert FakeSMTP.sent == [] and r.tracker.data["big"]["status"] == "sent"

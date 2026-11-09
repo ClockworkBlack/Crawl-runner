@@ -25,7 +25,7 @@
   gacrawl electo packets [--out DIR]     write Electo research packets only
   gacrawl candidates list|research [--candidate ID] [--max-minutes M] [--since DATE] [--skip step,step]
   gacrawl rumor list|add|corroborate|debunk|retract
-  gacrawl records status|plan|contacts|send|check|follow-up [--limit N] [--dry-run] [--max-minutes M]
+  gacrawl records status|plan|contacts|send|check|follow-up|withdraw [--limit N] [--dry-run] [--max-minutes M]
   gacrawl police [police|media|news|all] [--max-minutes M] [--only ID] [--refresh]   police departments, sheriffs, media tip lines; news: reported incidents
                                          Georgia Open Records Act requests for codes of ordinances
   gacrawl export [--out DIR] [--no-packets]   build the Electo import bundle
@@ -574,7 +574,7 @@ def cmd_records(cfg, args):
         if args.action == "plan":
             reviews: list = []
             items = plan(jur, reqs.tracker, store, int(cfg.get("openrecords", {}).get("cooldown_days", 180)),
-                         reqs.contacts, reviews)
+                         reqs.contacts, reviews, reqs.have)
             write_review(config.ROOT, reviews)
             for it in items[: args.limit or 25]:
                 print(f"{it['how']:<6} {it['jurisdiction']['id']:<24} {it['to']}  (found on {it['found_on']})")
@@ -590,6 +590,8 @@ def cmd_records(cfg, args):
             print(json.dumps(reqs.check_replies(), indent=1))
         elif args.action == "follow-up":
             print(json.dumps(reqs.follow_ups(), indent=1))
+        elif args.action == "withdraw":
+            print(json.dumps(reqs.withdraw(), indent=1))
     finally:
         store.close()
 
@@ -1345,7 +1347,7 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--repo", help="owner/name: count the month's Actions minutes of every run in it (needs GH_TOKEN)")
     cx = sub.add_parser("codeacts"); cx.add_argument("--max-minutes", type=float); cx.add_argument("--limit", type=int)
     cx.add_argument("--only", help="comma list of legislation ids")
-    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "send", "check", "follow-up", "test", "deadlines"])
+    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "send", "check", "follow-up", "withdraw", "test", "deadlines"])
     rq.add_argument("--to", help="test: send the sample here instead of the project mailbox")
     rq.add_argument("--limit", type=int); rq.add_argument("--dry-run", action="store_true")
     rq.add_argument("--max-minutes", type=float); rq.add_argument("--show", action="store_true", help="plan: print the first draft")

@@ -78,3 +78,16 @@ def test_workflows_have_no_duplicate_keys():
 
     for p in (Path(__file__).resolve().parents[1] / ".github" / "workflows").glob("*.yml"):
         yaml.load(p.read_text(), Loader=Strict)
+
+
+def test_every_shell_script_parses():
+    """bash -n on each script by itself (Nov 9: a quote in a ${VAR:?message} broke the Georgia hand-off on the runner;
+    `bash -n a b c` checks only a, so each is checked alone)."""
+    import subprocess
+    from pathlib import Path
+
+    scripts = sorted((Path(__file__).resolve().parent.parent / "scripts").glob("*.sh"))
+    assert scripts
+    for sh in scripts:
+        r = subprocess.run(["bash", "-n", str(sh)], capture_output=True, text=True)
+        assert r.returncode == 0, f"{sh.name}: {r.stderr}"

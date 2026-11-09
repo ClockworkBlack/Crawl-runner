@@ -3,7 +3,7 @@
 # database, and its lookups and cursors (fec-kv.json, with _since, so a run that carries it knows where it starts),
 # in the private crawl-data release. The crawl's merge job applies it and deletes it by its asset id once stored.
 set -euo pipefail
-: "${FEC_SINCE:?FEC_SINCE (where this run's lines start)}"
+: "${FEC_SINCE:?FEC_SINCE (where the lines of this run start)}"
 gacrawl delta --since "$FEC_SINCE" --out fec-delta.db >/dev/null
 gacrawl finance export-kv --kv fec-kv.json
 python3 - <<'PY'

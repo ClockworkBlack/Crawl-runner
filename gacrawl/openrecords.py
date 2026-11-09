@@ -15,9 +15,12 @@ send       a small daily batch over SMTP. Off unless `openrecords.enabled` is tr
            exist. Never to a guessed address; never twice inside the cool-down; stops for the day on a bounce
            or SMTP error.
 check      reads replies over IMAP (matched by the [ORR-<id>] tag in the subject or the thread headers):
-           acknowledgement, cost estimate, records attached (PDFs go to imports/screens/ordinances/ and into the
-           Screenshots box) or linked, bounce, denial.
+           acknowledgement, cost estimate, records attached (PDFs go to imports/ordinances/ as <id>__<name>, where
+           the ordinances workflow reads them and sends them to Electo) or linked, bounce, denial.
 follow-up  one polite follow-up in the same thread when the 3-business-day deadline has passed by a few days.
+withdraw   a place that has since got a downloaded code (a folder in imports/ordinances/) is skipped by plan and
+           follow-up; an open request to it is withdrawn with one short note in the same thread, so the clerk
+           doesn't spend time (or charge) for a code we have. Portal-only entries are just closed.
 
 Mailbox secrets (environment): ORR_SMTP_HOST, ORR_SMTP_PORT (465 SSL or 587 STARTTLS), ORR_USER, ORR_PASSWORD,
 ORR_FROM (the project address), ORR_IMAP_HOST (optional, for replies; port 993).
@@ -56,6 +59,13 @@ The Act asks for a response within three business days. Thank you for your help.
 
 {signature}
 {reply_line}"""
+WITHDRAW = """To the Records Custodian, {name}:
+
+Regarding the Open Records Act request below, sent {sent_on}, for the Code of Ordinances of {name}: we have since
+obtained a copy, so I am withdrawing the request. No further work or response is needed. Thank you for your time.
+
+{signature}
+"""
 FOLLOW_UP = """To the Records Custodian, {name}:
 
 I am following up on the Open Records Act request below, sent {sent_on}, for an electronic copy of the current
@@ -65,7 +75,8 @@ Thank you,
 {signature}
 """
 STATUSES = ("planned", "sent", "acknowledged", "cost_estimate", "fulfilled", "partial", "denied", "bounced",
-            "followed_up", "portal_only", "error")
+            "followed_up", "portal_only", "error", "withdrawn")
+OPEN = ("sent", "acknowledged", "followed_up", "cost_estimate", "partial", "error")
 
 
 def business_days_after(d: dt.date, n: int) -> dt.date:
@@ -226,17 +237,71 @@ def crawlable_code(j: dict, store=None) -> bool:
     return False
 
 
+# ----------------------------------------------------------------------------- places with a downloaded code
+def _inbox_paths(root: Path) -> list[str]:
+    """Every file under imports/ordinances/, relative to it. Read from git when it can be (works without the files
+    checked out, so a job can skip the multi-gigabyte download), else from the disk."""
+    import subprocess
+
+    inbox = root / "imports" / "ordinances"
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-tree", "-r", "--name-only", "HEAD", "--", "imports/ordinances"],
+                             capture_output=True, text=True, timeout=120, check=True).stdout
+        paths = [p[len("imports/ordinances/"):] for p in out.splitlines() if p.startswith("imports/ordinances/")]
+        if paths:
+            return paths
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return [p.relative_to(inbox).as_posix() for p in inbox.rglob("*") if p.is_file()] if inbox.exists() else []
+
+
+def downloaded_places(root: Path, places=None) -> set[str]:
+    """Registry ids that already have a downloaded code or ordinance file in imports/ordinances/, from the folder
+    names alone (nothing is read). The downloader's GA/<Municode slug>/ folders name a city by its bare name
+    (`franklin`) and a county with `_county` (`franklin_county`), so a bare name is the city when there is one.
+    Files in a zip, or loose files whose place is only in their text, are not counted (they can't be placed
+    without reading them); at worst such a place is asked for a code it already has."""
+    from . import ordinance_files as _of
+
+    places = places or _of.Places(_of.load_places(root))
+    have: set[str] = set()
+    for rel in _inbox_paths(root):
+        parts = [x for x in rel.split("/") if x]
+        if len(parts) < 2:  # a loose file at the top: <id>__<name>.pdf
+            m = re.match(r"(.+?)__", parts[0]) if parts else None
+            jid = places.resolve(m.group(1)) if m else None
+            if jid:
+                have.add(jid)
+            continue
+        for x in parts[:-1]:
+            if x.lower().endswith(".zip") or _of._norm(x) in _of.NOISE_DIRS:
+                continue
+            k = re.sub(r" (consolidated|unified) government$", "", _of._norm(x))  # webster_county_consolidated_government
+            jid = None if k.endswith(" county") else places.resolve(k)
+            jid = jid or places.resolve_folder(k)[0]
+            if jid:
+                have.add(jid)
+                break
+    # a consolidated government's code is its county's too (macon-bibb -> co-bibb), and the reverse
+    for j in places.places:
+        if j.get("kind") == "consolidated" and "-" in j["id"]:
+            county = "co-" + j["id"].split("-", 1)[1]
+            if county in places.by_id and (j["id"] in have or county in have):
+                have |= {j["id"], county}
+    return have
+
+
 def plan(jurisdictions: list[dict], tracker: Tracker, store=None, cooldown_days: int = 180,
-         contacts: dict | None = None, reviews: list | None = None) -> list[dict]:
+         contacts: dict | None = None, reviews: list | None = None, have: set | None = None) -> list[dict]:
     """Jurisdictions due a request, largest first, each with how it would be sent. Places whose only addresses
-    need a check are appended to `reviews` (when given) instead."""
+    need a check are appended to `reviews` (when given) instead. `have`: ids with a downloaded code (skipped)."""
     now = dt.datetime.now(dt.timezone.utc)
     contacts = contacts or {}
     out = []
     for j in sorted(jurisdictions, key=lambda j: -(j.get("population") or 0)):
         if j.get("kind") not in ASKABLE_KINDS or j["id"] in (contacts.get("skip") or []):
             continue
-        if j.get("enabled") is False or crawlable_code(j, store):
+        if j.get("enabled") is False or crawlable_code(j, store) or j["id"] in (have or ()):
             continue
         t = tracker.data.get(j["id"], {})
         if t.get("sent_at") and (now - dt.datetime.fromisoformat(t["sent_at"])).days < cooldown_days:
@@ -368,6 +433,18 @@ class Requests:
         self.requester = self.opts.get("requester") or (cfg or {}).get("requester") or ""
         self.organization = self.opts.get("organization") or ""
         self.contacts = load_contacts(root)
+        self._have: set | None = None
+
+    @property
+    def have(self) -> set:
+        """Places with a downloaded code in imports/ordinances/ (never asked; open requests to them are withdrawn)."""
+        if self._have is None:
+            try:
+                self._have = downloaded_places(self.root)
+            except Exception as exc:  # noqa: BLE001 — a bad folder must not stop the mailbox
+                self.log(f"downloaded codes not read: {type(exc).__name__}: {exc}")
+                self._have = set()
+        return self._have
 
     @property
     def enabled(self) -> bool:
@@ -390,7 +467,7 @@ class Requests:
         today = dt.datetime.now(dt.timezone.utc).date().isoformat()  # sent_at is UTC; compare like with like
         sent_today = sum(1 for t in self.tracker.data.values() if (t.get("sent_at") or "")[:10] == today)
         reviews: list = []
-        due = plan(jurisdictions, self.tracker, store, cooldown, self.contacts, reviews)
+        due = plan(jurisdictions, self.tracker, store, cooldown, self.contacts, reviews, self.have)
         write_review(self.root, reviews)
         out = {"due": len(due), "sent": 0, "portal_only": 0, "needs_review": len(reviews),
                "dry_run": dry_run or not self.enabled, "errors": 0}
@@ -439,7 +516,7 @@ class Requests:
             return {"checked": 0}
         since = min(dt.date.fromisoformat(t["sent_at"][:10]) for t in self.tracker.data.values() if t.get("sent_at"))
         msgs = self.mailbox.fetch_replies(since - dt.timedelta(days=1), imap_factory)
-        attachments_dir = attachments_dir or self.root / "imports" / "screens" / "ordinances"
+        attachments_dir = attachments_dir or self.root / "imports" / "ordinances"
         out = {"checked": len(msgs), "matched": 0, "attachments": 0}
         for m in msgs:
             subj = _decode(m.get("Subject"))
@@ -503,7 +580,7 @@ class Requests:
         today = dt.datetime.now(dt.timezone.utc).date()
         out = {"due": 0, "sent": 0}
         for jid, t in self.tracker.data.items():
-            if t.get("status") != "sent" or t.get("followed_up_at") or not t.get("sent_at"):
+            if t.get("status") != "sent" or t.get("followed_up_at") or not t.get("sent_at") or jid in self.have:
                 continue
             if today < business_days_after(dt.date.fromisoformat(t["sent_at"][:10]), n):
                 continue
@@ -525,6 +602,41 @@ class Requests:
                 break
             self.tracker.log(jid, "followed_up", "no response after the deadline", followed_up_at=_now())
             out["sent"] += 1
+        self.tracker.save()
+        return out
+
+    def withdraw(self, smtp_factory=None) -> dict:
+        """Close requests to places that now have a downloaded code: one short note in the same thread for a request
+        that was emailed (only when sending is enabled), nothing to send for a portal-only entry."""
+        out = {"due": 0, "withdrawn": 0, "closed": 0}
+        for jid, t in self.tracker.data.items():
+            if jid not in self.have:
+                continue
+            if t.get("status") == "portal_only":
+                self.tracker.log(jid, "withdrawn", "a downloaded code is in imports/ordinances; nothing to submit")
+                out["closed"] += 1
+                continue
+            if t.get("status") not in OPEN or not t.get("message_id") or not t.get("to"):
+                continue
+            out["due"] += 1
+            if not self.enabled:
+                continue
+            msg = EmailMessage()
+            msg["From"] = email.utils.formataddr((self.requester, self.mailbox.sender))
+            msg["To"] = t["to"]
+            msg["Subject"] = "Re: " + t["subject"]
+            msg["In-Reply-To"] = msg["References"] = t["message_id"]
+            msg["Message-ID"] = email.utils.make_msgid(domain=(self.mailbox.sender or "orr.local").split("@")[-1])
+            msg.set_content(WITHDRAW.format(name=t.get("name", jid), sent_on=(t.get("sent_at") or "")[:10] or "earlier",
+                                            signature=self.requester + (f"\n{self.organization}" if self.organization else "")))
+            try:
+                self.mailbox.send(msg, smtp_factory)
+            except Exception as exc:  # noqa: BLE001 — try again next run
+                self.tracker.log(jid, t["status"], f"withdrawal failed: {type(exc).__name__}: {exc}")
+                break
+            self.tracker.log(jid, "withdrawn", "a downloaded code is in imports/ordinances; request withdrawn",
+                             withdrawn_at=_now())
+            out["withdrawn"] += 1
         self.tracker.save()
         return out
 
