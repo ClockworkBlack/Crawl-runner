@@ -333,7 +333,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
 
     federal_counts = export_federal(store, out / "federal_bills", log=log)
     n_code_acts = export_code_acts(store, out / "code_acts.json")
-    n_legislation = export_legislation(store, out / "legislation.json")
+    n_legislation = export_legislation(store, out / "legislation.json", root)
 
     # ---- the Screenshots box (inbox items, grouped ordinances / posts / text)
     from .screens import Inbox

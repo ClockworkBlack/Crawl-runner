@@ -243,12 +243,13 @@ def load_config(root) -> dict:
 
 def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, log=print, max_bills: int | None = None) -> dict:
     """Members, legislation and roll calls, incrementally, within the deadline."""
+    from .. import legis_sessions
+
     cfg = load_config(root)
-    sessions = cfg.get("sessions") or {}
-    current = [int(s) for s in sessions.get("current") or []]
-    history = [int(s) for s in sessions.get("history") or []]
-    names = {int(k): v for k, v in (sessions.get("names") or {}).items()}
     api = Legis(fetcher, log)
+    # the sessions followed: the config's, plus any newer one the legislature's own list showed (refreshed below)
+    S = legis_sessions.load(root, store)
+    current, history, names = S["current"], S["history"], S["names"]
     out = {"members": 0, "member_details": 0, "bills": 0, "votes": 0, "sessions": []}
     recheck = int((cfg.get("members") or {}).get("recheck_days", 30))
     cutoff = (dt.date.today() - dt.timedelta(days=recheck)).isoformat()
@@ -257,6 +258,18 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
         return deadline is not None and time.monotonic() > deadline
 
     try:
+        # 0. the legislature's own list of sessions: a session newer than the config's is followed from now on
+        if not timed_out():
+            try:
+                legis_sessions.save(store, api.call("sessions"))
+            except (Blocked, Disallowed, TokenRefused):
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log(f"  sessions list: {type(exc).__name__}: {exc}"[:200])
+            S = legis_sessions.load(root, store)
+            current, history, names = S["current"], S["history"], S["names"]
+            if S["new"]:
+                log(f"  sessions the legislature lists beyond config/legislature.yaml, now followed: {S['new']}")
         # 1. members: current sessions every run; past sessions once. A member's detail (which lists every
         #    session they served) is read once per recheck period, however many session lists name them.
         order = sorted(set(current) | set(history), key=lambda s: (s in current, s), reverse=True)
@@ -375,9 +388,10 @@ def legis_people(store: Store, candidates: list[dict], root=None) -> dict:
     legislators, matched by name variants and (when the candidate's races name a seat) chamber + district."""
     from ..names import name_variants
 
-    cfg = load_config(root) if root else {}
-    years = {int(k): v for k, v in ((cfg.get("sessions") or {}).get("years") or {}).items()}
-    names = {int(k): v for k, v in ((cfg.get("sessions") or {}).get("names") or {}).items()}
+    from .. import legis_sessions
+
+    S = legis_sessions.load(root, store) if root else {"years": {}, "names": {}}
+    years, names = S["years"], S["names"]
     legislators = store.query("kind='legislator'", limit=20000)
     by_norm: dict[str, list[dict]] = {}
     for lg in legislators:

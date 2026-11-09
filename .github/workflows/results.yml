@@ -9,7 +9,9 @@ name: results
 #      last build; --final once the state marks the results official), commits ga-election-night.html, built.json and
 #      template.built.html to Electo, and starts publish-site so the public site follows within minutes.
 # A failed read of the feed fails the run (sync-code records it; the watchdog reports a job that keeps failing).
-# A new election needs its id (EID) and race lists set in ga/build.py; until then this job keeps the last one.
+# A new election needs no one: ga/build.py --pick finds it in the state's list of elections (the newest general
+# election or general runoff that has begun and has a statewide race) and reads its races from its feed; the page
+# switches on its first posting, and race calls (ga/calls.json, for one election) start empty.
 on:
   schedule:
     - cron: "9,29,49 * * * *"
@@ -53,8 +55,16 @@ jobs:
               return base64.b64decode(r.stdout).decode("utf-8")
 
           built = json.loads(electo("ga/built.json"))
-          m = re.search(r'^EID = "([^"]+)"', electo("ga/build.py"), re.M)
-          eid = m.group(1) if m else ""
+          # the election to follow, as Electo's own ga/build.py picks it (the state's newest general election or
+          # general runoff that has begun and has a statewide race; else the one last built)
+          import tempfile
+          tmp = tempfile.mkdtemp()
+          open(os.path.join(tmp, "build.py"), "w").write(electo("ga/build.py"))
+          open(os.path.join(tmp, "built.json"), "w").write(json.dumps(built))
+          r = subprocess.run([sys.executable, "-I", os.path.join(tmp, "build.py"), "--pick"], capture_output=True, text=True, timeout=300)
+          eid = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else ""
+          if not eid:
+              sys.exit(f"could not tell which election to follow: {r.stderr.strip()[-300:]}")
           force = os.environ.get("FORCE") == "true"
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           if built.get("final") and built.get("eid") == eid and not force:

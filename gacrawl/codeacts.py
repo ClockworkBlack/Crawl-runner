@@ -696,13 +696,15 @@ def run(fetcher, store: Store, root, deadline: float | None = None, log=print, l
     """Read and parse the as-passed text of enacted acts not parsed yet (or parsed by an older parser)."""
     from .sources.legis import Legis, TokenRefused
 
+    from .legis_sessions import act_sessions, load as sessions_load
+
     cc = load_config(root)
-    sessions = {int(s) for s in (cc.get("sessions") or [1031, 1032, 1033, 1034])}
+    sessions = set(act_sessions(root, store, cc.get("sessions")))
     api = Legis(fetcher, log)
     out = {"acts": 0, "parsed": 0, "skipped": 0, "errors": 0, "clauses": 0, "pending": 0, "listed": 0}
     # the bill list comes from `gacrawl legis`; list a session here when that has not happened in the last week
     week = (dt.date.today() - dt.timedelta(days=7)).isoformat()
-    names = {1031: "2023-2024 Regular Session", 1032: "2023 Special Session", 1033: "2025-2026 Regular Session", 1034: "2026 Special Session"}
+    names = sessions_load(root, store)["full"]
     for sid in sorted(sessions):
         if only or (store.kv_get(f"legis:legislation:{sid}") or "") >= week:
             continue
@@ -801,10 +803,15 @@ def export_code_acts(store: Store, out_path: Path) -> int:
     return len(acts)
 
 
-def export_legislation(store: Store, out_path: Path) -> int:
-    """Every bill and resolution of the 2023-2026 sessions in Electo's acts.json item shape:
+def export_legislation(store: Store, out_path: Path, root: Path | None = None) -> int:
+    """Every bill and resolution of the 2023 sessions on (config code_acts.sessions, and every session after them that
+    the legislature lists: legis_sessions) in Electo's acts.json item shape:
     [id, session, H|S, B|R, number, suffix, caption, status, status date (MM/DD/YYYY), act/veto, sponsors, enacted 0/1]."""
     sessions = {1031: "2023-2024 Regular Session", 1032: "2023 Special Session", 1033: "2025-2026 Regular Session", 1034: "2026 Special Session"}
+    if root is not None:
+        from .legis_sessions import act_sessions, load as sessions_load
+        full = sessions_load(root, store)["full"]
+        sessions = {s: full.get(s) or sessions.get(s) or str(s) for s in act_sessions(root, store, load_config(root).get("sessions"))}
     items = []
     for r in store.iter_query("source_id=? AND kind='bill'", (SOURCE,)):
         m = r["meta"]
@@ -831,6 +838,6 @@ def export_legislation(store: Store, out_path: Path) -> int:
     out_path.write_text(json.dumps({"note": "Every 2023-2026 bill and resolution as legis.ga.gov lists it (status, act number, "
                                             "sponsors), in Electo's acts.json item shape.",
                                     "sessions": {str(k): v for k, v in sessions.items()}, "items": items,
-                                    "checked": max((r for r in [store.kv_get("legis:legislation:1033") or ""]), default="")},
+                                    "checked": max((store.kv_get(f"legis:legislation:{s}") or "" for s in sessions), default="")},
                                    ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return len(items)

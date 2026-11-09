@@ -138,8 +138,10 @@ class Reasons:
 
         self.f, self.store, self.root, self.state_dir, self.log = fetcher, store, root, state_dir, log
         self.outlets, self.exclude = load_outlets(root)
+        from .legis_sessions import load as sessions_load
+
         cfg = load_yaml(root / "config" / "legislature.yaml")
-        self.years = {int(k): v for k, v in ((cfg.get("sessions") or {}).get("years") or {}).items()}
+        self.years = sessions_load(root, store)["years"]
         self.key = {int(kb["session"]): set() for kb in (cfg.get("votes") or {}).get("key_bills") or []}
         for kb in (cfg.get("votes") or {}).get("key_bills") or []:
             self.key[int(kb["session"])].add(kb["bill"])
@@ -281,8 +283,10 @@ def vetoes(fetcher, store, root: Path, state_dir: Path, deadline: float | None =
     from .ingest import _pdf_pages
     from .registry import load_yaml, write_json_atomic
 
+    from .legis_sessions import load as sessions_load
+
     cfg = load_yaml(root / "config" / "legislature.yaml")
-    years_by = {int(k): v for k, v in ((cfg.get("sessions") or {}).get("years") or {}).items()}
+    years_by = sessions_load(root, store)["years"]
     bills: dict[tuple, dict] = {}
     for b in store.iter_query("source_id=? AND kind='bill'", (LEGIS,)):
         m = b["meta"]
@@ -434,8 +438,10 @@ def _party_line(split: dict) -> bool:
 def export_reasons(store, root: Path, out_path: Path) -> dict:
     from .registry import load_yaml
 
+    from .legis_sessions import load as sessions_load
+
     cfg = load_yaml(root / "config" / "legislature.yaml")
-    years = {int(k): v for k, v in ((cfg.get("sessions") or {}).get("years") or {}).items()}
+    years = sessions_load(root, store)["years"]
     key: dict = defaultdict(set)
     for kb in (cfg.get("votes") or {}).get("key_bills") or []:
         key[int(kb["session"])].add(kb["bill"])
