@@ -245,8 +245,10 @@ class Fetcher:
         """Wait for the host's next turn, unless it would come after the deadline (or, with max_wait, too far
         off: a strained shared host backs off up to 16x, and six workers queued behind it would sit idle)."""
         until = self.deadline()
-        if self.max_wait is not None:
-            cap = time.monotonic() + self.max_wait
+        # a thread can set its own (research's news lane: None, waiting for its one host is all it does)
+        max_wait = getattr(getattr(self, "_local", None), "max_wait", self.max_wait)
+        if max_wait is not None:
+            cap = time.monotonic() + max_wait
             until = cap if until is None else min(until, cap)
         try:
             self.limiter.wait(url, delay, until=until)

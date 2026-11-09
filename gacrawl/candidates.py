@@ -57,6 +57,10 @@ FEC = "https://api.open.fec.gov/v1"
 STEPS = ("mentions", "votes", "sponsorships", "posts", "statements", "articles", "leads", "social_mentions", "connections")
 GDELT_WINDOW_DAYS = 89      # the DOC API searches a rolling ~3-month window
 GDELT_NAMES_PER_QUERY = 6
+
+
+class GdeltRateLimited(Exception):
+    """GDELT asked the crawler to slow down (its answer to a query sent too soon)."""
 CAMPAIGN_HOT = re.compile(r"issue|platform|priorit|about|bio|meet|record|accomplish|endorse|support|news|press|statement|"
                           r"plan|vision|why|position|policy|values|experience|leadership|community", re.I)
 
@@ -399,7 +403,8 @@ class Researcher:
     NETWORK_STEPS = ("posts", "statements", "leads", "social_mentions", "connections")
 
     def research_many(self, cands: list[dict], since: str, deadline: float, progress, skip: set[str] | None = None,
-                      cadence_days: float = 7, recent_cadence_days: float = 3, workers: int | None = None) -> dict:
+                      cadence_days: float = 7, recent_cadence_days: float = 3, workers: int | None = None,
+                      news_only: bool = False) -> dict:
         """Research due candidates until the deadline, several at a time.
 
         Due candidates are ordered (officeholders, never researched, those Electo cannot infer for yet, thin
@@ -408,7 +413,10 @@ class Researcher:
         candidates one by one (official records first, no network; then the candidate's own channels and the
         public indexes) and then runs the chunk's news search, one GDELT query for the whole chunk. So news
         arrives with the rest of a candidate's research instead of after every candidate (which a budget never
-        reached), and the shared hosts (GDELT, Google News, Bluesky) are paced by the per-host limiter."""
+        reached), and the shared hosts (GDELT, Google News, Bluesky) are paced by the per-host limiter.
+
+        news_only: only the news lane, until the deadline (the candidate-news workflow's hours of it on its own runner;
+        the crawl's research minutes reached a few GDELT queries a run, and the Rumor Mill stopped growing)."""
         skip = set(skip or ())
         workers = max(1, int(workers or self.opts.get("workers", 6)))
         now = dt.datetime.now(dt.timezone.utc)
@@ -431,7 +439,7 @@ class Researcher:
                     -int((c.get("last_race_date") or "0000")[:4] >= this_year),
                     progress.get(f"cand:{c['id']}").get("last_ok") or "")
 
-        order = sorted((c for c in cands if due(c)), key=rank)
+        order = [] if news_only else sorted((c for c in cands if due(c)), key=rank)
         chunks = _chunks_by_place(order, GDELT_NAMES_PER_QUERY)
         totals: dict[str, int] = defaultdict(int)
         state = {"done": 0, "chunks": 0, "partial": 0, "news_queries": 0, "news_done": 0, "news_due": 0, "steps_skipped": 0}
@@ -539,8 +547,16 @@ class Researcher:
             return (bool(last), not c.get("priority"), -int((c.get("last_race_date") or "0000")[:4] >= str(now.year - 1)), last)
 
         def news_lane() -> None:
+            # this lane waits for GDELT's turn however far off it is (up to the deadline): research's max_wait skips a
+            # busy host's step so six workers don't sit idle, but here the one host is all there is to wait for. With
+            # the 45 s cap, GDELT's spacing (6 s, up to 16x when its answers are slow) ended the lane after one or two
+            # queries a run (Nov 8-9: 1-2 queries of 2,818 candidates due, and nothing new for the Rumor Mill)
+            loc = getattr(self.f, "_local", None)
+            if loc is not None:
+                loc.max_wait = None
             groups = _chunks_by_place(sorted((c for c in cands if news_due(c)), key=news_rank), GDELT_NAMES_PER_QUERY)
             state["news_due"] = sum(len(g) for g in groups)
+            limited = 0
             for g in groups:
                 if out_of_time():
                     return
@@ -551,6 +567,14 @@ class Researcher:
                 except (Disallowed, Blocked) as exc:
                     self._notes["news_refused"] = f"{type(exc).__name__}: {exc}"[:200]
                     return                      # GDELT refused the crawler: nothing more to ask it this run
+                except GdeltRateLimited:
+                    # asked to slow down: the limiter has backed off; this group stays due (not marked done), and
+                    # after several in a row the lane stops for this run rather than keep asking
+                    limited += 1
+                    self._notes["gdelt_rate_limited"] = self._notes.get("gdelt_rate_limited", 0) + 1
+                    if limited >= 5:
+                        return
+                    continue
                 except OutOfTime:
                     return
                 except Exception as exc:  # noqa: BLE001
@@ -559,6 +583,7 @@ class Researcher:
                     if self._notes["article_errors"] <= 2:
                         self.log(f"  news: {type(exc).__name__}: {exc}"[:600])
                     continue
+                limited = 0
                 with lock:
                     for cnt in counts.values():
                         for k, v in cnt.items():
@@ -807,6 +832,12 @@ class Researcher:
                                       "startdatetime": floor.replace("-", "") + "000000"}, use_cache=False)
         if r.status == 200 and r.content.strip().startswith(b"{"):
             arts = r.json().get("articles", [])
+        elif r.status == 429 or re.search(r"limit requests|rate limit|too many requests", r.text or "", re.I):
+            # GDELT's rate limit comes as HTTP 200 with a sentence: back off as for a 429, and the group stays due
+            lim = getattr(self.f, "limiter", None)
+            if lim is not None and r.status != 429:
+                lim.record(GDELT, 429, 0.0)
+            raise GdeltRateLimited((r.text or "")[:160])
         else:
             arts = []
             # GDELT answers a rate limit or a bad query as HTTP 200 with a sentence, not JSON: say so once a run

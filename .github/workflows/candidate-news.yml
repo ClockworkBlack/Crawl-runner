@@ -1,0 +1,80 @@
+name: candidate-news
+# Research's news lane on its own runner: each candidate's GDELT news search (a few names a query), every hit opened
+# and checked for the candidate's name and place, what is found filed as an article (a listed outlet), a lead (not
+# opened) or a Rumor Mill item (any other site, kept apart, never cited) - the Rumor Has It tab on Electo. Inside the
+# crawl's merge job the lane had the research minutes only (13 a night), and GDELT's spacing (one query every few
+# seconds, counted from its answer, longer when it is slow) reached a query or two a run: the Rumor Mill stopped
+# growing on Nov 8 with 2,818 candidates' news due. Here it has hours.
+#
+# It works on a copy of the crawl database and the kept state, so it never races the crawl; what it found travels as
+# news-handoff.json in the private crawl-data release (gacrawl/model_handoff.py, the open model job's format: records
+# of a candidate's source, Rumor Mill items by candidate and url, each candidate's news progress), which the crawl's
+# merge job applies before its export and deletes only once the database holding it is stored. A hand-off still
+# waiting for the crawl is applied here first and handed over again with this run's.
+on:
+  schedule:
+    - cron: "40 0,6,12,18 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of news searching (default 270)"
+        required: false
+        default: "270"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-news
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+
+jobs:
+  news:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: A copy of the crawl database (and the last hand-off, if the crawl has not applied it yet)
+        run: |
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="news-handoff.json") | .id' 2>/dev/null || true)
+          if [ -n "$ID" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+          fi
+          bash scripts/ci_db.sh pull
+          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
+          gacrawl model-handoff mark --out mark.json
+      - name: Candidates' news (GDELT), until the minutes are up
+        run: |
+          M=${{ inputs.minutes || '270' }}
+          timeout -s INT -k 3m "$((M + 10))m" gacrawl candidates research --news-only --max-minutes "$M" || echo "news stopped after $((M + 10)) minutes"
+      - name: Hand it to the crawl (news-handoff.json in the private release)
+        if: always()
+        run: |
+          [ -f mark.json ] || { echo "nothing was started"; exit 0; }
+          if [ -s waiting.json ]; then
+            gacrawl model-handoff export --mark mark.json --out news-handoff.json --carry waiting.json | tee export.json
+          else
+            gacrawl model-handoff export --mark mark.json --out news-handoff.json | tee export.json
+          fi
+          if grep -q '"has_work": true' export.json; then :
+          else echo "nothing new found (nothing was due); no hand-off uploaded"; exit 0; fi
+          gh release upload "$DATA_TAG" news-handoff.json --clobber
+          echo "uploaded $(du -h news-handoff.json | cut -f1) for the crawl's next merge"

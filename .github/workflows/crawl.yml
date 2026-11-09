@@ -342,11 +342,16 @@ jobs:
           mkdir -p modeld
           # the asset's id is kept: the model job may upload a newer hand-off (this one plus its own) while this run
           # works, and only the one applied here may be deleted once stored
+          # news-handoff.json is the candidate-news job's (candidate-news.yml): research's GDELT news lane for hours on
+          # its own runner, its articles, leads, Rumor Mill items and news progress, handed over the same way
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
-          if [ -n "$ID" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${ID%% *}" > modeld/model-handoff.json 2>/dev/null && [ -s modeld/model-handoff.json ]; then
-            gacrawl model-handoff apply --in modeld/model-handoff.json && echo "$ID" > modeld/applied
-          else echo "no open model hand-off waiting"; fi
+          rm -f modeld/applied
+          for NAME in model-handoff.json news-handoff.json; do
+            ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$NAME\") | \"\(.id) \(.updated_at)\"" 2>/dev/null || true)
+            if [ -n "$ID" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${ID%% *}" > "modeld/$NAME" 2>/dev/null && [ -s "modeld/$NAME" ]; then
+              gacrawl model-handoff apply --in "modeld/$NAME" && echo "$NAME $ID" >> modeld/applied && echo "$NAME applied"
+            else echo "no $NAME waiting"; fi
+          done
       - name: Purge sources removed for cause (config/purge.yaml)
         run: gacrawl purge
       - name: Store the merged database at once (the night's crawl and the FEC re-read, before the long steps)
@@ -375,10 +380,12 @@ jobs:
           fi
           if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
             REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
-            if [ "$NOW" = "$(cat modeld/applied)" ]; then
-              gh api -X DELETE "repos/$REPO/releases/assets/${NOW%% *}" && echo "the open model's hand-off is stored; removed"
-            else echo "a newer open model hand-off arrived while this run worked: kept for the next run"; fi
+            while read -r NAME AID AT; do
+              NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$NAME\") | \"\(.id) \(.updated_at)\"" 2>/dev/null || true)
+              if [ "$NOW" = "$AID $AT" ]; then
+                gh api -X DELETE "repos/$REPO/releases/assets/$AID" && echo "$NAME is stored; removed"
+              else echo "a newer $NAME arrived while this run worked: kept for the next run"; fi
+            done < modeld/applied
             rm -f modeld/applied
           fi
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
@@ -677,10 +684,12 @@ jobs:
           fi
           if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
             REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
-            if [ "$NOW" = "$(cat modeld/applied)" ]; then
-              gh api -X DELETE "repos/$REPO/releases/assets/${NOW%% *}" && echo "the open model's hand-off is stored; removed"
-            else echo "a newer open model hand-off arrived while this run worked: kept for the next run"; fi
+            while read -r NAME AID AT; do
+              NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$NAME\") | \"\(.id) \(.updated_at)\"" 2>/dev/null || true)
+              if [ "$NOW" = "$AID $AT" ]; then
+                gh api -X DELETE "repos/$REPO/releases/assets/$AID" && echo "$NAME is stored; removed"
+              else echo "a newer $NAME arrived while this run worked: kept for the next run"; fi
+            done < modeld/applied
             rm -f modeld/applied
           fi
       - name: Task list, status, Electo bundle

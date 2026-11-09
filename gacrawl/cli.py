@@ -493,12 +493,13 @@ def cmd_candidates(cfg, args):
         opts = cfg.get("candidates", {})
         deadline = time.monotonic() + float(args.max_minutes or opts.get("max_minutes", 60)) * 60
         progress = Progress(cfg["state_dir"] / "candidate_progress.json")
-        last = cfg["state_dir"] / "research_last.json"
+        last = cfg["state_dir"] / ("news_last.json" if getattr(args, "news_only", False) else "research_last.json")
         last.unlink(missing_ok=True)       # a run that is killed leaves no yield behind, not the previous run's
         res = r.research_many(cands[: args.limit] if args.limit else cands, args.since, deadline, progress, skip,
                               cadence_days=float(opts.get("cadence_days", 14)),
                               recent_cadence_days=float(opts.get("recent_cadence_days", 3)),
-                              workers=args.workers or opts.get("workers", 6))
+                              workers=args.workers or opts.get("workers", 6), news_only=bool(getattr(args, "news_only", False)))
+        progress.flush()                   # the last updates (written at most every 2 s) are kept too
         print(json.dumps(res, indent=1))
         last.write_text(json.dumps(res))   # the backfill (and the run summary) read this run's yield
     finally:
@@ -948,13 +949,17 @@ def cmd_model_handoff(cfg, args):
             Path(args.out).write_text(json.dumps(mh.mark(store, config.ROOT)), encoding="utf-8")
         elif args.action == "export":
             carry = json.loads(Path(args.carry).read_text(encoding="utf-8")) if getattr(args, "carry", None) and Path(args.carry).exists() else None
-            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")), carry=carry)
+            pp = cfg["state_dir"] / "candidate_progress.json"
+            prog = json.loads(pp.read_text(encoding="utf-8")) if pp.exists() else {}
+            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")), carry=carry, progress=prog)
             Path(args.out).write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
             print(json.dumps({k: len(v) for k, v in h["kv"].items()} | {"records": len(h["records"]), "rumors": len(h["rumors"]),
-                             "rumor_text": len(h["rumor_text"]), "train": sum(len(v) for v in h["train"].values()),
+                             "rumor_text": len(h["rumor_text"]), "rumor_rows": len(h["rumor_rows"]), "progress": len(h["progress"]),
+                             "train": sum(len(v) for v in h["train"].values()),
                              "carried": bool(carry), "has_work": mh.has_work(h)}))
         else:
-            print(json.dumps(mh.apply(store, config.ROOT, json.loads(Path(args.inp).read_text(encoding="utf-8")))))
+            print(json.dumps(mh.apply(store, config.ROOT, json.loads(Path(args.inp).read_text(encoding="utf-8")),
+                                      progress_path=cfg["state_dir"] / "candidate_progress.json")))
     finally:
         store.close()
 
@@ -1265,6 +1270,7 @@ def build_parser() -> argparse.ArgumentParser:
     ca.add_argument("--workers", type=int, help="candidates researched at once (default: candidates.workers, 6)")
     ca.add_argument("--since", default="2016-01-01"); ca.add_argument("--max-minutes", type=float); ca.add_argument("--limit", type=int)
     ca.add_argument("--skip", help="comma list: mentions,votes,posts,statements,articles,leads,social_mentions,connections")
+    ca.add_argument("--news-only", action="store_true", help="research: only the news lane (GDELT), until --max-minutes")
     ru = sub.add_parser("rumor"); ru.add_argument("action", choices=["list", "add", "corroborate", "debunk", "retract"])
     for flag in ("--candidate", "--url", "--claim", "--author", "--id", "--evidence", "--note"):
         ru.add_argument(flag)

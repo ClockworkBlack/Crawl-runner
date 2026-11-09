@@ -298,6 +298,10 @@ def test_research_does_not_wait_long_for_a_strained_host():
         assert False, "should not wait 5 minutes"
     except OutOfTime as exc:
         assert str(exc).startswith("https://api.gdeltproject.org: next turn at +")
+    # the news lane's thread waits for GDELT however far off its turn is (its one host)
+    f._local = threading.local()
+    f._local.max_wait = None
+    f._turn("https://api.gdeltproject.org/api/v2/doc/doc", None)
     f.max_wait = None
     f.limiter._state("https://x.example").next_ok = time.monotonic() + 1
     f._turn("https://x.example/", None)                                              # a short wait is taken
@@ -458,4 +462,90 @@ def test_run_stamps_the_reader_version_when_a_source_completes(tmp_path, monkeyp
     assert seen["modified_since"] is None                                    # read from the start
     p = prog.get("homeland:civicclerk")
     assert p["status"] == "ok" and p["reader"] == READER_VERSIONS["civicclerk"]
+    store.close()
+
+
+def _news_only_researcher(tmp_path, monkeypatch, articles):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "jurisdictions.yaml").write_text("counties: []\nmunicipalities: []\n")
+    store = Store(tmp_path / "data")
+
+    class F(FakeFetcher):
+        _local = threading.local()
+    r = Researcher(tmp_path, {"candidates": {"workers": 3, "gdelt": True, "google_news": False, "bluesky_search": False}},
+                   F(), store, log=lambda *_: None)
+    for name in ("_mentions", "_votes", "_sponsorships", "_posts", "_statements", "_leads", "_social_mentions", "_connections"):
+        monkeypatch.setattr(Researcher, name, lambda self, c, cls, add, since: (_ for _ in ()).throw(AssertionError("research ran")))
+    monkeypatch.setattr(Researcher, "articles_batch", articles)
+    return r, store
+
+
+def test_news_only_runs_the_news_lane_and_waits_for_gdelt(tmp_path, monkeypatch):
+    """The candidate-news job: only the news lane, which waits for GDELT's turn however far off (no 45 s cap: with
+    it, GDELT's backed-off spacing ended the lane after one or two queries a run)."""
+    waits = []
+
+    def articles(self, group, since, adders):
+        waits.append(getattr(self.f._local, "max_wait", "unset"))
+        return 0
+    r, store = _news_only_researcher(tmp_path, monkeypatch, articles)
+    r.f.max_wait = 45.0
+    cands = [{"id": f"c{i}", "name": f"Person {i}", "jurisdiction": "a", "aliases": []} for i in range(8)]
+    prog = Progress(tmp_path / "cp.json")
+    res = r.research_many(cands, "2016-01-01", time.monotonic() + 30, prog, news_only=True)
+    assert res["researched"] == 0 and res["due"] == 0 and res["news"] == {"queries": 2, "candidates": 8, "due": 8}
+    assert waits == [None, None]
+    assert threading.local() is not None and getattr(r.f._local, "max_wait", "unset") == "unset"   # main thread untouched
+    store.close()
+
+
+def test_gdelt_rate_limit_keeps_the_group_due(tmp_path, monkeypatch):
+    calls = []
+
+    def articles(self, group, since, adders):
+        calls.append([c["id"] for c in group])
+        if len(calls) == 1:
+            raise cand_mod.GdeltRateLimited("Please limit requests to one every 5 seconds")
+        return 0
+    r, store = _news_only_researcher(tmp_path, monkeypatch, articles)
+    cands = [{"id": f"c{i}", "name": f"Person {i}", "jurisdiction": j, "aliases": []} for i, j in enumerate("ab")]
+    prog = Progress(tmp_path / "cp.json")
+    res = r.research_many(cands, "2016-01-01", time.monotonic() + 30, prog, news_only=True)
+    assert res["news"]["queries"] == 1 and res["gdelt_rate_limited"] == 1
+    assert not prog.get(f"news:{calls[0][0]}").get("last_ok") and prog.get(f"news:{calls[1][0]}").get("last_ok")
+    # five refusals in a row: the lane stops for this run
+    calls.clear()
+    monkeypatch.setattr(Researcher, "articles_batch",
+                        lambda self, g, s, a: (calls.append(1), (_ for _ in ()).throw(cand_mod.GdeltRateLimited("x")))[1])
+    cands = [{"id": f"d{i}", "name": f"P {i}", "jurisdiction": f"j{i}", "aliases": []} for i in range(9)]
+    res = r.research_many(cands, "2016-01-01", time.monotonic() + 30, Progress(tmp_path / "cp2.json"), news_only=True)
+    assert len(calls) == 5 and res["news"]["queries"] == 0
+    store.close()
+
+
+def test_articles_batch_backs_off_on_gdelts_rate_limit_sentence(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "jurisdictions.yaml").write_text("counties: []\nmunicipalities: []\n")
+    recorded = []
+
+    class Resp:
+        status, content_type = 200, "text/plain"
+        content = b"Please limit requests to one every 5 seconds or contact us for larger queries."
+        text = content.decode()
+
+    class Lim:
+        def record(self, url, status, latency, **k):
+            recorded.append((url, status))
+
+    class F(FakeFetcher):
+        limiter = Lim()
+
+        def get(self, *a, **k):
+            return Resp()
+    store = Store(tmp_path / "data")
+    r = Researcher(tmp_path, {"candidates": {}}, F(), store, log=lambda *_: None)
+    import pytest
+    with pytest.raises(cand_mod.GdeltRateLimited):
+        r.articles_batch([{"id": "a", "name": "Jane Doe", "aliases": []}], "2016-01-01", {"a": lambda rec: None})
+    assert recorded == [(cand_mod.GDELT, 429)]
     store.close()

@@ -271,6 +271,22 @@ def pipeline_checks(root: Path, store) -> str:
     readings = sum(1 for r in rows if (r.get("ai") or {}).get("v"))
     L.append(f"- Rumor Mill, {len(rows):,} unverified items: pages read for the model **{texts:,}**; pages that could not be "
              f"read **{unread:,}** (asked for again after 30 days); readings by the open model **{readings:,}**")
+    # is it still growing? the news lane (GDELT) finds its items: the crawl's research and the candidate-news job
+    import datetime as _dt
+
+    week = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=7)).isoformat()
+    fortnight = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=14)).isoformat()
+    newest = max((r.get("first_seen") or "" for r in RumorMill(root).all()), default="")
+    added = sum(1 for r in RumorMill(root).all() if (r.get("first_seen") or "") >= week)
+    pp = root / "state" / "candidate_progress.json"
+    try:
+        prog = json.loads(pp.read_text(encoding="utf-8")) if pp.exists() else {}
+    except ValueError:
+        prog = {}
+    news = [v for k, v in prog.items() if k.startswith("news:") and isinstance(v, dict)]
+    recent = sum(1 for v in news if (v.get("last_ok") or "") >= fortnight)
+    L.append(f"- Candidates' news (GDELT): searched in the last 14 days **{recent:,}** (of {len(news):,} ever searched); Rumor Mill "
+             f"items added in the last 7 days **{added:,}**, newest first seen **{newest[:10] or 'never'}**")
     fb = kv("federal_bill_ai", {})
     kept = sum(1 for v in fb.values() if isinstance(v, dict) and v.get("t"))
     from .federal_bills import congress_now
