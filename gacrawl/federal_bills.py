@@ -241,6 +241,9 @@ OUTLOOK_HOW = ["the same stage, a sponsor in the same position (majority or mino
 
 
 # ------------------------------------------------------------------------------------------------- reading
+CLOSED_RECHECK_DAYS = 7     # a closed Congress changes rarely (late enrollments, corrections)
+
+
 def _listing(f, c: int, t: str) -> list[dict]:
     r = f.get(f"{BASE}/json/BILLSTATUS/{c}/{t}", headers={"Accept": "application/json"}, use_cache=False)
     if r.status != 200:
@@ -267,6 +270,13 @@ def run(f, store, deadline: float, log=print, first: int = FIRST) -> dict:
                 return st
             ck = f"fedbills:{c}:{t}"
             cur = json.loads(store.kv_get(ck) or "{}")
+            today = dt.date.today()
+            if c < now_c and cur.get("zip") and not cur.get("checked"):
+                cur["checked"] = today.isoformat()          # read from its zip before checks were dated
+                store.kv_set(ck, json.dumps(cur))
+            if c < now_c and cur.get("zip") and \
+                    (today - dt.date.fromisoformat(cur["checked"])).days < CLOSED_RECHECK_DAYS:
+                continue      # a closed Congress already read: its listing (GovInfo's slowest pages) is checked weekly
             try:
                 files = _listing(f, c, t)
             except Exception as e:  # noqa: BLE001
@@ -294,8 +304,9 @@ def run(f, store, deadline: float, log=print, first: int = FIRST) -> dict:
                     if meta:
                         n += 1
                         ch += _save(store, meta)
-                cur = {"zip": zmod, "files": {x["justFileName"]: x.get("formattedLastModifiedTime") or "" for x in files
-                                              if x.get("justFileName", "").endswith(".xml")}}
+                cur = {"zip": zmod, "checked": today.isoformat(),
+                       "files": {x["justFileName"]: x.get("formattedLastModifiedTime") or "" for x in files
+                                 if x.get("justFileName", "").endswith(".xml")}}
                 store.kv_set(ck, json.dumps(cur))
                 st["read"] += n
                 st["changed"] += ch
@@ -319,11 +330,15 @@ def run(f, store, deadline: float, log=print, first: int = FIRST) -> dict:
                         ch += _save(store, meta)
                     seen[x["justFileName"]] = x.get("formattedLastModifiedTime") or ""
                 cur["files"] = seen
+                cur["checked"] = today.isoformat()
                 store.kv_set(ck, json.dumps(cur))
                 st["read"] += n
                 st["changed"] += ch
-                if todo:
-                    log(f"federal bills {c}/{t}: {n} changed bills read ({len(todo) - n} left)")
+                log(f"federal bills {c}/{t}: {n} changed bills read ({len(todo) - n} left)" if todo
+                    else f"federal bills {c}/{t}: no change since the last read")
+            else:             # a closed Congress whose zip has not changed: checked
+                cur["checked"] = today.isoformat()
+                store.kv_set(ck, json.dumps(cur))
     log(f"federal bills: {st['read']} read, {st['changed']} new or changed, {st['folders']} folders from zips, {st['errors']} errors")
     return st
 
