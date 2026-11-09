@@ -3,7 +3,8 @@ name: ai-outlook
 # Qwen3-8B, 4-bit, on the runner's CPU) instead of anyone's AI: the site is built, opened headless, and the model is
 # given the exact prompt the page would give Claude; the checker keeps cards whose figures are all in that prompt and
 # that cite its sources. A new set is written when the data changed or the last is 20 hours old (otherwise this run
-# ends after the check), committed to Electo's ga/outlook.json, and the public site is refreshed.
+# ends after the check), committed to Electo's ga/outlook.json, and the public site is refreshed. Each run also reads the
+# Secretary of State's election calendar PDF into ga/law_sos.json (tools/law_calendar.py, no AI), which Key Dates merges.
 on:
   schedule:
     - cron: "23 */6 * * *"
@@ -38,6 +39,10 @@ jobs:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ol
+      - name: Key Dates from the Secretary of State's calendar (no AI; Electo tools/law_calendar.py)
+        run: |
+          pip install -q pypdf || true
+          cd /tmp/electo-ol && python3 -I tools/law_calendar.py || echo "key dates not read this run"
       - name: Build and serve the site
         run: |
           cd /tmp/electo-ol && bash qa/mksite.sh | tail -1
@@ -53,6 +58,7 @@ jobs:
           pip install -q --prefer-binary playwright "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
           python -m playwright install --with-deps chromium >/dev/null
       - name: Write the outlook
+        continue-on-error: true     # Key Dates are still committed when the model run fails
         run: cd /tmp/electo-ol && python3 -I tools/ai/outlook_ai.py http://127.0.0.1:8765/ ${{ inputs.force && '--force' || '' }}
       - name: Commit to Electo and refresh the public site
         if: env.IS_MAIN == 'true'
@@ -63,8 +69,8 @@ jobs:
         run: |
           cd /tmp/electo-ol
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add ga/outlook.json research/train/outlook_ai_log.jsonl 2>/dev/null || true
+          git add ga/outlook.json ga/law_sos.json research/train/outlook_ai_log.jsonl 2>/dev/null || true
           if git diff --cached --quiet; then echo "no new outlook"; exit 0; fi
-          git commit -qm "Outlook by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
+          git commit -qm "Outlook by the open model and Key Dates from the SoS calendar: $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"

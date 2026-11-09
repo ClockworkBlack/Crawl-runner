@@ -276,7 +276,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         if g.get("via"):
             g["via"] = sorted(g["via"])[:3]
     out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log)
+    np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log, candidates=candidates)
     return {"profiles": np, "rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}
 
 
@@ -327,11 +327,70 @@ def summary_of(P: dict) -> str:
     return s + "."
 
 
-def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: Path, log=print) -> int:
+# a filed occupation or employer that names an elected office: the donor is a public official, not a private person
+OFFICE_WORDS = re.compile(r"(?i)\b(state (representative|rep|senator)|u\.?s\.? (representative|senator)|congress(man|woman|member)?|"
+                          r"senator|legislator|general assembly|county commission\w*|commissioner|mayor|city council\w*|"
+                          r"council ?member|sheriff|district attorney|solicitor general|school board|board of education|"
+                          r"elected official|public servant|governor|secretary of state|attorney general|clerk of (superior )?court|"
+                          r"tax commissioner|probate judge|judge|coroner|alderm[ae]n)\b")
+
+
+def _public_figure_index(candidates: list[dict]) -> dict:
+    """'first last' -> the Electo person, for names exactly one Electo person carries (nicknames both ways)."""
+    from .ethics import candidate_index
+
+    return candidate_index(candidates or [])
+
+
+def public_figure(D: dict, idx: dict) -> dict | None:
+    """The Electo person a donor is, when it is safe to say: the filed name matches exactly one Electo person AND the
+    filed occupation or employer names an elected office. Otherwise None (a private person with a public figure's
+    name keeps a private profile)."""
+    if D["kind"] not in ("person", "self") or not idx:
+        return None
+    if not OFFICE_WORDS.search(f"{D.get('_occ') or ''} {D.get('employer') or ''}") and D["kind"] != "self":
+        return None
+    n = D["name"]
+    if "," in n:
+        last, first = n.split(",", 1)
+        first = (first.split() or [""])[0]
+    else:
+        w = n.split()
+        first, last = (w[0] if w else ""), (w[-1] if w else "")
+    last = re.sub(r"(?i)\b(jr|sr|ii|iii|iv)\b\.?", "", last).strip()
+    c = idx.get(_norm(f"{first} {last}"))
+    return {"name": c["name"], "key": c.get("electo_key") or "", "office": (c.get("office") or "").split(";")[0]} if c else None
+
+
+def giving_record(P: dict) -> str:
+    """How long and how steadily the donor has given, from the filings (no model): since when, in how many years,
+    the busiest year, and how many of the recipients' parties."""
+    yrs = sorted((y, v) for y, v in (P.get("years") or {}).items() if v > 0)
+    if not yrs:
+        return ""
+    first, last = int(yrs[0][0]), int(yrs[-1][0])
+    span = last - first + 1
+    peak = max(yrs, key=lambda x: x[1])
+    s = f"Giving since {first}" + (f", in {len(yrs)} of the {span} years through {last}" if span > 1 else "")
+    if len(yrs) > 1:
+        s += f"; the most in {peak[0]} ({_money(peak[1])})"
+    s += "."
+    to = P.get("to") or []
+    parties = {t.get("party") for t in to if t.get("party") in ("D", "R")}
+    if len(parties) == 2:
+        s += " Has given to both Democrats and Republicans."
+    levels = {"federal" if (t.get("office") or "").startswith(("U.S.", "US ")) else "state or local" for t in to}
+    if len(levels) == 2:
+        s += " Gives to federal and to state or local candidates."
+    return s
+
+
+def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: Path, log=print, candidates: list | None = None) -> int:
     """donor_profiles/dp/XX.json and dpi/X.json (see the module docstring)."""
     import shutil
 
     orgs = _orgs(store)
+    pidx = _public_figure_index(candidates or [])
     try:
         about = json.loads(store.kv_get("donor_about") or "{}")
     except ValueError:
@@ -361,6 +420,9 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
              **({"via": [{"name": k, "t": round(v, 2)} for k, v in sorted(D["_via"].items(), key=lambda kv: -kv[1])]} if D["_via"] else {})}
         if D["kind"] in ("person", "self"):
             P.update({"employer": D["employer"], "occupation": D["_occ"]})
+            pf = public_figure(D, pidx)
+            if pf:
+                P["electo"] = pf          # a public official or candidate: their political profile on the page
         else:
             o = orgs.get(D["id"])
             if o:
@@ -372,6 +434,7 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
             if ri is not None:
                 P["recv"] = ri          # the committee files too: its own receipts are a recipient on the tab
         P["summary"] = summary_of(P)
+        P["record"] = giving_record(P)
         shards[shard_of(D["id"])][D["id"]] = P
         place = ", ".join(x for x in (D["city"], D["state"]) if x)
         index[index_letter(D["name"])].append([D["id"], D["name"], D["kind"], round(D["total"], 2), place, len(D["r"])])

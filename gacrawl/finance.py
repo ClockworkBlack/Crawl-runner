@@ -741,6 +741,11 @@ class Finance:
                                      det.get("party_full")) if x)
         if what:
             info["what"].append({"text": f"Registered with the FEC as a {what}", "src": src, "basis": "FEC registration"})
+        since = (det.get("first_file_date") or "")[:4]
+        place = ", ".join(x for x in ((det.get("city") or "").title(), det.get("state") or "") if x)
+        if since or place:
+            info["what"].append({"text": "Filing with the FEC" + (f" since {since}" if since else "") + (f"; based in {place}" if place else ""),
+                                 "src": src, "basis": "FEC registration"})
         if det.get("affiliated_committee_name"):
             info["what"].append({"text": f"Affiliated committee: {det['affiliated_committee_name']}", "src": src, "basis": "FEC registration"})
         info["connected_org"] = det.get("connected_organization_name") or ""

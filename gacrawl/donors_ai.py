@@ -22,7 +22,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2          # 2: a fuller background (who they are, how long registered, connections, what they do)
 MIN_SOURCE = 60          # characters of source text below which there is nothing to summarize
 
 SYSTEM = ("You write short, neutral descriptions of organizations that give money to Georgia candidates, for a civic "
@@ -33,9 +33,11 @@ ASK = """Organization: {name}
 
 {texts}
 
-In at most two sentences and at most 45 words, say what this organization is: its type (as registered), whom it is
-connected to or affiliated with, and what it says it does, using only the texts above. If the texts do not say what
-it does, describe only its registration. Answer with the description only."""
+Write a short background of this organization for a reader who wants to know who is giving money, in at most three
+sentences and at most 75 words, like the opening of a profile: what it is (its type as registered), since when it has
+been registered or filing if the texts say, where it is based, whom it is connected to or affiliated with, and what it
+says it does. Use only the texts above; leave out anything they do not say. Do not mention amounts of money.
+Answer with the background only."""
 VERIFY = """Texts:
 {texts}
 
@@ -101,13 +103,13 @@ def run(store, root: Path, deadline: float, log=print) -> dict:
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": ASK.format(name=name, texts=body)}]
         t0 = time.time()
         try:
-            out = llm.chat(msgs, max_tokens=120)
+            out = llm.chat(msgs, max_tokens=180)
         except Exception as e:  # noqa: BLE001
             log(f"donors ai: {type(e).__name__}: {str(e)[:200]}")
             break
         line = " ".join(out.split()).strip('"')
         source = name + " " + " ".join(t for t, _ in src)
-        why = llm.check(line, source, max_words=50, allow=(name,)) if line else ["empty answer"]
+        why = llm.check(line, source, max_words=80, allow=(name,)) if line else ["empty answer"]
         second = ""
         if not why:
             second = llm.chat([{"role": "system", "content": SYSTEM},

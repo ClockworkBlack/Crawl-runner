@@ -12,6 +12,10 @@ How a line counts:
               cannot be told from memo lines, so they are not counted at all; the FEC step reads each committee again
               and replaces them (finance.py _fec_committee)
   transfer    from another committee of the same candidate: counted where it was first given
+  not a gift  FEC schedule A lines other than 11 (contributions), 12 (transfers) and 13 (loans): refunds and rebates
+              from vendors (offsets to operating expenditures), loan repayments, dividends and other receipts. Money
+              that came back to the committee, not money anyone gave (a fundraising firm's refunds once showed as
+              $1.5 million "given" to a senator)
   via         an earmarked gift: one person's money that passed through a conduit (ActBlue, WinRed, AIPAC PAC ...).
               The donor is the person; the conduit is named beside it. A conduit's own lump line (a platform's
               transfer, not itemized by person) counts toward what the recipient raised, with no donor
@@ -90,6 +94,10 @@ def clean(records, own: dict | None = None, stats: dict | None = None):
         fec = m.get("filing_source") == "FEC"
         if fec and m.get("committee") and not m.get("fec_v"):
             st["legacy"] += 1
+            continue
+        ln = str(m.get("line_number") or "").upper().lstrip("L")
+        if fec and ln and not ln.startswith(("11", "12", "13")):
+            st["not_a_gift"] = st.get("not_a_gift", 0) + 1
             continue
         if (m.get("memo_code") or "").upper() == "X":
             st["memo"] += 1

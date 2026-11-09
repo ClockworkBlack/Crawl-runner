@@ -113,3 +113,14 @@ def test_profile_total_counts_unitemized_like_the_donors_tab(tmp_path):
     m = money_for(build(s, ix), s, ix, "a")
     assert m["total_raised"] == 5300 and m["contributions"] == 1
     assert m["unattributed"] == [{"name": "Unitemized small gifts", "total": 5000}]
+
+
+def test_fec_refunds_and_offsets_are_not_gifts():
+    from gacrawl.money import clean
+    base = {"filing_source": "FEC", "committee": "C1", "fec_v": 2, "recipient": "Jon Ossoff", "date": "2020-01-01"}
+    rows = [{"rid": i, "meta": {**base, "transaction_id": str(i), "name": n, "amount": 100, "line_number": ln}}
+            for i, (n, ln) in enumerate([("DOE, JANE", "11AI"), ("SOME PAC", "11C"), ("MOTHERSHIP STRATEGIES", "15"),
+                                         ("BANK", "15"), ("OTHER COMMITTEE", "12"), ("VENDOR", "17"), ("LENDER", "13A")])]
+    st = {}
+    kept = [L["meta"]["name"] for L in clean(rows, {}, st)]
+    assert kept == ["DOE, JANE", "SOME PAC", "OTHER COMMITTEE", "LENDER"] and st["not_a_gift"] == 3

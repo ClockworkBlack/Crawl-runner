@@ -69,3 +69,21 @@ def test_summary_sentence():
                     "via": [{"name": "ActBlue", "t": 150}]})
     assert s == ("This donor gave $900 in 3 gifts to 2 recipients from 2024 to 2026; the most, $650, to Ann Able "
                  "($650 to Democrats, $250 to Republicans). $150 of it passed through ActBlue.")
+
+
+def test_public_figures_only_when_the_filing_says_so():
+    from gacrawl.donors import _public_figure_index, public_figure
+    idx = _public_figure_index([{"id": "jan-jones", "name": "Jan Jones", "electo_key": "JAN JONES", "office": "State House District 47"}])
+    official = {"kind": "person", "name": "JONES, JAN", "_occ": "STATE REPRESENTATIVE", "employer": "STATE OF GEORGIA"}
+    private = {"kind": "person", "name": "JONES, JAN", "_occ": "TEACHER", "employer": "FULTON COUNTY SCHOOLS"}
+    assert public_figure(official, idx)["key"] == "JAN JONES"
+    assert public_figure(private, idx) is None           # same name, a private person: no political profile attached
+    assert public_figure({**official, "name": "SMITH, PAT"}, idx) is None
+
+
+def test_giving_record():
+    from gacrawl.donors import giving_record
+    P = {"years": {"2017": 500, "2020": 9000, "2024": 1000}, "to": [{"party": "D", "office": "U.S. Senate"}, {"party": "R", "office": "State Senator"}]}
+    assert giving_record(P) == ("Giving since 2017, in 3 of the 8 years through 2024; the most in 2020 ($9,000). Has given to both "
+                                "Democrats and Republicans. Gives to federal and to state or local candidates.")
+    assert giving_record({"years": {"2026": 100}, "to": []}) == "Giving since 2026."
