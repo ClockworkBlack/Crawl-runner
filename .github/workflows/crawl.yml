@@ -319,14 +319,33 @@ jobs:
             # the hand-off is deleted only once the database holding it is stored (the next step that stores it):
             # a run that dies before then leaves it for the next run instead of losing it
           else echo "no parallel FEC re-read waiting"; fi
+      - name: Apply the parallel Georgia money read (ga-money workflow), before the Georgia step links its donors
+        continue-on-error: true
+        run: |
+          mkdir -p gad
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          A=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="ga-delta.db.zst" or .name=="ga-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+          D=$(echo "$A" | tr ' ' '\n' | grep '^ga-delta.db.zst=' || true); K=$(echo "$A" | tr ' ' '\n' | grep '^ga-kv.json=' || true)
+          if [ -n "$D" ] && [ -n "$K" ]; then
+            DID=$(echo "$D" | cut -d= -f2); KID=$(echo "$K" | cut -d= -f2)
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$DID" > gad/ga-delta.db.zst
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$KID" > gad/ga-kv.json
+            zstd -d -q -f gad/ga-delta.db.zst -o gad/ga-delta.db && rm -f gad/ga-delta.db.zst
+            gacrawl finance apply --delta gad/ga-delta.db && gacrawl ethics apply-kv --kv gad/ga-kv.json && echo "$D $K" > gad/applied
+            rm -f gad/ga-delta.db
+          else echo "no Georgia money hand-off waiting"; fi
       - name: Apply the open model job's writing (model-work workflow), before anything exports it
         continue-on-error: true
         run: |
           # donor backgrounds, Rumor Mill readings and federal bill descriptions are written by the open model on its own
           # runner (model-work.yml, up to five hours a run); its hand-off is applied here and deleted only once stored
           mkdir -p modeld
-          if gh release download "$DATA_TAG" -p model-handoff.json -D modeld --clobber 2>/dev/null && [ -f modeld/model-handoff.json ]; then
-            gacrawl model-handoff apply --in modeld/model-handoff.json && touch modeld/applied
+          # the asset's id is kept: the model job may upload a newer hand-off (this one plus its own) while this run
+          # works, and only the one applied here may be deleted once stored
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
+          if [ -n "$ID" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${ID%% *}" > modeld/model-handoff.json 2>/dev/null && [ -s modeld/model-handoff.json ]; then
+            gacrawl model-handoff apply --in modeld/model-handoff.json && echo "$ID" > modeld/applied
           else echo "no open model hand-off waiting"; fi
       - name: Purge sources removed for cause (config/purge.yaml)
         run: gacrawl purge
@@ -345,9 +364,22 @@ jobs:
             gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
             rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
           fi
+          if [ -f gad/applied ] && [ "$IS_MAIN" = "true" ]; then
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="ga-delta.db.zst" or .name=="ga-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+            for a in $(cat gad/applied); do
+              if echo " $NOW " | grep -q " $a "; then gh api -X DELETE "repos/$REPO/releases/assets/$(echo "$a" | cut -d= -f2)" || true
+              else echo "a newer Georgia money hand-off arrived while this run worked: kept for the next run"; fi
+            done
+            rm -f gad/applied; echo "the Georgia money hand-off is stored"
+          fi
           if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
-            gh release delete-asset "$DATA_TAG" model-handoff.json -y || true
-            rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
+            if [ "$NOW" = "$(cat modeld/applied)" ]; then
+              gh api -X DELETE "repos/$REPO/releases/assets/${NOW%% *}" && echo "the open model's hand-off is stored; removed"
+            else echo "a newer open model hand-off arrived while this run worked: kept for the next run"; fi
+            rm -f modeld/applied
           fi
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
         continue-on-error: true      # an error here leaves last run's derived data; it must not stop the export and the site
@@ -530,7 +562,24 @@ jobs:
           M=${{ vars.ETHICS_MINUTES || '25' }}; [ "$IS_MAIN" != "true" ] && M=3
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --max-minutes "$M" || echo "the Georgia money step stopped after $((M + 10)) minutes"
+          # while the ga-money job hands its reading over (applied above, within two days) it owns the full histories and
+          # this step reads only the newest lines; otherwise (no hand-off) this step reads the full histories itself.
+          # Then it gives donor ids to every new line (the ga-money job's too) and drops lines amended reports replaced
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --mode auto --max-minutes "$M" || echo "the Georgia money step stopped after $((M + 10)) minutes"
+      - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+        run: |
+          # gacrawl/registries.py: every organization or committee that gave money (biggest first) is looked up in the
+          # registries' bulk files and searches; the open model writes its background from them (model-work.yml)
+          M=${{ vars.ORGS_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=3
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl finance orgs --max-minutes "$M" || echo "organization lookups stopped after $((M + 5)) minutes"
+      - name: Rumor Mill pages (each unverified item's page read once, for the open model's reading)
+        run: |
+          M=5; [ "$IS_MAIN" != "true" ] && M=2
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 1m "$((M + 2))m" gacrawl rumors-text --max-minutes "$M" || echo "rumor pages stopped after $((M + 2)) minutes"
       - name: Meeting channels by the open model (taught by the owner's channel decisions)
         run: |
           # gacrawl/channel_ai.py: every channel still in the Rumor Mill - Video bucket judged against the owner's decisions
@@ -617,9 +666,22 @@ jobs:
             gh release delete-asset "$DATA_TAG" fec-kv.json -y || true
             rm -f fecd/applied; echo "the applied FEC re-read is stored; its hand-off removed"
           fi
+          if [ -f gad/applied ] && [ "$IS_MAIN" = "true" ]; then
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="ga-delta.db.zst" or .name=="ga-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
+            for a in $(cat gad/applied); do
+              if echo " $NOW " | grep -q " $a "; then gh api -X DELETE "repos/$REPO/releases/assets/$(echo "$a" | cut -d= -f2)" || true
+              else echo "a newer Georgia money hand-off arrived while this run worked: kept for the next run"; fi
+            done
+            rm -f gad/applied; echo "the Georgia money hand-off is stored"
+          fi
           if [ -f modeld/applied ] && [ "$IS_MAIN" = "true" ]; then
-            gh release delete-asset "$DATA_TAG" model-handoff.json -y || true
-            rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
+            REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+            NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | "\(.id) \(.updated_at)"' 2>/dev/null || true)
+            if [ "$NOW" = "$(cat modeld/applied)" ]; then
+              gh api -X DELETE "repos/$REPO/releases/assets/${NOW%% *}" && echo "the open model's hand-off is stored; removed"
+            else echo "a newer open model hand-off arrived while this run worked: kept for the next run"; fi
+            rm -f modeld/applied
           fi
       - name: Task list, status, Electo bundle
         timeout-minutes: 30

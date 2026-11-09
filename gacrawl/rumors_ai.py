@@ -85,6 +85,98 @@ def verdict(ans: dict | None, name: str, text: str) -> tuple[dict | None, list[s
     return {"named": named, "quote": quote[:400], "attribution": attr, "opinion": bool(ans.get("opinion"))}, []
 
 
+TEXT_MAX = 3000          # what the reading sees of a page (run() reads at most this much)
+TEXT_RETRY_DAYS = 30     # a page that could not be read is asked for again after this long
+
+
+def excerpt(text: str, name: str, limit: int = TEXT_MAX) -> str:
+    """The part of a page the model reads: every paragraph that names the person (by last name), each with the one
+    before it for context, in page order, up to `limit` characters; a page that never names them keeps its opening
+    (so the reading can say so). A long article used to be cut at its first 3,000 characters, before the person came up."""
+    paras = [p.strip() for p in re.split(r"\n\s*\n|\n", text or "") if p.strip()]
+    last = (name.split() or [""])[-1]
+    if len(last) <= 2 or not paras:
+        return (text or "")[:limit]
+    rx = re.compile(r"\b" + re.escape(last) + r"\b", re.I)
+    hits = [i for i, p in enumerate(paras) if rx.search(p)]
+    if not hits:
+        return " ".join(paras)[:limit]
+    keep = {j for i in hits for j in (i - 1, i, i + 1) if 0 <= j < len(paras)}
+    # a name in a caption or a byline-like line ("Mayor / Andre Dickens") says nothing on its own: short excerpts are
+    # widened with the paragraphs that follow the first mention, then those before it
+    order = list(range(hits[0], len(paras))) + list(range(hits[0] - 1, -1, -1))
+    for j in order:
+        if sum(len(paras[i]) + 1 for i in keep) >= 1200:
+            break
+        keep.add(j)
+    keep = sorted(keep)
+    out, size = [], 0
+    for i in keep:
+        p = paras[i]
+        if size + len(p) + 1 > limit:
+            if i in hits and size < limit - 200:      # a naming paragraph is cut rather than left out
+                out.append(p[:limit - size - 1])
+            break
+        out.append(p)
+        size += len(p) + 1
+    return "\n".join(out)
+
+
+def fetch_texts(fetcher, root: Path, candidates: list[dict], deadline: float, log=print, limit: int | None = None) -> dict:
+    """Open each unverified Rumor Mill item's page once (the crawler's own fetcher: robots.txt, spacing, back-off, the
+    block list) and keep the part that names the person (excerpt) in its row's meta.text for run() to read. Items
+    found before Nov 9 had only their headline; new ones keep the text research opened. A page that cannot be read
+    (refused, gone, not HTML) is noted (meta.text_error) and asked for again after TEXT_RETRY_DAYS. The text is never
+    published (export drops meta.text)."""
+    from . import extract
+    from .candidates import RumorMill
+    from .fetch import Blocked, Disallowed, OutOfTime
+
+    by_id = {c["id"]: c for c in candidates}
+    rm = RumorMill(root)
+    cutoff = (dt.date.today() - dt.timedelta(days=TEXT_RETRY_DAYS)).isoformat()
+    todo = [r for r in rm.all() if r.get("status", "unverified") == "unverified" and r.get("url", "").startswith("http")
+            and len((r.get("meta") or {}).get("text") or "") <= 200 and (r.get("meta") or {}).get("text_tried", "") < cutoff]
+    todo.sort(key=lambda r: r.get("last_seen") or "", reverse=True)
+    if limit:
+        todo = todo[:limit]
+    st = {"todo": len(todo), "read": 0, "kept": 0, "failed": 0}
+    for r in todo:
+        if time.monotonic() > deadline:
+            break
+        m = r.setdefault("meta", {})
+        c = by_id.get(r.get("candidate_id")) or {}
+        name = c.get("name") or r.get("candidate_id", "").replace("-", " ").title()
+        try:
+            res = fetcher.get(r["url"])
+            st["read"] += 1
+            if res.status != 200 or "html" not in (res.content_type or ""):
+                raise ValueError(f"HTTP {res.status} {res.content_type or ''}".strip())
+            text = extract.main_text(res.text)
+            if len(text) < 200:
+                raise ValueError("no article text on the page")
+        except OutOfTime:
+            break                     # not tried: it stays first in line next run
+        except (Blocked, Disallowed, ValueError, Exception) as e:  # noqa: BLE001
+            m["text_error"] = f"{type(e).__name__}: {str(e)[:120]}"
+            m["text_tried"] = dt.date.today().isoformat()
+            rm._dirty = True
+            st["failed"] += 1
+            log(f"  rumor page {r['id']}: not read ({m['text_error']}): {r['url'][:100]}")
+            continue
+        m["text"] = excerpt(text, name)
+        m["text_url"] = res.url
+        m["text_tried"] = dt.date.today().isoformat()
+        m.pop("text_error", None)
+        rm._dirty = True
+        st["kept"] += 1
+        log(f"  rumor page {r['id']}: {len(m['text']):,} characters kept: {r['url'][:100]}")
+    rm.flush()
+    st["left"] = st["todo"] - st["kept"] - st["failed"]
+    log(f"rumor pages: {st['kept']} read and kept, {st['failed']} could not be read, {st['left']} left for the next run")
+    return st
+
+
 def run(root: Path, candidates: list[dict], deadline: float, log=print) -> dict:
     from . import llm
     from .candidates import RumorMill

@@ -1,12 +1,13 @@
 name: model-work
-# The open model's writing, on its own runner instead of inside the crawl's merge job: Qwen3-8B (4-bit, CPU) writes
-# donor backgrounds (gacrawl donors-ai), reads the Rumor Mill (rumors-ai) and describes federal bills
-# (federal-bills --ai) for up to five hours, about twenty times the minutes the merge job could give it, and the
+# The open model's writing, on its own runner instead of inside the crawl's merge job: the organizations that gave money
+# are looked up in the registries (gacrawl finance orgs), then Qwen3-8B (4-bit, CPU) writes donor backgrounds (gacrawl
+# donors-ai), reads the Rumor Mill's pages (rumors-text, rumors-ai) and describes federal bills (federal-bills --ai)
+# for up to five hours, about twenty times the minutes the merge job could give it, and the
 # merge job is shorter for it. It works on a copy of the crawl database and the kept state, so it never races the
 # crawl; what it wrote travels as model-handoff.json in the private crawl-data release (gacrawl/model_handoff.py),
 # which the crawl's merge job applies before its export and deletes only once the database holding it is stored.
 #
-# Every 6 hours, between the FEC re-read's runs; it skips while its last hand-off still waits for the crawl.
+# Every 6 hours, between the FEC re-read's runs; a hand-off still waiting for the crawl is carried into this run's.
 # Each step checks its own output exactly as before (llm.check, the second reading, verbatim quotes), and every
 # call is logged to data/train for training a model of our own; the logs travel in the hand-off too.
 on:
@@ -50,13 +51,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
-      - name: Is the last hand-off still waiting for the crawl?
+      - name: Is the last hand-off still waiting for the crawl? (then it is carried, not waited for)
         id: need
         run: |
-          if gh release view "$DATA_TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx model-handoff.json; then
-            echo "the last hand-off has not been applied by the crawl yet: not starting another"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
+          # a hand-off the crawl has not applied yet is applied to this job's copy of the database and handed over
+          # again with this job's work (one file, both runs' writing): the model no longer sits out a run waiting
           echo "go=true" >> "$GITHUB_OUTPUT"
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | .id' 2>/dev/null || true)
+          if [ -n "$ID" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+          fi
       - name: The open model (Qwen3-8B, 4-bit; kept between runs)
         if: steps.need.outputs.go == 'true'
         uses: actions/cache@v4
@@ -72,16 +77,26 @@ jobs:
         if: steps.need.outputs.go == 'true'
         run: |
           bash scripts/ci_db.sh pull
+          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
           gacrawl model-handoff mark --out mark.json
           echo "MW_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
+        if: steps.need.outputs.go == 'true'
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+        run: |
+          # gacrawl/registries.py: the registries' bulk files and searches, so the model has a registration to write
+          # from for every organization and committee in them (only 17 had one when lookups waited for a name search)
+          timeout -s INT -k 2m 48m gacrawl finance orgs --max-minutes 40 || echo "organization lookups stopped after 48 minutes"
       - name: Donor backgrounds (organizations and PACs, biggest donors first)
         if: steps.need.outputs.go == 'true'
         run: |
-          ALL=${{ inputs.minutes || '280' }}; M=$(( ALL * 50 / 100 ))
+          ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( (ALL - USED) * 50 / 100 )); [ "$M" -lt 5 ] && M=5
           timeout -s INT -k 2m "$((M + 8))m" gacrawl donors-ai --max-minutes "$M" || echo "donor backgrounds stopped after $((M + 8)) minutes"
-      - name: Rumor Mill readings
+      - name: Rumor Mill pages (each item's page read once) and readings
         if: steps.need.outputs.go == 'true'
         run: |
+          timeout -s INT -k 1m 12m gacrawl rumors-text --max-minutes 10 || echo "rumor pages stopped after 12 minutes"
           ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( (ALL - USED) / 2 )); [ "$M" -lt 5 ] && M=5
           timeout -s INT -k 2m "$((M + 8))m" gacrawl rumors-ai --max-minutes "$M" || echo "rumor readings stopped after $((M + 8)) minutes"
       - name: Federal bill descriptions
@@ -93,8 +108,12 @@ jobs:
         if: always() && steps.need.outputs.go == 'true'
         run: |
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
-          gacrawl model-handoff export --mark mark.json --out model-handoff.json
-          if python3 -c "import json,sys; h=json.load(open('model-handoff.json')); sys.exit(0 if any(h.get(k) and any(h[k].values()) if k == 'kv' else h.get(k) for k in ('kv','rumors','train')) else 1)"; then :
+          if [ -s waiting.json ]; then
+            gacrawl model-handoff export --mark mark.json --out model-handoff.json --carry waiting.json | tee export.json
+          else
+            gacrawl model-handoff export --mark mark.json --out model-handoff.json | tee export.json
+          fi
+          if grep -q '"has_work": true' export.json; then :
           else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
           gh release upload "$DATA_TAG" model-handoff.json --clobber
           echo "uploaded $(du -h model-handoff.json | cut -f1) for the crawl's next merge"

@@ -154,6 +154,12 @@ def test_finance_pipeline_and_connections(server, fetcher, tmp_path, monkeypatch
     monkeypatch.setattr(finance, "FEC", server + "/fec/v1")
     monkeypatch.setattr(finance, "PROPUBLICA", server + "/pp/api/v2")
     monkeypatch.delenv("OPENCORPORATES_API_KEY", raising=False)
+    # the registries' bulk files and the State Ethics Commission's registry are not served here (HTTP 404): the
+    # organization lookups fall back to the FEC API's name search and ProPublica (tests/test_registries.py: the files)
+    from gacrawl import ethics, registries
+    monkeypatch.setattr(registries, "FEC_BULK", server + "/bulk/{y}/{kind}{yy}.zip")
+    monkeypatch.setattr(registries, "IRS_BMF", server + "/irs/eo_{st}.csv")
+    monkeypatch.setattr(ethics, "SYSTEMS", {"peachfile": server + "/ga/"})
     root = tmp_path / "proj"
     (root / "config").mkdir(parents=True)
     (root / "imports" / "finance").mkdir(parents=True)

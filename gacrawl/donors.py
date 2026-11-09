@@ -55,6 +55,10 @@ SPEND_CAP = 8000
 DONOR_CAP = 6000
 SHARDS = 128
 PROFILE_RECIPS = 60          # recipients listed in one profile (the rest summed as "others")
+# donors with a profile (the largest by total): Georgia's full money histories name hundreds of thousands of donors,
+# and every profile is published with the site; the rest are counted everywhere else (donors.json, candidates' money)
+# and the page shows their gifts without a profile. DONOR_PROFILE_CAP overrides it.
+PROFILE_CAP = 60000
 
 
 def shard_of(did: str) -> str:
@@ -419,9 +423,12 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
         by_donor[g["donor"]].append(g)
     rname = {_norm(R["name"]): R["i"] for R in rec_list if R.get("name")}
     order = sorted(donors.values(), key=lambda d: -d["total"])
+    import os
+
+    cap = int(os.environ.get("DONOR_PROFILE_CAP") or PROFILE_CAP)
     shards: dict[str, dict] = defaultdict(dict)
     index: dict[str, list] = defaultdict(list)
-    for rank, D in enumerate(order, 1):
+    for rank, D in enumerate(order[:cap], 1):
         gs = sorted(by_donor.get(D["id"], []), key=lambda g: -g["total"])
         to = []
         for g in gs[:PROFILE_RECIPS]:
@@ -465,8 +472,10 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
         (out_dir / "dp" / f"{k}.json").write_text(json.dumps(shards.get(k, {}), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     for k, rows in index.items():
         (out_dir / "dpi" / f"{k}.json").write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    (out_dir / "meta.json").write_text(json.dumps({"donors": len(order), "shards": SHARDS, "generated": _now(),
-                                                  "letters": sorted(index)}, separators=(",", ":")), encoding="utf-8")
-    log(f"donor profiles: {len(order)} donors in {SHARDS} shards; {sum(1 for D in order if D['id'] in orgs)} with registry facts, "
-        f"{sum(1 for D in order if (about.get(D['id']) or {}).get('t'))} with the model's summary")
-    return len(order)
+    n = min(len(order), cap)
+    (out_dir / "meta.json").write_text(json.dumps({"donors": n, "all_donors": len(order), "cap": cap, "shards": SHARDS,
+                                                  "generated": _now(), "letters": sorted(index)}, separators=(",", ":")), encoding="utf-8")
+    log(f"donor profiles: {n} donors in {SHARDS} shards" + (f" (the {cap:,} largest of {len(order):,})" if len(order) > cap else "")
+        + f"; {sum(1 for D in order[:cap] if D['id'] in orgs)} with registry facts, "
+        f"{sum(1 for D in order[:cap] if (about.get(D['id']) or {}).get('t'))} with the model's summary")
+    return n

@@ -266,6 +266,7 @@ def record_of(system: str, t: dict, cands: dict):
     if kind is None or t.get("transactionAmount") in (None, ""):
         return None
     unitem = bool(re.search(r"(?i)unitemi", (t.get("transactionSubTypeDesc") or "") + " " + (t.get("transactionCategory") or "")))
+    t = {k: (v.replace("''", "'") if isinstance(v, str) else v) for k, v in t.items()}   # the API doubles apostrophes ("It''s")
     payee = " ".join(x for x in (t.get("payeeFirstName"), t.get("payeeMiddleName"), t.get("payeeLastName")) if x).strip()
     name = (t.get("sourceName") or payee or "").strip()
     if payee and "," not in name and (t.get("transactionSourceTypeCode") or "").upper() in ("IND", "TIND"):
@@ -292,7 +293,29 @@ def record_of(system: str, t: dict, cands: dict):
                      "source_type": t.get("transactionSource") or "", "transaction_id": t.get("transactionId"),
                      **({"unitemized": True} if unitem else {}),
                      **({"candidate_id": c["id"], "electo_key": c.get("electo_key")} if c else {})})
+    # Georgia's lines are many (about 3.2 million in the two systems): the line's fields are in meta already, so the
+    # text is not a second copy of them (the title is what the full-text index needs), and fields a gift never has
+    # are left out (every reader asks for them with a default)
+    rec.text = ""
+    for k, empty in (("report", {}), ("purpose", ""), ("needs_review", False), ("employer", ""), ("occupation", ""), ("election", "")):
+        if rec.meta.get(k) == empty:
+            rec.meta.pop(k, None)
     return rec
+
+
+LINKS = ("donor_entity", "recipient_entity", "employer_entity", "committee_of")    # given by the crawl (finance.resolve_all)
+LINKED_FROM = ("name", "donor_is_org", "employer", "occupation", "city", "state", "recipient", "candidate_id")
+
+
+def keep_links(meta: dict, old: dict) -> dict:
+    """A line read again keeps the ids the crawl gave it while everything they were given from is unchanged; else the
+    read would strip them (the line changes), and the next pass would give them again: every line of a year read in
+    full again each month, and every line the crawl's refresh and the ga-money job both read."""
+    if all((meta.get(k) or "") == (old.get(k) or "") for k in LINKED_FROM):
+        for k in LINKS:
+            if old.get(k) and k not in meta:
+                meta[k] = old[k]
+    return meta
 
 
 def years(fetcher, base: str, log=print) -> list[str]:
@@ -345,14 +368,45 @@ def drop_superseded(store) -> int:
     return n
 
 
-def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
+REFRESH_PAGES = 60    # refresh mode: at most this many newest pages per system and year in one run
+REREAD_DAYS = 30      # a year read in full is read in full again after this long (late filings carry old dates)
+HANDOFF_FRESH_DAYS = 2  # mode "auto": the ga-money job owns the full reads while its hand-off arrived this recently
+
+
+def _now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _stale(cur: dict) -> bool:
+    """A year read in full whose full read is older than REREAD_DAYS (due to be read in full again)."""
+    return bool(cur.get("complete")) and cur.get("at", "") < (dt.date.today() - dt.timedelta(days=REREAD_DAYS)).isoformat()
+
+
+def resolve_mode(store, mode: str) -> str:
+    """"auto": "refresh" while the ga-money job's hand-off keeps arriving (apply_kv notes when), else "all" (the crawl
+    reads the full histories itself: the side job is off, failing, or not deployed)."""
+    if mode != "auto":
+        return mode
+    at = store.kv_get("ga_money_applied") or ""
+    fresh = at >= (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=HANDOFF_FRESH_DAYS)).isoformat(timespec="seconds")
+    return "refresh" if at and fresh else "all"
+
+
+def run(fetcher, store, root, candidates, deadline, log=print, mode: str = "all", superseded: bool = True) -> dict:
     """Every contribution, in-kind gift and loan filed with the Commission since SINCE_YEAR, from both current systems,
     a page at a time (resumable: the page reached is kept per system and election year). A year read in full is read
-    again from its newest lines each run (late and amended filings), up to the first page with nothing new."""
+    again from its newest lines each run (late and amended filings), up to the first page with nothing new.
+
+    mode "all" does both; "full" only the full reads not yet complete or due again (the ga-money job's, beside the
+    crawl, five hours a run: the two systems hold about 3.2 million lines, about 32,000 pages); "refresh" only the
+    newest lines of every year, complete or not, up to the first page with nothing new (the crawl's own step while
+    ga-money owns the full reads; it leaves their place untouched); "auto" is "refresh" while the ga-money job's
+    hand-off keeps arriving, else "all" (resolve_mode)."""
     import time
 
+    mode = resolve_mode(store, mode)
     cands = candidate_index([c for c in candidates if "federal" not in (c.get("levels") or [])])
-    st = {"added": 0, "pages": 0, "skipped": 0, "years": {}}
+    st = {"added": 0, "pages": 0, "skipped": 0, "years": {}, "mode": mode}
     end = deadline
     for i, (system, base) in enumerate(SYSTEMS.items()):
         deadline = time.monotonic() + (end - time.monotonic()) / (len(SYSTEMS) - i)    # each system its share
@@ -361,16 +415,21 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
         if not sh:
             continue
         size, order = sh
-        log(f"ethics {system}: years {ys}, {size} lines a page, {order}")
+        log(f"ethics {system}: years {ys}, {size} lines a page, {order}, {mode}")
         for y in ys:
             ck = f"ga_ethics:{system}:{y or 'all'}"
             cur = json.loads(store.kv_get(ck) or "{}")
             # a year read in full is read in full again once a month (filings that arrive late carry old dates)
-            full = cur.get("complete", False) and cur.get("at", "") >= (dt.date.today() - dt.timedelta(days=30)).isoformat()
+            full = cur.get("complete", False) and not _stale(cur)
+            if mode == "full" and full:
+                continue                 # complete: its newest lines are the crawl's refresh
+            if mode == "refresh":
+                full = True              # newest first, stop at the first page with nothing new; the full read's place is kept
             page = 1 if full else int(cur.get("page", 1))
             sort = "desc" if full else order
             got = 0
-            while time.monotonic() < deadline:
+            first = page
+            while time.monotonic() < deadline and not (mode == "refresh" and page - first >= REFRESH_PAGES):
                 try:
                     d = _api(fetcher, base, "PublicTransactionDetails/GetTransactionDetails", _body(y, page, size, sort, **EXTRA.get(system, {})))
                 except Exception as e:  # noqa: BLE001
@@ -384,16 +443,19 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
                     if rec is None:
                         st["skipped"] += 1
                         continue
-                    if store.get_meta(rec.key) is None:
+                    old = store.get_meta(rec.key)
+                    if old is None:
                         new += 1
+                    else:
+                        keep_links(rec.meta, old)
                     if store.add(rec):
                         got += 1
-                total = int((items[0].get("totalRows") if items else 0) or 0)
+                total = int((d.get("data") or {}).get("totalItems") or (items[0].get("totalRows") if items else 0) or 0)
                 if not full:
-                    store.kv_set(ck, json.dumps({"page": page + 1, "total": total}))
+                    store.kv_set(ck, json.dumps({"page": page + 1, "total": total, "size": size, "at": _now()}))
                 if len(items) < size or (full and new == 0):
                     if not full:
-                        store.kv_set(ck, json.dumps({"complete": True, "total": total, "at": dt.date.today().isoformat()}))
+                        store.kv_set(ck, json.dumps({"complete": True, "total": total, "size": size, "at": _now()}))
                     break
                 page += 1
             st["added"] += got
@@ -401,10 +463,56 @@ def run(fetcher, store, root, candidates, deadline, log=print) -> dict:
             log(f"ethics {system} {y}: {got} lines added or changed ({'refresh' if full else 'full read'}, page {page})")
             if time.monotonic() >= deadline:
                 break
-    st["superseded"] = drop_superseded(store)
+    st["superseded"] = drop_superseded(store) if superseded else 0
     log(f"ethics: {st['added']} lines, {st['skipped']} not counted (Two Business Day reports, interest, returns), "
         f"{st['superseded']} replaced by amended reports")
     return st
+
+
+def progress(store) -> dict:
+    """Each system and year's full read: {key: {"page", "pages", "complete", "lines"}} (for the coverage report)."""
+    out = {}
+    with store._lock:
+        rows = store.db.execute("SELECT k, v FROM kv WHERE k LIKE 'ga_ethics:%'").fetchall()
+    for k, v in rows:
+        try:
+            d = json.loads(v)
+        except ValueError:
+            continue
+        size = int(d.get("size") or 100)
+        out[k[len("ga_ethics:"):]] = {"page": d.get("page"), "pages": -(-int(d.get("total") or 0) // size) if d.get("total") else None,
+                                      "complete": bool(d.get("complete")), "total": d.get("total"),
+                                      "due": not d.get("complete") or _stale(d)}
+    return out
+
+
+def export_kv(store, path) -> int:
+    """The full reads' places (kv ga_ethics:*), for the crawl to take over from the ga-money job."""
+    with store._lock:
+        rows = store.db.execute("SELECT k, v FROM kv WHERE k LIKE 'ga_ethics:%'").fetchall()
+    path.write_text(json.dumps({r[0]: r[1] for r in rows}))
+    return len(rows)
+
+
+def apply_kv(store, path) -> int:
+    """The ga-money job's places: a full read further along (or complete) wins; nothing goes backwards, except that a
+    year's monthly read in full again (begun after its last full read was done) takes over from that completed read.
+    Notes when it was applied (kv ga_money_applied): the crawl's own step leaves the full reads to the side job while
+    its hand-offs keep arriving (resolve_mode)."""
+    n = 0
+    for k, v in json.loads(path.read_text()).items():
+        if not k.startswith("ga_ethics:"):
+            continue
+        new, cur = json.loads(v), json.loads(store.kv_get(k) or "{}")
+        ahead = (new.get("complete") and not cur.get("complete")) or \
+                (not cur.get("complete") and not new.get("complete") and int(new.get("page") or 0) > int(cur.get("page") or 0)) or \
+                (new.get("complete") and cur.get("complete") and new.get("at", "") > cur.get("at", "")) or \
+                (cur.get("complete") and not new.get("complete") and _stale(cur) and new.get("at", "")[:10] > cur.get("at", "")[:10])
+        if ahead:
+            store.kv_set(k, v)
+            n += 1
+    store.kv_set("ga_money_applied", _now())
+    return n
 
 
 def click_probe(out: Path, sites=("https://peachfile.ethics.ga.gov/", "https://recordsearch.ethics.ga.gov/"),

@@ -8,7 +8,7 @@ from gacrawl.store import Record, Store
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_export_donors(tmp_path):
+def test_export_donors(tmp_path, monkeypatch):
     s = Store(tmp_path / "data")
     cands = [{"id": "a", "name": "Ann Able", "electo_key": "ANN ABLE", "party": "D", "office": "U.S. House GA-5", "levels": ["federal"], "counties": ["fulton"], "jurisdiction": ""},
              {"id": "b", "name": "Bob Baker", "electo_key": "BOB BAKER", "party": "R", "office": "City Council", "levels": ["local"], "counties": ["cobb"], "jurisdiction": "marietta"}]
@@ -53,6 +53,14 @@ def test_export_donors(tmp_path):
     assert pac["kind"] == "committee" and "employer" not in pac
     idx = json.loads((pd / "dpi" / "j.json").read_text())
     assert idx[0][:3] == ["d1", "Jane Donor", "person"]
+    # profiles for the largest donors only (the site carries every profile): the rest keep their gifts, not a profile
+    monkeypatch.setenv("DONOR_PROFILE_CAP", "1")
+    export_donors(s, ROOT, cands, tmp_path / "donors.json", log=lambda *a: None)
+    meta = json.loads((pd / "meta.json").read_text())
+    assert (meta["donors"], meta["all_donors"], meta["cap"]) == (1, 2, 1)
+    assert "d2" in json.loads((pd / "dp" / f"{shard_of('d2')}.json").read_text())                   # Big PAC, $5,000
+    assert "d1" not in json.loads((pd / "dp" / f"{shard_of('d1')}.json").read_text())
+    assert json.loads((tmp_path / "donors.json").read_text())["donors"][0]["name"] == "Jane Donor"  # still counted
 
 
 def test_shard_of_matches_the_page():

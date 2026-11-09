@@ -227,7 +227,7 @@ def cmd_delta(cfg, args):
 
     store = config.make_store(cfg)
     try:
-        print(json.dumps(write_delta(store, args.since, Path(args.out)), indent=1))
+        print(json.dumps(write_delta(store, args.since, Path(args.out), key_like=getattr(args, "key_like", None)), indent=1))
     finally:
         store.close()
 
@@ -678,6 +678,16 @@ def cmd_finance(cfg, args):
         finally:
             store.close()
         return
+    if args.action == "orgs":
+        # what every organization that gave money is, from the bulk registries (FEC files, State Ethics Commission,
+        # IRS), on its own clock: it no longer waits behind the FEC re-read or the weekly finance run
+        try:
+            deadline = time.monotonic() + float(args.max_minutes or 15) * 60
+            fin = Finance(config.ROOT, cfg, _fetcher(cfg, deadline), store)
+            print(json.dumps(fin.enrich_orgs(deadline, limit=int(args.org_limit) if args.org_limit else None), indent=1))
+        finally:
+            store.close()
+        return
     try:
         # FEC lines read before the FEC's own fields were kept are not counted (gacrawl/money.py) until each
         # committee is read again: while any remain, the FEC re-read gets up to an hour, people with the most first
@@ -711,7 +721,7 @@ def cmd_finance(cfg, args):
         if args.reread_only:
             cands = [c for c in cands if c["id"] in pending]
         since = args.since or cfg.get("limits", {}).get("since", "2016-01-01")
-        out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit or fin.opts.get("org_limit", 40)))
+        out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit) if args.org_limit else None)
         if pending and not args.candidate and fin.f and time.monotonic() < deadline:
             # old lines of people no longer researched: read by committee, so the re-read can finish
             out["fec_orphans"] = fin.reread_orphans({c["id"] for c in load_candidates(config.ROOT, cfg)}, since, deadline)
@@ -883,6 +893,16 @@ def cmd_rumors_ai(cfg, args):
     print(json.dumps(run(config.ROOT, cands, time.monotonic() + float(args.max_minutes or 10) * 60)))
 
 
+def cmd_rumors_text(cfg, args):
+    """Open each unverified Rumor Mill item's page once and keep the part that names the person, for rumors-ai."""
+    from .candidates import load_candidates
+    from .rumors_ai import fetch_texts
+
+    deadline = time.monotonic() + float(args.max_minutes or 5) * 60
+    print(json.dumps(fetch_texts(_fetcher(cfg, deadline), config.ROOT, load_candidates(config.ROOT, cfg), deadline,
+                                 limit=args.limit)))
+
+
 def cmd_video_ai(cfg, args):
     """Official meeting videos' captions as transcripts, and the open model's reading of what each meeting did."""
     from .video_ai import run
@@ -927,10 +947,12 @@ def cmd_model_handoff(cfg, args):
         if args.action == "mark":
             Path(args.out).write_text(json.dumps(mh.mark(store, config.ROOT)), encoding="utf-8")
         elif args.action == "export":
-            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")))
+            carry = json.loads(Path(args.carry).read_text(encoding="utf-8")) if getattr(args, "carry", None) and Path(args.carry).exists() else None
+            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")), carry=carry)
             Path(args.out).write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
-            print(json.dumps({k: len(v) for k, v in h["kv"].items()} | {"rumors": len(h["rumors"]),
-                             "train": sum(len(v) for v in h["train"].values())}))
+            print(json.dumps({k: len(v) for k, v in h["kv"].items()} | {"records": len(h["records"]), "rumors": len(h["rumors"]),
+                             "rumor_text": len(h["rumor_text"]), "train": sum(len(v) for v in h["train"].values()),
+                             "carried": bool(carry), "has_work": mh.has_work(h)}))
         else:
             print(json.dumps(mh.apply(store, config.ROOT, json.loads(Path(args.inp).read_text(encoding="utf-8")))))
     finally:
@@ -976,16 +998,26 @@ def cmd_ethics(cfg, args):
         return
     store = config.make_store(cfg)
     try:
+        if args.action in ("export-kv", "apply-kv"):
+            n = (ethics.export_kv if args.action == "export-kv" else ethics.apply_kv)(store, Path(args.kv))
+            print(json.dumps({args.action: n}))
+            return
+        if args.action == "progress":
+            print(json.dumps(ethics.progress(store), indent=1))
+            return
         deadline = time.monotonic() + float(args.max_minutes or 60) * 60
         from .candidates import load_candidates
 
         cands = load_candidates(config.ROOT, cfg)
-        st = ethics.run(_fetcher(cfg, deadline), store, config.ROOT, cands, deadline)
+        st = ethics.run(_fetcher(cfg, deadline), store, config.ROOT, cands, deadline, mode=args.mode,
+                        superseded=not args.no_entities)
         # donor and recipient ids for the new lines now (the finance step ran before this one), so this run's export
-        # already puts them in profiles' money, the connections graph and the donor profiles
-        from .finance import Finance
+        # already puts them in profiles' money, the connections graph and the donor profiles. Never in the ga-money
+        # job (--no-entities): ids are given only by the crawl's own database, or two jobs would hand out the same id
+        if not args.no_entities:
+            from .finance import Finance
 
-        st["entities"] = Finance(config.ROOT, cfg, None, store).resolve_all(cands)
+            st["entities"] = Finance(config.ROOT, cfg, None, store).resolve_all(cands)
         print(json.dumps(st))
     finally:
         store.close()
@@ -1156,8 +1188,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--districts", action="store_true", help="school districts only (each runner run: a changed district seed is worked off at once)")
     sub.add_parser("status")
     et = sub.add_parser("ethics", help="Georgia campaign money from the State Ethics Commission's search site")
-    et.add_argument("action", nargs="?", default="run", choices=["run", "explore", "clicks", "bulk"])
+    et.add_argument("action", nargs="?", default="run", choices=["run", "explore", "clicks", "bulk", "export-kv", "apply-kv", "progress"])
     et.add_argument("--out"); et.add_argument("--max-minutes", type=float, default=60)
+    et.add_argument("--mode", default="all", choices=["all", "full", "refresh", "auto"],
+                    help="run: full = only the full reads not yet complete or due again (the ga-money job); refresh = only the "
+                         "newest lines; auto = refresh while the ga-money job's hand-offs arrive, else all")
+    et.add_argument("--no-entities", action="store_true", help="run: leave donor ids and amended reports to the crawl (the ga-money job)")
+    et.add_argument("--kv", default="ga-kv.json", help="export-kv / apply-kv: the full reads' places")
     da = sub.add_parser("discover-ai", help="the open model's discovery: new people, sites for people and places with none")
     da.add_argument("--max-minutes", type=float, default=30)
     da.add_argument("--decisions-only", help="only apply the owner's decisions in this copy of data/seed_review.md")
@@ -1165,6 +1202,8 @@ def build_parser() -> argparse.ArgumentParser:
     dai.add_argument("--max-minutes", type=float, default=20)
     rai = sub.add_parser("rumors-ai", help="the open model's reading of the Rumor Mill items (for Rumor Has It's ratings)")
     rai.add_argument("--max-minutes", type=float, default=10)
+    rtx = sub.add_parser("rumors-text", help="open each Rumor Mill item's page once, for the open model's reading")
+    rtx.add_argument("--max-minutes", type=float, default=5); rtx.add_argument("--limit", type=int)
     vai = sub.add_parser("video-ai", help="official meeting videos' captions as transcripts, read by the open model")
     vai.add_argument("--max-minutes", type=float, default=20)
     vai.add_argument("--captions-only", action="store_true", help="transcripts only, no model")
@@ -1178,6 +1217,7 @@ def build_parser() -> argparse.ArgumentParser:
     mhp.add_argument("--out", default="model-handoff.json")
     mhp.add_argument("--mark", default="mark.json")
     mhp.add_argument("--in", dest="inp", default="model-handoff.json")
+    mhp.add_argument("--carry", help="export: a hand-off still waiting for the crawl, handed over together with this job's")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
@@ -1192,6 +1232,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--kind", help="only sources of this kind (video = YouTube channels, ...)")
     r.add_argument("--slice-minutes", type=float, help="one source's share of the run (default: a sixth of the budget, at least 4)")
     dl = sub.add_parser("delta"); dl.add_argument("--since", required=True); dl.add_argument("--out", required=True)
+    dl.add_argument("--key-like", help="only records whose key matches this LIKE pattern (no frontier rows or cursors)")
     mg = sub.add_parser("merge"); mg.add_argument("deltas", nargs="*"); mg.add_argument("--state", nargs="*", default=[])
     se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("--jurisdiction"); se.add_argument("--kind")
     se.add_argument("--limit", type=int, default=20)
@@ -1231,7 +1272,7 @@ def build_parser() -> argparse.ArgumentParser:
     po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
     dv = sub.add_parser("derive"); dv.add_argument("--only"); dv.add_argument("--full", action="store_true"); dv.add_argument("--max-minutes", type=float)
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
-    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money"])
+    fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money", "orgs"])
     fi.add_argument("--delta"); fi.add_argument("--kv"); fi.add_argument("--out")
     fi.add_argument("--candidate"); fi.add_argument("--since"); fi.add_argument("--max-minutes", type=float); fi.add_argument("--org-limit", type=int)
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
@@ -1278,7 +1319,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

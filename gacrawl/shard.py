@@ -46,8 +46,9 @@ def in_shard(src: dict, shard: tuple[int, int] | None) -> bool:
 
 
 # --------------------------------------------------------------------------- database deltas
-def write_delta(store: Store, since: str, out: Path) -> dict:
-    """Copy rows changed/fetched at or after `since` into a fresh database at `out`."""
+def write_delta(store: Store, since: str, out: Path, key_like: str | None = None) -> dict:
+    """Copy rows changed/fetched at or after `since` into a fresh database at `out` (with `key_like`, only the records
+    whose key matches it: a side job's own lines, not what its copy of the database already held)."""
     store.flush()
     out = Path(out)
     if out.exists():
@@ -60,10 +61,15 @@ def write_delta(store: Store, since: str, out: Path) -> dict:
         db.execute("ATTACH DATABASE ? AS d", (str(out),))
         try:
             db.execute("BEGIN")
-            n_rec = db.execute(f"INSERT INTO d.records({','.join(COLS)}) SELECT {','.join(COLS)} FROM main.records "
-                               "WHERE changed_at >= ?", (since,)).rowcount
-            n_url = db.execute("INSERT INTO d.urls SELECT * FROM main.urls WHERE fetched_at >= ?", (since,)).rowcount
-            n_cur = db.execute("INSERT INTO d.cursors SELECT * FROM main.cursors WHERE updated_at >= ?", (since,)).rowcount
+            if key_like:
+                n_rec = db.execute(f"INSERT INTO d.records({','.join(COLS)}) SELECT {','.join(COLS)} FROM main.records "
+                                   "WHERE changed_at >= ? AND key LIKE ?", (since, key_like)).rowcount
+                n_url = n_cur = 0
+            else:
+                n_rec = db.execute(f"INSERT INTO d.records({','.join(COLS)}) SELECT {','.join(COLS)} FROM main.records "
+                                   "WHERE changed_at >= ?", (since,)).rowcount
+                n_url = db.execute("INSERT INTO d.urls SELECT * FROM main.urls WHERE fetched_at >= ?", (since,)).rowcount
+                n_cur = db.execute("INSERT INTO d.cursors SELECT * FROM main.cursors WHERE updated_at >= ?", (since,)).rowcount
             db.execute("COMMIT")
         finally:
             db.execute("DETACH DATABASE d")

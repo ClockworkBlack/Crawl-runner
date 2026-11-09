@@ -272,21 +272,37 @@ def patterns(g: Graph, store: Store | None = None) -> list[dict]:
                             "donors": [{"id": d, "name": name(d)} for d in donors], "total": round(sum(e.get("amount") or 0 for e in ees), 2),
                             "src": sorted({e["src"] for e in ees})[:20], "evidence": "primary",
                             "note": "several donors to one recipient list the same employer"})
-    # org chains: org -> org/committee -> candidate (contributed or funds edges)
+    # org chains: org -> org/committee -> candidate (contributed or funds edges). One chain per path, each leg the
+    # total of its lines: a PAC's hundreds of lines to a party committee times the party's hundreds of lines out made
+    # one chain per pair of lines (lines squared: Georgia's full money histories would make millions)
     money = [e for e in g.edges if e["type"] in ("contributed", "funds")]
-    gives: dict[str, list[dict]] = defaultdict(list)
+    legs: dict[tuple, dict] = {}
     for e in money + [e for e in g.edges if e["type"] == "committee_of"]:
-        gives[e["a"]].append(e)
-    for e1 in money:
-        mid = e1["b"]
-        if g.nodes.get(e1["a"], {}).get("kind") in ("org", "committee") and g.nodes.get(mid, {}).get("kind") in ("org", "committee"):
-            for e2 in gives.get(mid, []):
-                if g.nodes.get(e2["b"], {}).get("kind") in ("candidate", "person", "committee") and e2["b"] != e1["a"]:
-                    out.append({"kind": "org_chain", "path": [{"id": e1["a"], "name": name(e1["a"])}, {"id": mid, "name": name(mid)},
-                                                              {"id": e2["b"], "name": name(e2["b"])}],
-                                "amounts": [e1.get("amount"), e2.get("amount")], "dates": [e1.get("date"), e2.get("date")],
-                                "src": [e1["src"], e2["src"]], "evidence": "primary",
-                                "note": "money recorded moving from one organization to another and on to a candidate"})
+        L = legs.get((e["a"], e["b"]))
+        if L is None:
+            L = legs[(e["a"], e["b"])] = {"t": 0.0, "money": False, "date": None, "src": e["src"], "top": -1.0}
+        if e["type"] != "committee_of":
+            amt = e.get("amount") or 0
+            L["t"] += amt
+            L["money"] = True
+            L["date"] = max(x for x in (L["date"], e.get("date")) if x) if (L["date"] or e.get("date")) else None
+            if amt > L["top"]:
+                L["top"], L["src"] = amt, e["src"]
+    gives: dict[str, list[str]] = defaultdict(list)
+    for a, b in legs:
+        gives[a].append(b)
+    for (a, mid), L1 in legs.items():
+        if not L1["money"] or g.nodes.get(a, {}).get("kind") not in ("org", "committee") \
+                or g.nodes.get(mid, {}).get("kind") not in ("org", "committee"):
+            continue
+        for b in gives.get(mid, []):
+            if g.nodes.get(b, {}).get("kind") in ("candidate", "person", "committee") and b != a:
+                L2 = legs[(mid, b)]
+                out.append({"kind": "org_chain", "path": [{"id": a, "name": name(a)}, {"id": mid, "name": name(mid)},
+                                                          {"id": b, "name": name(b)}],
+                            "amounts": [round(L1["t"], 2), round(L2["t"], 2) if L2["money"] else None],
+                            "dates": [L1["date"], L2["date"]], "src": [L1["src"], L2["src"]], "evidence": "primary",
+                            "note": "money recorded moving from one organization to another and on to a candidate"})
     # officer overlap and officers who are candidates/office-holders
     officer_of: dict[str, list[dict]] = defaultdict(list)
     for e in g.edges:
@@ -297,8 +313,7 @@ def patterns(g: Graph, store: Store | None = None) -> list[dict]:
         pnode = g.nodes.get(pid, {})
         gave_to = set()
         for o in orgs:
-            for e in gives.get(o, []):
-                gave_to.add(e["b"])
+            gave_to.update(gives.get(o, []))
         if len(orgs) >= 2 or pnode.get("kind") == "candidate" or gave_to:
             out.append({"kind": "officer_overlap", "person": pid, "person_name": name(pid), "is_candidate": pnode.get("kind") == "candidate",
                         "organizations": [{"id": o, "name": name(o), "roles": [e.get("role", "") for e in es if e["b"] == o]} for o in orgs],
@@ -497,11 +512,70 @@ def fec_check(store: Store, candidate_id: str, itemized_fec: float) -> dict | No
             "check": check}
 
 
+PATTERN_CAP = 4000            # patterns of each kind in connections.json (largest first); profiles keep their own
+MONEY_EDGES = ("contributed", "paid", "employed_by")
+
+
+def _pattern_size(p: dict) -> float:
+    return float(p.get("total") or sum(a or 0 for a in (p.get("amounts") or [])) or p.get("amount") or 0)
+
+
 def export_graph(g: Graph, pats: list[dict], out: Path) -> dict:
-    nodes = list(g.nodes.values())
+    """connections.json: the graph as Electo reads it (two people linked through one organization or committee), so it
+    stays a size Electo's repository takes (GitHub refuses files over 100 MB). Private individuals' gifts and
+    employers are left out of the file (they are in donors.json, the donor profiles and each candidate's money, and
+    Electo never links people through a private individual); gifts are one edge per donor and recipient (amount the
+    total, n the lines, date the newest, src the largest gift's filing); each kind of pattern its PATTERN_CAP largest.
+    Returns the whole graph's counts (what the profiles and patterns were built from) and the file's."""
+    nodes = g.nodes
+
+    def private(i):
+        return nodes.get(i, {}).get("kind") == "person"
+
+    agg: dict[tuple, dict] = {}
+    edges = []
+    for e in g.edges:
+        if e["type"] in MONEY_EDGES and (private(e["a"]) or private(e["b"])):
+            continue
+        if e["type"] not in ("contributed", "paid"):
+            edges.append(e)
+            continue
+        k = (e["a"], e["b"], e["type"])
+        A = agg.get(k)
+        amt = e.get("amount") or 0
+        if A is None:
+            A = agg[k] = {**{x: v for x, v in e.items() if x not in ("employer", "occupation", "via", "platform", "purpose", "line")},
+                          "amount": 0.0, "n": 0, "first": e.get("date"), "_top": -1.0}
+            edges.append(A)
+        A["amount"] += amt
+        A["n"] += 1
+        if e.get("date"):
+            A["first"] = min(x for x in (A.get("first"), e["date"]) if x)
+            A["date"] = max(x for x in (A.get("date"), e["date"]) if x)
+        if amt > A["_top"]:
+            A["_top"], A["src"] = amt, e["src"]
+    for A in agg.values():
+        A.pop("_top", None)
+        A["amount"] = round(A["amount"], 2)
+    kept_pats = []
+    by_kind: dict[str, list[dict]] = defaultdict(list)
+    for p in pats:
+        by_kind[p["kind"]].append(p)
+    for k, ps in by_kind.items():
+        kept_pats += sorted(ps, key=_pattern_size, reverse=True)[:PATTERN_CAP] if len(ps) > PATTERN_CAP else ps
+    used = {i for e in edges for i in (e["a"], e["b"])}
+    for p in kept_pats:
+        used.update(v for k, v in p.items() if k in ("donor", "recipient", "person", "endorser") and isinstance(v, str))
+        for k in ("path", "recipients", "donors", "organizations", "candidates"):
+            used.update(x["id"] for x in p.get(k) or [] if isinstance(x, dict) and x.get("id"))
     doc = {"note": "Observations from filings and registries, each with the records it rests on. Patterns are starting "
-                   "points for a researcher, not findings; items with evidence 'lead' must be verified before use.",
-           "counts": {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats)},
-           "nodes": nodes, "edges": g.edges, "patterns": pats}
+                   "points for a researcher, not findings; items with evidence 'lead' must be verified before use. Gifts "
+                   "are one edge per donor and recipient (amount: their total; n: the filed lines). Private individuals' "
+                   "gifts are counted in donors.json, the donor profiles and each candidate's money, not drawn here; "
+                   f"each kind of pattern lists its {PATTERN_CAP:,} largest.",
+           "counts": {"nodes": len(used), "edges": len(edges), "patterns": len(kept_pats),
+                      "graph": {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats)}},
+           "nodes": [n for i, n in nodes.items() if i in used], "edges": edges, "patterns": kept_pats}
     out.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
-    return doc["counts"]
+    return {"nodes": len(nodes), "edges": len(g.edges), "patterns": len(pats),
+            "file": {"nodes": len(used), "edges": len(edges), "patterns": len(kept_pats), "bytes": out.stat().st_size}}

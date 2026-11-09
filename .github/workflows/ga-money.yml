@@ -1,0 +1,112 @@
+name: ga-money
+# Georgia's state and local campaign money read in full beside the crawl, the way the FEC re-read is: EFile (2022-2025,
+# about 2.56 million lines) and PeachFile (2026 on, about 630,000 so far) are about 32,000 pages of the State Ethics
+# Commission's public API, and the crawl's merge job could give them 25 minutes a run (EFile reached page 264 in three
+# days). This job reads the full histories for five hours a run (gacrawl ethics run --mode full: only the years not yet
+# read in full, from the page each stopped at), on a copy of the crawl database, and hands what it read to the crawl:
+# ga-delta.db.zst (its lines) and ga-kv.json (where each read stopped) in the private crawl-data release, which the
+# crawl's merge job applies before its own Georgia step (gacrawl ethics run --mode refresh: the newest lines only, then
+# donor ids and amended reports for everything). Donor ids are never given here: only the crawl's database gives them.
+#
+# Every 6 hours; while every year is read in full (and read again within the month) each run ends in a minute. A
+# hand-off still waiting for the crawl is carried into this run's (applied to this copy first, handed over again with
+# the new lines), so the job never sits out a run. It stops reading when the database reaches GA_MONEY_MAX_DB_GB
+# (default 10) and says so. The crawl's own Georgia step reads the full histories itself whenever no hand-off from
+# this job has arrived for two days (gacrawl ethics run --mode auto), so nothing depends on this job running.
+on:
+  schedule:
+    - cron: "25 1,7,13,19 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of reading (default 290)"
+        required: false
+        default: "290"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ga-money
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  read:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: A copy of the crawl database (and a hand-off still waiting for the crawl, carried)
+        run: |
+          df -h / | tail -1
+          bash scripts/ci_db.sh pull
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          SINCE=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+          A=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="ga-delta.db.zst" or .name=="ga-kv.json") | "\(.name)=\(.id)"] | join(" ")' 2>/dev/null || true)
+          DID=$(echo "$A" | tr ' ' '\n' | sed -n 's/^ga-delta.db.zst=//p'); KID=$(echo "$A" | tr ' ' '\n' | sed -n 's/^ga-kv.json=//p')
+          if [ -n "$DID" ] && [ -n "$KID" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$DID" > waiting.db.zst
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$KID" > waiting-kv.json
+            zstd -d -q -f waiting.db.zst -o waiting.db && rm -f waiting.db.zst
+            gacrawl finance apply --delta waiting.db
+            gacrawl ethics apply-kv --kv waiting-kv.json
+            # the carried lines go out again with this run's: the delta starts where the waiting one started
+            OLD=$(python3 -c "import json;print(json.load(open('waiting-kv.json')).get('_since',''))")
+            [ -n "$OLD" ] && SINCE="$OLD"
+            rm -f waiting.db
+            echo "a hand-off was still waiting: carried (lines since $SINCE)"
+          fi
+          echo "GA_SINCE=$SINCE" >> "$GITHUB_ENV"
+          gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
+      - name: Read the full histories (EFile, PeachFile), from where each read stopped
+        id: read
+        run: |
+          MAXGB=${{ vars.GA_MONEY_MAX_DB_GB || '10' }}
+          GB=$(python3 -c "import os;print(int(os.path.getsize('data/crawl.db')/1e9))")
+          if [ "$GB" -ge "$MAXGB" ]; then
+            echo "::warning title=Georgia money::the crawl database is ${GB} GB (limit GA_MONEY_MAX_DB_GB=${MAXGB}); the full read pauses so the crawl's runners keep their disk space. Raise the variable to go on."
+            echo "read=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # only the years not read in full yet, or read in full more than a month ago (late filings carry old dates);
+          # when there are none the run ends in a minute and hands nothing over
+          M=${{ inputs.minutes || '290' }}
+          timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || echo "the read stopped after $((M + 8)) minutes; what it read is kept"
+          tail -c 3000 run.out
+          PAGES=$(tail -n 1 run.out | python3 -c "import json,sys
+          try: print(json.loads(sys.stdin.read()).get('pages', 1))
+          except ValueError: print(1)")
+          if [ "$PAGES" = "0" ]; then echo "every full read is complete and recent; nothing to hand over"; echo "read=0" >> "$GITHUB_OUTPUT"
+          else echo "read=1" >> "$GITHUB_OUTPUT"; fi
+          gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
+          df -h / | tail -1
+      - name: Hand it to the crawl (ga-delta.db.zst and ga-kv.json in the private release)
+        if: steps.read.outputs.read == '1'
+        run: |
+          gacrawl delta --since "$GA_SINCE" --key-like 'ga2|%' --out ga-delta.db
+          gacrawl ethics export-kv --kv ga-kv.json
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open("ga-kv.json")); d["_since"] = os.environ["GA_SINCE"]
+          json.dump(d, open("ga-kv.json", "w"))
+          PY
+          zstd -T0 -3 -q -f ga-delta.db -o ga-delta.db.zst
+          gh release upload "$DATA_TAG" ga-delta.db.zst ga-kv.json --clobber
+          echo "uploaded $(du -h ga-delta.db.zst | cut -f1) of Georgia lines for the crawl's next merge"

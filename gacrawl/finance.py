@@ -38,6 +38,7 @@ from .registry import write_json_atomic
 import os
 import re
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import yaml
@@ -792,6 +793,212 @@ class Finance:
         return {"resolved": n, "relinked": len(redo), "entities": len(self.entities.entities)}
 
     # ------------------------------------------------------------------ 5. what the organizations are
+    REG_V = 2            # the registry lookups' version: a change makes every organization due again
+    ORG_RECHECK_DAYS = 30
+
+    def org_donors(self) -> list[tuple[str, float, dict]]:
+        """Organizations and committees that gave money, biggest first: (entity id, total given, what the lines say:
+        FEC committee ids, states, cities)."""
+        tot: dict[str, float] = defaultdict(float)
+        seen: dict[str, dict] = {}
+        with self.store._lock:
+            rows = self.store.db.execute(
+                "SELECT json_extract(meta,'$.donor_entity'), json_extract(meta,'$.amount'), json_extract(meta,'$.type'), "
+                "json_extract(meta,'$.contributor_committee_id'), json_extract(meta,'$.state'), json_extract(meta,'$.city') "
+                "FROM records WHERE kind='contribution'").fetchall()
+        for eid, amt, typ, cid, st, city in rows:
+            if not eid or typ == "expenditure" or not amt or amt <= 0:
+                continue
+            e = self.entities.entities.get(eid)
+            if not e or e.get("kind") not in ("org", "committee"):
+                continue
+            tot[eid] += amt
+            s = seen.setdefault(eid, {"fec": defaultdict(int), "states": defaultdict(int), "cities": defaultdict(int)})
+            if cid:
+                s["fec"][cid] += 1
+            if st:
+                s["states"][str(st).upper()[:2]] += 1
+            if city:
+                s["cities"][str(city).strip().lower()] += 1
+        out = []
+        for eid, t in tot.items():
+            s = seen[eid]
+            out.append((eid, t, {"fec": sorted(s["fec"], key=lambda c: -s["fec"][c]),
+                                 "state": max(s["states"], key=s["states"].get) if s["states"] else "",
+                                 "city": max(s["cities"], key=s["cities"].get) if s["cities"] else ""}))
+        out.sort(key=lambda x: -x[1])
+        return out
+
+    def enrich_orgs(self, deadline: float | None = None, limit: int | None = None, site_budget: int = 40,
+                    api_budget: int = 60) -> dict:
+        """What every organization that gave money is, from the bulk registries (gacrawl/registries.py): the FEC's
+        committee files (by the FEC id on its money lines, else exact name), the State Ethics Commission's committee
+        and candidate registrations, and the IRS's exempt-organization file for its state; then its own website's
+        about page when a registry or a hand note gives the site. Biggest donors first; one is marked looked up only
+        when every registry it needed could be read (else it is tried again next run)."""
+        from . import registries as R
+
+        out = {"due": 0, "done": 0, "with_facts": 0, "fec": 0, "ga": 0, "irs": 0, "site": 0}
+        cutoff = (dt.date.today() - dt.timedelta(days=self.ORG_RECHECK_DAYS)).isoformat()
+        donors = self.org_donors()
+        due = [(eid, t, s) for eid, t, s in donors
+               if (self.org_state.get(eid) or {}).get("v") != self.REG_V or (self.org_state.get(eid) or {}).get("checked", "") < cutoff]
+        out["donors"], out["due"] = len(donors), len(due)
+        if limit:
+            due = due[:limit]
+        if not due or not self.f:
+            return out
+        fec = R.FecFiles(self.f, log=self.log).load()
+        try:
+            ga = R.GaRegistry(R.ga_registry(self.f, self.store, log=self.log))
+        except Exception as e:  # noqa: BLE001
+            self.log(f"  registries: State Ethics Commission: {type(e).__name__}: {str(e)[:160]}")
+            ga = R.GaRegistry([])
+        irs = R.IrsFiles(self.f, self.store, log=self.log)
+        wanted: dict[str, set] = defaultdict(set)
+        for eid, _, s in due:
+            e = self.entities.entities[eid]
+            # no state on its lines: a Georgia filing (the State Ethics Commission's lines often leave it out)
+            st = s["state"] or (e.get("attrs") or {}).get("state") or "GA"
+            names = [e["name"]] + list(e.get("aliases") or [])[:6]
+            for n in names:
+                wanted[st.upper()].add(R.reg_key(n))
+            c = fec.match([R.clean(n) for n in names], s["fec"], st.upper()) if fec.ok else None
+            if c and R.connected(c.get("connected") or ""):      # a PAC's connected organization is looked for too
+                wanted[st.upper()].add(R.reg_key(R.connected(c["connected"])))
+        irs.prepare(wanted, deadline)
+        n_api = n_site = 0
+        try:
+            for eid, total, s in due:
+                if deadline and time.monotonic() > deadline:
+                    break
+                try:
+                    n_api, n_site = self._enrich_one(eid, total, s, fec, ga, irs, out, n_api, n_site, api_budget, site_budget)
+                except OutOfTime:
+                    break
+                except Exception as exc:  # noqa: BLE001 — one organization's odd registry row never stops the rest
+                    self.log(f"  organization {eid}: {type(exc).__name__}: {str(exc)[:160]}")
+        finally:
+            self.flush()
+        self.log(f"  organizations: {out['done']} of {out['due']} due looked up ({out['donors']} gave money); "
+                 f"{out['with_facts']} found in a registry (FEC {out['fec']}, State Ethics Commission {out['ga']}, IRS {out['irs']}), "
+                 f"{out['site']} own sites read")
+        return out
+
+    def _enrich_one(self, eid, total, s, fec, ga, irs, out, n_api, n_site, api_budget, site_budget):
+        """One organization's lookup (enrich_orgs): its registry facts, an organization record, its state."""
+        from . import registries as R
+
+        e = self.entities.entities[eid]
+        names = list(dict.fromkeys([R.clean(e["name"])] + [R.clean(a) for a in (e.get("aliases") or [])][:6]))
+        st = (s["state"] or (e.get("attrs") or {}).get("state") or "GA").upper()
+        info = {"entity_id": eid, "name": names[0], "aliases": names[1:], "org_kind": "committee" if e["kind"] == "committee" else "",
+                "what": [], "officers": [], "treasurer": "", "connected_org": "", "website": "", "ein": "", "fec_id": "",
+                "city": "", "state": "", "recipients": [], "sources": [], "notes": [], "registries": []}
+        hand = self.orgs_cfg.get(names[0].lower()) or next((self.orgs_cfg[a.lower()] for a in names if a.lower() in self.orgs_cfg), None)
+        if hand:
+            info["website"] = hand.get("website") or ""
+            info["org_kind"] = hand.get("kind") or info["org_kind"]
+            if hand.get("what"):
+                info["what"].append({"text": hand["what"], "src": hand.get("src") or "config/organizations.yaml", "basis": "hand note"})
+            for o in hand.get("officers") or []:
+                info["officers"].append({"name": o.get("name"), "role": o.get("role", ""), "src": o.get("src") or hand.get("src") or "config/organizations.yaml"})
+        from .entities import PAC_WORDS
+
+        complete = fec.ok
+        c = fec.match(names, s["fec"], st) if fec.ok else None
+        if c:
+            what, officers, fields = fec.facts(c)
+            info["what"] += what
+            info["officers"] += officers
+            info.update({k: v for k, v in fields.items() if v})
+            info["treasurer"] = officers[0]["name"] if officers else ""
+            info["sources"].append({"t": f"FEC committee file ({c['id']})", "u": c["src"], "registry": "fec"})
+            info["registries"].append("fec")
+            out["fec"] += 1
+            if api_budget and n_api < api_budget and os.environ.get("FEC_API_KEY"):
+                n_api += 1          # the FEC's own page of the committee: since when it files, its website, whom it pays
+                src = f"{FEC}/committee/{c['id']}/"
+                det = ((self._fec(f"/committee/{c['id']}/") or {}).get("results") or [{}])[0]
+                if det.get("first_file_date"):
+                    info["what"].append({"text": f"Filing with the FEC since {det['first_file_date'][:4]}", "src": src,
+                                         "basis": "FEC registration"})
+                if det.get("custodian_of_records_name"):
+                    info["officers"].append({"name": det["custodian_of_records_name"], "role": "custodian of records", "src": src})
+                info["website"] = info["website"] or (det.get("website") or "")
+                info["recipients"] = self._fec_recipients(c["id"])
+        elif not fec.ok and n_api < api_budget and (e["kind"] == "committee" or s["fec"] or PAC_WORDS.search(names[0])):
+            # the FEC's files could not be read this run: the API's name search, as before the files (Nov 9)
+            n_api += 1
+            self._enrich_fec(info)
+            if info["fec_id"]:
+                info["registries"].append("fec")
+                out["fec"] += 1
+        g = ga.match(names) if ga.ok else []
+        if not ga.ok:
+            complete = False
+        if g:
+            what, officers, fields = R.GaRegistry.facts(g)
+            info["what"] += what
+            info["officers"] += officers
+            info["city"], info["state"] = info["city"] or fields["city"], info["state"] or fields["state"]
+            info["sources"].append({"t": "Georgia State Ethics Commission committee registration", "u": what[0]["src"], "registry": "ga_ethics"})
+            info["registries"].append("ga_ethics")
+            out["ga"] += 1
+        if st:
+            if not irs.looked_for(R.reg_key(names[0]), st):
+                complete = False            # its state's IRS file could not be read this run
+            r = irs.match(names, st, s["city"])
+            if r:
+                what, fields = R.IrsFiles.facts(r)
+                info["what"] += what
+                info["ein"] = fields["ein"]
+                info["city"], info["state"] = info["city"] or fields["city"], info["state"] or fields["state"]
+                info["sources"].append({"t": f"IRS exempt organizations, {st} (EIN {fields['ein']})", "u": r["src"], "registry": "irs"})
+                info["registries"].append("irs")
+                out["irs"] += 1
+            elif info["connected_org"]:
+                r = irs.match([info["connected_org"]], st)
+                if r:
+                    what, _ = R.IrsFiles.facts(r, label=f"Connected organization {info['connected_org']}: ")
+                    info["what"] += what
+                    info["sources"].append({"t": f"IRS exempt organizations, {st} (connected organization)", "u": r["src"], "registry": "irs"})
+            if not irs.looked_for(R.reg_key(names[0]), st) and n_api < api_budget and not info["ein"] \
+                    and not re.search(r"\b(llc|l\.l\.c|llp|lllp|pllc|p\.c|pc|lp)\b\.?", names[0], re.I):
+                # its state's IRS file could not be read this run: ProPublica's copy of the same IRS data, one name
+                n_api += 1
+                self._enrich_propublica(info)
+                if info["ein"]:
+                    info["registries"].append("irs")
+                    out["irs"] += 1
+        self._enrich_opencorporates(info)
+        if info["website"] and n_site < site_budget:
+            n_site += 1
+            try:
+                self._enrich_site(info)
+                out["site"] += 1
+            except OutOfTime:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                info["notes"].append(f"site: {type(exc).__name__}")
+        seen = set()
+        info["officers"] = [o for o in info["officers"] if o.get("name") and not (o["name"].lower() in seen or seen.add(o["name"].lower()))]
+        kind = info["org_kind"] or ("committee" if info["fec_id"] or "ga_ethics" in info["registries"] else "nonprofit" if info["ein"]
+                                    else "company" if any(x.get("registry") == "opencorporates" for x in info["sources"]) else "unknown")
+        info["org_kind"] = kind
+        summary = "; ".join(w["text"] for w in info["what"][:4])
+        self.store.add(Record("org", "organization", info["sources"][0]["u"] if info["sources"] else f"entity:{eid}",
+                              title=info["name"], text=summary or info["name"], channel="api" if info["sources"] else "derived",
+                              evidence="primary", key=f"org|{eid}",
+                              meta={**info, "given": round(total, 2), "opened": bool(info["sources"]),
+                                    "opened_url": info["sources"][0]["u"] if info["sources"] else ""}))
+        if complete:
+            self.org_state[eid] = {"checked": dt.date.today().isoformat(), "v": self.REG_V, "kind": kind, "sources": len(info["sources"])}
+        e.setdefault("attrs", {})["org_kind"] = kind
+        out["done"] += 1
+        out["with_facts"] += bool(info["registries"])
+        return n_api, n_site
+
     def org_queue(self, limit: int = 50, recheck_days: int = 90) -> list[str]:
         """Organization entities not yet looked up (or stale), biggest money first."""
         totals: dict[str, float] = {}
@@ -876,13 +1083,16 @@ class Finance:
             info["officers"].append({"name": det["custodian_of_records_name"], "role": "custodian of records", "src": src})
         info["city"], info["state"] = det.get("city") or "", det.get("state") or ""
         info["website"] = info["website"] or (det.get("website") or "")
-        # who receives their money (schedule B: disbursements to candidates/committees)
+        info["recipients"] += self._fec_recipients(cid)
+
+    def _fec_recipients(self, cid: str) -> list[dict]:
+        """Who receives a committee's money in Georgia (FEC schedule B: its newest 100 payments to GA recipients)."""
         rr = self._fec("/schedules/schedule_b/", {"committee_id": cid, "per_page": 100, "sort": "-disbursement_date",
                                                  "recipient_state": "GA"})
-        for s in (rr or {}).get("results", [])[:100]:
-            info["recipients"].append({"name": s.get("recipient_name"), "amount": s.get("disbursement_amount"),
-                                       "date": (s.get("disbursement_date") or "")[:10], "purpose": s.get("disbursement_description"),
-                                       "src": s.get("pdf_url") or f"{FEC}/schedules/schedule_b/?committee_id={cid}"})
+        return [{"name": s.get("recipient_name"), "amount": s.get("disbursement_amount"),
+                 "date": (s.get("disbursement_date") or "")[:10], "purpose": s.get("disbursement_description"),
+                 "src": s.get("pdf_url") or f"{FEC}/schedules/schedule_b/?committee_id={cid}"}
+                for s in (rr or {}).get("results", [])[:100]]
 
     def _enrich_propublica(self, info: dict, name: str | None = None, label: str = ""):
         """IRS exempt-organization data for the org itself, or (label set) for its connected organization."""
@@ -1113,17 +1323,10 @@ class Finance:
         if getattr(self, "fec_refused", 0):
             out["fec_refused_calls"] = self.fec_refused
         out.update(self.resolve_all(candidates))
-        enriched = 0
-        for eid in self.org_queue(limit=org_limit):
-            if deadline and time.monotonic() > deadline:
-                break
-            try:
-                self.enrich(eid)
-                enriched += 1
-            except OutOfTime:
-                break
-            except Exception as exc:  # noqa: BLE001
-                self.log(f"  org {eid}: {type(exc).__name__}: {exc}"[:200])
-        out["organizations"] = enriched
+        try:
+            org = self.enrich_orgs(deadline, limit=org_limit or None)
+            out["organizations"], out["organization_lookups"] = org.get("done", 0), org
+        except OutOfTime:
+            out["organizations"] = "stopped: out of time"
         self.flush()
         return out
