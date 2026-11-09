@@ -93,7 +93,7 @@ jobs:
           cd /tmp/electo-money
           CRAWL_BUNDLE="$GITHUB_WORKSPACE/dist/money" python3 -I tools/money_import.py
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add ga/crawl/donors.json ga/crawl/people.json
+          git add -A ga/crawl/donors.json ga/crawl/donors ga/crawl/people.json    # the Donors tab, every donor's profile, profiles' money
           if git diff --cached --quiet; then echo "money unchanged"; else
             git commit -qm "Campaign money re-read from the FEC: $(date -u +%Y-%m-%dT%H:%MZ)"
             for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
