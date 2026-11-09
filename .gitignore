@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
+# pip install -e . metadata (built on every runner)
+*.egg-info/
 .venv/
 .pytest_cache/
 # the database is persisted as a release asset (see .github/workflows/crawl.yml), not in git

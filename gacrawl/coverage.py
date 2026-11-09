@@ -243,6 +243,61 @@ def money_checks(store) -> str:
     return "\n".join(L) + "\n"
 
 
+def pipeline_checks(root: Path, store) -> str:
+    """The steps and side jobs that feed the donor profiles, the Rumor Has It tab, the federal bills and the Georgia
+    money, each with what it has done so far: a number that stops moving from run to run is a step not working."""
+    import json
+
+    def kv(k, default):
+        try:
+            v = json.loads(store.kv_get(k) or "null")
+        except ValueError:
+            v = None
+        return v if isinstance(v, type(default)) else default
+
+    db, L = store.db, ["", "## Pipeline checks", ""]
+    with store._lock:
+        n_org, n_reg = db.execute(
+            "SELECT count(*), coalesce(sum(json_array_length(coalesce(json_extract(meta,'$.registries'),'[]')) > 0), 0) "
+            "FROM records WHERE kind='organization'").fetchone()
+    n_about = sum(1 for v in kv("donor_about", {}).values() if isinstance(v, dict) and v.get("t"))
+    L.append(f"- Organizations that gave money, looked up: **{n_org:,}**; found in a registry (FEC files, State Ethics "
+             f"Commission, IRS): **{n_reg:,}**; backgrounds the open model wrote: **{n_about:,}**")
+    from .candidates import RumorMill
+
+    rows = [r for r in RumorMill(root).all() if (r.get("status") or "unverified") == "unverified"]
+    texts = sum(1 for r in rows if len((r.get("meta") or {}).get("text") or "") > 200)
+    unread = sum(1 for r in rows if (r.get("meta") or {}).get("text_error") and len((r.get("meta") or {}).get("text") or "") <= 200)
+    readings = sum(1 for r in rows if (r.get("ai") or {}).get("v"))
+    L.append(f"- Rumor Mill, {len(rows):,} unverified items: pages read for the model **{texts:,}**; pages that could not be "
+             f"read **{unread:,}** (asked for again after 30 days); readings by the open model **{readings:,}**")
+    fb = kv("federal_bill_ai", {})
+    kept = sum(1 for v in fb.values() if isinstance(v, dict) and v.get("t"))
+    from .federal_bills import congress_now
+
+    cur = kv(f"fedbills:{congress_now()}:hr", {})
+    with store._lock:
+        newest = db.execute("SELECT max(json_extract(meta,'$.last.d')) FROM records WHERE kind='federal_bill'").fetchone()[0]
+    L.append(f"- Federal bills: descriptions the open model wrote **{kept:,}** ({len(fb) - kept:,} more tried and not kept); "
+             f"the Congress in session's House listing last checked **{cur.get('checked') or 'never'}**; newest action on file "
+             f"**{newest or 'none'}**")
+    from .ethics import progress
+
+    parts = [f"{k} " + ("read in full" if v["complete"] else f"page {v['page']} of {v['pages'] or '?'}")
+             for k, v in sorted(progress(store).items())]
+    with store._lock:
+        n_ga = db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND key LIKE 'ga2|%'").fetchone()[0]
+    applied = store.kv_get("ga_money_applied") or ""
+    L.append(f"- Georgia money (State Ethics Commission): **{n_ga:,}** lines; full reads: {'; '.join(parts) or 'not started'}; "
+             f"the ga-money job's last hand-off applied **{applied[:16] or 'never'}**")
+    week = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat(timespec="minutes")
+    recent = [h for h in kv("legis_refusals", []) if isinstance(h, dict) and h.get("at", "") >= week]
+    refused = [h for h in recent if h.get("refused")]
+    L.append(f"- Georgia legislature's site refused the crawler in **{len(refused)}** of the last 7 days' {len(recent)} runs"
+             + (f" (last {refused[-1]['at']})" if refused else ""))
+    return "\n".join(L) + "\n"
+
+
 def run(root: Path, store, state_path: Path | None = None, out_path: Path | None = None) -> dict:
     state_path = state_path or root / "state" / "coverage.json"
     out_path = out_path or root / "data" / "coverage.md"
@@ -251,7 +306,11 @@ def run(root: Path, store, state_path: Path | None = None, out_path: Path | None
     when = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     rows = compare(now, prev.get("counts") or {})
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store), encoding="utf-8")
+    try:
+        checks = pipeline_checks(root, store)
+    except Exception as e:  # noqa: BLE001 — the report is written whatever one check does
+        checks = f"\n## Pipeline checks\n\n- could not be measured: {type(e).__name__}: {str(e)[:200]}\n"
+    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + checks, encoding="utf-8")
     hist = (prev.get("history") or [])[-47:] + [{"as_of": when, **{k: now[k] for k in ("roll_calls", "board_members", "incidents",
                                                                                           "milestones", "budget_docs", "district_sites_read")}}]
     write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist}, indent=1)

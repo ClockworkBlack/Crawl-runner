@@ -1,0 +1,59 @@
+name: db-backup
+# A temporary copy of the crawl database in the private crawl-data release (crawl-backup.db.zst), made before new code
+# reprocesses what has been gathered, and removed once the reprocessed run checks out.
+#   action save:   copy crawl.db.zst -> crawl-backup.db.zst (replaces an older copy)
+#   action remove: delete crawl-backup.db.zst
+#   action restore: copy crawl-backup.db.zst back over crawl.db.zst (only if the reprocessing went wrong)
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        default: save
+        options: [save, remove, restore]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+env:
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+
+jobs:
+  backup:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode
+        run: bash scripts/ci_runner.sh mode
+      - name: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          id_of() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$1\") | .id"; }
+          case "${{ inputs.action }}" in
+            save)
+              ID=$(id_of crawl.db.zst); [ -n "$ID" ] || { echo "::error::no crawl.db.zst to copy"; exit 1; }
+              gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > crawl-backup.db.zst
+              zstd -t -q crawl-backup.db.zst
+              gh release upload "$DATA_TAG" crawl-backup.db.zst --clobber
+              echo "saved $(du -h crawl-backup.db.zst | cut -f1) as crawl-backup.db.zst" ;;
+            remove)
+              ID=$(id_of crawl-backup.db.zst)
+              if [ -n "$ID" ]; then gh api -X DELETE "repos/$REPO/releases/assets/$ID" && echo "crawl-backup.db.zst removed"
+              else echo "no backup to remove"; fi ;;
+            restore)
+              ID=$(id_of crawl-backup.db.zst); [ -n "$ID" ] || { echo "::error::no crawl-backup.db.zst"; exit 1; }
+              gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > crawl.db.zst
+              zstd -t -q crawl.db.zst
+              gh release upload "$DATA_TAG" crawl.db.zst --clobber
+              echo "crawl.db.zst restored from the backup" ;;
+          esac
