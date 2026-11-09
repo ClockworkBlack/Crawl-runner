@@ -258,7 +258,10 @@ jobs:
     needs: [prepare, crawl]
     if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true'
     runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 350    # a backfill run: research 100 + Code changes 45 + finance 20 + the rest, with room to spare
+    # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes
+    # kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
+    # block or a slow day ends in time instead of being stopped at this limit before it saves anything.
+    timeout-minutes: 350
     steps:
       - name: The job's clock (optional steps fit their minutes to what is left; scripts/budget.sh)
         run: echo "MERGE_T0=$(date +%s)" >> "$GITHUB_ENV"; echo "MERGE_LIMIT=350" >> "$GITHUB_ENV"
@@ -274,14 +277,20 @@ jobs:
           bash scripts/ci_runner.sh pull-state
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
+      # hard caps on the setup steps too (each takes seconds): a stalled download otherwise holds the job, and the
+      # crawl's queue behind it, until the 350-minute limit
       - run: pip install -q -e .
+        timeout-minutes: 15
       - uses: actions/download-artifact@v4
+        timeout-minutes: 15
         with: {name: state-base, path: state}
       - uses: actions/download-artifact@v4
         if: needs.crawl.result != 'skipped'
+        timeout-minutes: 15
         with: {pattern: "shard-*", path: shards}
       - name: Unpack shards
         if: needs.crawl.result != 'skipped'
+        timeout-minutes: 15
         run: |
           shopt -s nullglob
           for d in shards/shard-*; do
@@ -289,9 +298,11 @@ jobs:
              if [ -d out ]; then cp -r out/. . && rm -rf out; fi)
           done
       - name: Fetch database
+        timeout-minutes: 30
         run: bash scripts/ci_db.sh pull
       - name: Merge shards
         id: merged
+        timeout-minutes: 60
         run: |
           shopt -s nullglob
           DELTAS=(shards/*/deltas/*.db); STATES=(shards/*/state)
@@ -323,7 +334,10 @@ jobs:
         # The merge job's later steps run for hours; when one hung and the job was cancelled, nothing of the night was
         # stored (the database stayed a day old, and every FEC re-read applied to it was lost with it, so the re-read
         # started over from the same old lines each time). Stored here as soon as it is merged, and again at the end.
+        # A failed upload here doesn't stop the run: the later stores try again (and the last one does fail the run).
         if: always() && steps.merged.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
         run: |
           bash scripts/ci_db.sh push
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then
@@ -336,6 +350,8 @@ jobs:
             rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
           fi
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
+        continue-on-error: true      # an error here leaves last run's derived data; it must not stop the export and the site
+        timeout-minutes: 20
         run: |
           M=${{ vars.DERIVE_MINUTES || '5' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
@@ -385,6 +401,10 @@ jobs:
             M=${{ vars.RESEARCH_NIGHTLY_MINUTES || '13' }}  # nightly: about the same minutes a week as one 90-minute block
             if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           fi
+          # the job's clock: every long optional step fits what is left (scripts/budget.sh), so the steps that save the
+          # run (database, bundle, state, Electo, the site) keep their reserve; a full research block (200 minutes on
+          # the public runner) otherwise pushed the job past its 350-minute limit before any of them ran
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for research; the next run does it"; exit 0; }
           # watchdog as on the crawl: SIGINT after the budget lets research finish the candidates in hand and save
           if [ "$PUBLIC_RUNNER" = "true" ]; then
             timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" --workers 12 || echo "research stopped by the watchdog after $((M + 5)) minutes"
@@ -398,7 +418,11 @@ jobs:
             M=${{ vars.LEGIS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
             if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
             # public runner: every run, with time for the roll calls (none had been fetched: the bill list used the 6 minutes)
-            if [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl legis update --max-minutes 30 --max-bills 400 || true; else gacrawl legis update --max-minutes "$M" || true; fi
+            [ "$PUBLIC_RUNNER" = "true" ] && M=30
+            M=$(bash scripts/budget.sh "$M")
+            if [ "$M" -le 0 ]; then echo "no time left in this run for the legislature; the next run does it"
+            elif [ "$PUBLIC_RUNNER" = "true" ]; then timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" --max-bills 400 || echo "the legislature step stopped after $((M + 5)) minutes"
+            else timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" || echo "the legislature step stopped after $((M + 5)) minutes"; fi
           fi
           gacrawl legis people || true      # local: per-candidate records for tonight's export
       - name: Why bills passed, were vetoed or died (outlets' own news APIs)
@@ -407,6 +431,7 @@ jobs:
           # its home page) searched for the bill's number within the session's dates; a closed session's bill once
           M=${{ vars.BILL_REASONS_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for bill reasons; the next run does it"; exit 0; }
           timeout -s INT -k 2m "$((M + 4))m" gacrawl legis reasons --max-minutes "$M" || echo "bill reasons stopped after $((M + 4)) minutes"
       - name: Political news for the News tab (outlets' news APIs and feeds)
         run: |
@@ -421,6 +446,7 @@ jobs:
           key: hf-qwen3-8b-q4km-v1
       - name: Store the database again (research and news so far), before the open model's long steps
         if: always() && steps.merged.outcome == 'success'
+        continue-on-error: true
         timeout-minutes: 15
         run: bash scripts/ci_db.sh push
       - name: Discovery by the open model (new people in the news; sites for people and places with none)
@@ -429,6 +455,7 @@ jobs:
           # fetcher, judged by the model and checked; added on their own when as good as links Electo already accepts,
           # else listed in data/seed_review.md for the owner's approval
           M=${{ vars.DISCOVER_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=3
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for discovery; the next run does it"; exit 0; }
           pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || { echo "llama.cpp did not install; no discovery this run"; exit 0; }
           timeout -s INT -k 2m "$((M + 8))m" gacrawl discover-ai --max-minutes "$M" || echo "discovery stopped after $((M + 8)) minutes"
@@ -440,6 +467,7 @@ jobs:
           M=${{ vars.BILL_VIDEO_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
           [ "$PUBLIC_RUNNER" = "true" ] && M=$(( M * 4 ))
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for hearing video; the next run does it"; exit 0; }
           # the data service and the channels' APIs any time; the legislature's own pages only inside the off-peak window
           if gacrawl window | grep -q '"good_time": true'; then
             timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --with-hearings --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
@@ -454,12 +482,15 @@ jobs:
           M=${{ vars.SCHOOLS_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
           [ "$PUBLIC_RUNNER" = "true" ] && M=40    # 180 district sites: board, superintendent and school pages
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          # each part fits what is left of the job (scripts/budget.sh); a part with no time left waits for the next run
           if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
-            gacrawl schools seed --max-minutes "$M" || true
-            gacrawl schools stats --max-minutes "$M" || true
+            B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools seed --max-minutes "$B" || true; }
+            B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools stats --max-minutes "$B" || true; }
           fi
-          gacrawl schools sites --max-minutes "$M" || true
-          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl schools budgets --max-minutes 15 || true; fi
+          B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools sites --max-minutes "$B" || true; }
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$PUBLIC_RUNNER" = "true" ]; then
+            B=$(bash scripts/budget.sh 15); [ "$B" -gt 0 ] && { gacrawl schools budgets --max-minutes "$B" || true; }
+          fi
           gacrawl schools people || true    # local: from pages already in the database; feeds tonight's research and export
       - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
         run: |
@@ -467,6 +498,7 @@ jobs:
           # for the backlog), then only new acts as they are signed
           M=${{ vars.CODEACTS_MINUTES || '45' }}; [ "$IS_MAIN" != "true" ] && M=3
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           gacrawl codeacts --max-minutes "$M" || true   # exits early once every act is read
       - name: Federal bills (every U.S. House and Senate bill since 2015, GovInfo Bill Status)
         run: |
@@ -482,10 +514,15 @@ jobs:
           M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           [ -n "$FEC_API_KEY" ] || echo "::warning title=FEC API key::No FEC_API_KEY secret: federal money cannot be read (the shared DEMO_KEY is refused after a few calls)"
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
-          # otherwise on research runs, as before
-          if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then gacrawl finance --max-minutes "$M" || true
-          else gacrawl finance --reread-only --max-minutes "$M" || true; fi
+          # otherwise on research runs, as before. The hard stop is for the entity pass, which has no clock of its own
+          # (Nov 9: 110,600 lines took an hour); stopped, it keeps what it resolved and the next run does the rest
+          if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+          else
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+          fi
       - name: Georgia state and local money (State Ethics Commission)
         run: |
           # EFile (2022-2025) and PeachFile (2026 on), through the public API their own Contributions search calls;
@@ -507,6 +544,7 @@ jobs:
           # gacrawl/video_ai.py: official channels' meeting videos only; captions through yt-dlp (no key). If YouTube asks
           # the runner to sign in or prove it is not a bot, the step stops for the day (never worked around)
           M=${{ vars.VIDEO_AI_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           pip install -q --prefer-binary yt-dlp || { echo "yt-dlp did not install; no meeting videos read this run"; exit 0; }
           if python3 -c "import llama_cpp" 2>/dev/null; then
             timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --max-minutes "$M" || echo "video readings stopped after $((M + 6)) minutes"
@@ -545,8 +583,11 @@ jobs:
           # week's searches are done. Stops at the first rate-limit and carries on next run.
           M=${{ needs.prepare.outputs.police_news_minutes || vars.POLICE_NEWS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          gacrawl police news --max-minutes "$M" || true
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || echo "police news stopped after $((M + 5)) minutes"
       - name: Screenshot inbox (imports/screens/)
+        continue-on-error: true
+        timeout-minutes: 20
         run: |
           shopt -s nullglob nocaseglob
           F=(imports/screens/*.{png,jpg,jpeg,webp,pdf} imports/screens/{ordinances,posts,text}/*.{png,jpg,jpeg,webp,pdf})
@@ -558,6 +599,8 @@ jobs:
           fi
       - name: Store the database now (whatever a later step does, this run's reading is kept)
         if: always() && steps.merged.outcome == 'success'
+        continue-on-error: true      # the next step stores it again, with the bundle, and fails the run if it can't
+        timeout-minutes: 20
         run: |
           bash scripts/ci_db.sh push
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then        # the FEC hand-off is in the stored database now
@@ -570,23 +613,29 @@ jobs:
             rm -f modeld/applied; echo "the open model's hand-off is stored; removed"
           fi
       - name: Task list, status, Electo bundle
+        timeout-minutes: 30
         id: bundle
         run: |
-          gacrawl tasks
-          gacrawl status
+          # the task list and status are reports; only the bundle (the export) must not fail
+          gacrawl tasks || echo "::warning title=Task list::gacrawl tasks failed; the export goes ahead"
+          gacrawl status || echo "::warning title=Status::gacrawl status failed; the export goes ahead"
           gacrawl export --out dist/electo
       - name: Store database and bundle (release assets)
+        id: stored
+        timeout-minutes: 30
         run: |
           bash scripts/ci_db.sh push       # again: the export steps write to it too
           tar -cf - -C dist electo | gzip -1 > electo-bundle.tar.gz   # fast level: built every night
           gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber
       - name: Run summary (the job's Summary tab)
+        timeout-minutes: 10
         if: always()
         run: |
           T="Crawl run"; [ "$BACKFILL" = "true" ] && T="Daytime backfill run"; [ "$IS_MAIN" != "true" ] && T="Test run from ${{ github.ref_name }} (writes to $DATA_TAG only)"
           if [ "$PUBLIC_RUNNER" = "true" ]; then echo "### $T: finished (details are kept in the private repository)" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           gacrawl summary --since "${{ needs.prepare.outputs.started }}" --title "$T" --out "$GITHUB_STEP_SUMMARY" > /dev/null || true
       - name: Backfill (this run's minutes, and the next daytime run)
+        timeout-minutes: 10
         if: always()
         run: |
           # billable minutes of this run so far: each job rounded up to the minute, as GitHub bills them
@@ -604,15 +653,22 @@ jobs:
           GH_TOKEN="$RUN_TOKEN" GH_REPO="${{ github.repository }}" gacrawl backfill next --minutes "$M" --run-id "${{ github.run_id }}" $FLAG --repo "${{ github.repository }}" \
             --github-output "$GITHUB_OUTPUT.bf" || true
           if [ "$IS_MAIN" = "true" ] && [ "$BACKFILL" = "true" ] && grep -q "go=true" "$GITHUB_OUTPUT.bf" 2>/dev/null; then
-            GH_TOKEN="$RUN_TOKEN" gh workflow run -R "${{ github.repository }}" crawl.yml --ref "${{ github.ref_name }}" -f job=backfill && echo "next backfill run queued"
+            # tried three times: a failed hand-off pauses the chain until the next scheduled run, and must not fail this
+            # run (which would skip its Electo import and site update)
+            for i in 1 2 3; do
+              GH_TOKEN="$RUN_TOKEN" gh workflow run -R "${{ github.repository }}" crawl.yml --ref "${{ github.ref_name }}" -f job=backfill && { echo "next backfill run queued"; break; }
+              [ "$i" = 3 ] && echo "::warning title=Backfill::could not queue the next backfill run; the next scheduled run carries on" || sleep $((i * 20))
+            done
           fi
       - name: Coverage (what the data holds per Electo feature, against the last run)
+        timeout-minutes: 15
         if: always() && env.IS_MAIN == 'true'
         run: |
           # data/coverage.md and state/coverage.json, kept in the private repository; zero or shrinking features are
           # flagged there (and as warnings on the private repository's own runs)
           gacrawl coverage || echo "coverage report failed"
       - name: The owner's latest review decisions (data/seed_review.md may have been edited during this run)
+        timeout-minutes: 10
         if: env.IS_MAIN == 'true'
         continue-on-error: true
         run: |
@@ -623,6 +679,7 @@ jobs:
           fi
           gacrawl discover-ai --decisions-only /tmp/seed_review.md
       - name: Commit state
+        timeout-minutes: 15
         if: always() && env.IS_MAIN == 'true'
         run: |
           # kept between runs (in the private data repository when the public runner runs this; config/runner.json).
@@ -634,8 +691,12 @@ jobs:
             state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
             state/coverage.json state/channel_ai.json data/coverage.md data/seed_review.md data/channel_review.md data/train \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
+      # From here on, Electo and the site follow this run's stored bundle, not every earlier step: a failed state commit
+      # or report must not keep the night's data from readers. (The packets push still needs every step before it.)
       - name: Electo is fed from what Crawl holds
-        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true'
+        id: fed
+        timeout-minutes: 15
+        if: ${{ !cancelled() && steps.stored.outcome == 'success' && env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' && env.PUBLIC_RUNNER == 'true' }}
         run: |
           # the runner -> Crawl -> Electo: the bundle stored in the private Crawl repository's release a moment ago
           # (not the runner's own copy) is what Electo imports
@@ -644,12 +705,15 @@ jobs:
           tar -xzf crawl-bundle/electo-bundle.tar.gz -C dist && rm -rf crawl-bundle
           echo "Electo bundle from $DATA_REPO: $(ls dist/electo | wc -l) entries"
       - name: Push research packets to Electo
+        timeout-minutes: 15
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
           ELECTO_PATH: ${{ vars.ELECTO_PATH || 'data/crawl' }}
         run: |
+          # never replace Electo's packets with nothing: the folder below is emptied and refilled from the bundle
+          [ -f dist/electo/manifest.json ] || { echo "::error::no bundle in dist/electo; nothing pushed to Electo"; exit 1; }
           git clone --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
           cd /tmp/electo && git sparse-checkout set "$ELECTO_PATH" && cd -
           rm -rf "/tmp/electo/${ELECTO_PATH}" && mkdir -p "/tmp/electo/${ELECTO_PATH}"
@@ -661,11 +725,16 @@ jobs:
           cd /tmp/electo
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           git add "${ELECTO_PATH}"
-          git diff --cached --quiet || (git commit -m "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)" && git pull --rebase --autostash -q && git push)
+          git diff --cached --quiet && { echo "Electo already has these packets"; exit 0; }
+          git commit -qm "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)"
+          # retried as the import below is: Electo's other writers (its own builds, the AI jobs) push in between
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
+          exit 1
       - name: Import into Electo (profiles, councils, schools, places, records review) from the full bundle
+        timeout-minutes: 30
         # Electo's own importer, run here because only this job holds the complete bundle (the data pushed above is a
         # subset). Everything it writes is committed to Electo's main with the same token; a failure here never fails the crawl.
-        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        if: ${{ !cancelled() && steps.stored.outcome == 'success' && steps.fed.outcome != 'failure' && env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' }}
         continue-on-error: true
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -673,6 +742,7 @@ jobs:
         run: |
           set -e
           BUNDLE="$PWD/dist/electo"
+          [ -f "$BUNDLE/manifest.json" ] || { echo "::error::no bundle in dist/electo; nothing imported into Electo"; exit 1; }
           git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full
           cd /tmp/electo-full
           export CRAWL_BUNDLE="$BUNDLE"
@@ -694,11 +764,12 @@ jobs:
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
           exit 1
       - name: Site data for the page's Check for updates (the public electo-data feed)
+        timeout-minutes: 30
         # the page (and the app) reads newer data files from the public repository ClockworkBlack/electo-data with no
         # key (Electo tools/site_data.sh; the owner confirmed publishing the site's data publicly, Nov 7): the data
         # reaches readers without a new release of the page. The token must be able to push to that repository
         # (secret SITE_DATA_TOKEN; ELECTO_TOKEN is tried when it is not set; the log says when neither can).
-        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        if: ${{ !cancelled() && steps.stored.outcome == 'success' && steps.fed.outcome != 'failure' && env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
@@ -708,6 +779,7 @@ jobs:
           cd /tmp/electo-full && git pull -q --rebase --autostash || true
           [ -f tools/site_data.sh ] && timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
       - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
+        timeout-minutes: 10
         if: always() && env.PUBLIC_RUNNER == 'true'
         run: |
           # this run's, and any left by an earlier run that never reached this step (a force-cancelled or killed run

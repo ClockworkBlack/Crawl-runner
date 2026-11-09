@@ -689,7 +689,11 @@ def cmd_finance(cfg, args):
         pending = {r["c"]: r["n"] for r in legacy if r["c"]}
         minutes = float(args.max_minutes or 30)
         if pending:
-            minutes = max(minutes, 60.0)
+            # up to an hour for the re-read, unless the caller gave its own minutes: the crawl's merge job fits each
+            # optional step into what the job has left (an hour forced here made every run an hour longer, and the
+            # parallel fec-reread job does the long re-read, asking for its own 300 minutes)
+            if not args.max_minutes:
+                minutes = max(minutes, 60.0)
             print(f"finance: {sum(pending.values())} FEC lines of {len(pending)} people await the re-read with the FEC's fields")
         elif args.reread_only:
             print("finance: no FEC lines await a re-read")

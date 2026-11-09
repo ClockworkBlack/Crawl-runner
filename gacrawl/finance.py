@@ -42,7 +42,7 @@ from pathlib import Path
 
 import yaml
 
-from .entities import EntityIndex, committee_candidate, is_org
+from .entities import EntityIndex, committee_candidate, is_org, norm_org, norm_person
 from .fetch import Blocked, Disallowed, Fetcher, OutOfTime
 from .store import Record, Store
 
@@ -708,34 +708,88 @@ class Finance:
         T[com_id] = {"checked": dt.date.today().isoformat(), "cycles": cyc}
         self.store.kv_set("fec_totals", json.dumps(T, separators=(",", ":")))
 
+    LINKS = ("donor_entity", "recipient_entity", "employer_entity", "committee_of")
+
+    def misplaced_links(self) -> list[int]:
+        """Lines (rids) whose entity ids this database's registry doesn't hold, or holds for a different name.
+
+        Entity ids are a counter kept in each copy of the database, so an id given out anywhere else means nothing, or
+        someone else, here: a pass that stopped before saving its registry (Nov 9: the Georgia money step crashed
+        partway and about 16,000 donor lines kept ids the next run handed to other people), or a line linked on another
+        copy and merged in (the parallel FEC re-read's hand-off carries its own copy's ids). Names are compared the
+        way resolution compares them (gacrawl.entities' normal forms), against every name the entity was found under.
+        A recipient given by candidate id is the candidate whatever the committee's name, so only its id is checked."""
+        ents = self.entities.entities
+        known: dict[str, set] = {}
+
+        def names(eid):
+            if eid not in known:
+                e = ents[eid]
+                known[eid] = {x for a in [e.get("name") or ""] + list(e.get("aliases") or [])
+                              for x in (norm_person(a), norm_org(a)) if x}
+            return known[eid]
+
+        def fits(eid, name):
+            if not eid:
+                return True
+            if eid not in ents:
+                return False
+            forms = {norm_person(name), norm_org(name)} - {""} if name else set()
+            return not forms or bool(forms & names(eid))
+
+        bad = []
+        with self.store._lock:
+            rows = self.store.db.execute(
+                "SELECT rid, json_extract(meta,'$.donor_entity'), json_extract(meta,'$.name'), "
+                "json_extract(meta,'$.recipient_entity'), json_extract(meta,'$.recipient'), json_extract(meta,'$.candidate_id'), "
+                "json_extract(meta,'$.employer_entity'), json_extract(meta,'$.employer'), json_extract(meta,'$.committee_of') "
+                "FROM records WHERE kind='contribution' AND meta LIKE '%\"donor_entity\"%'").fetchall()
+        for rid, de, dn, rc, rn, cid, ee, en, co in rows:
+            if not (fits(de, dn) and fits(rc, None if cid else rn) and fits(ee, en) and fits(co, None)):
+                bad.append(rid)
+        return bad
+
     def resolve_all(self, candidates: list[dict]) -> dict:
-        """Give every donor, recipient and organization an entity id (meta.donor_entity / recipient_entity)."""
+        """Give every donor, recipient and organization an entity id (meta.donor_entity / recipient_entity), and link
+        again every line whose ids this database doesn't hold for it (misplaced_links)."""
         for c in candidates:
             self.entities.add_candidate(c)
+        redo = self.misplaced_links()
+        if redo:
+            self.log(f"  finance: {len(redo)} lines name entity ids this database doesn't hold for them; linking them again")
         n = 0
-        for r in self.store.iter_query("kind='contribution' AND meta NOT LIKE '%\"donor_entity\"%'"):
-            m = dict(r["meta"])
-            name = m.get("name") or ""
-            kind = "org" if m.get("donor_is_org") else "person"
-            cand_name = committee_candidate(name) if kind == "org" else None
-            m["donor_entity"] = self.entities.resolve(name, kind, {"employer": m.get("employer"), "city": m.get("city"),
-                                                                   "state": m.get("state"), "occupation": m.get("occupation")},
-                                                      url=r["url"])
-            if cand_name:
-                m["committee_of"] = self.entities.resolve(cand_name, "person", url=r["url"])
-            rcp = m.get("recipient") or ""
-            if m.get("candidate_id"):
-                m["recipient_entity"] = self.entities.by_candidate(m["candidate_id"])
-            elif rcp:
-                m["recipient_entity"] = self.entities.resolve(rcp, "committee" if is_org(rcp) else "person", url=r["url"])
-            if m.get("employer") and not m.get("donor_is_org"):
-                m["employer_entity"] = self.entities.resolve(m["employer"], "org", url=r["url"])
-            self.store.add(Record(r["source_id"], r["kind"], r["url"], title=r.get("title") or "", text=r.get("text") or "",
-                                  published=r.get("published"), channel=r.get("channel") or "", jurisdiction=r.get("jurisdiction") or "",
-                                  evidence=r.get("evidence") or "", meta=m, key=r.get("key")))
-            n += 1
-        self.entities.flush()
-        return {"resolved": n, "entities": len(self.entities.entities)}
+        try:
+            for r in self.store.iter_query("kind='contribution' AND (meta NOT LIKE '%\"donor_entity\"%' OR "
+                                           "rid IN (SELECT value FROM json_each(?)))", (json.dumps(redo),)):
+                m = dict(r["meta"])
+                for k in self.LINKS:                 # a line linked again starts clean (a stale field would linger)
+                    m.pop(k, None)
+                name = m.get("name") or ""
+                kind = "org" if m.get("donor_is_org") else "person"
+                cand_name = committee_candidate(name) if kind == "org" else None
+                m["donor_entity"] = self.entities.resolve(name, kind, {"employer": m.get("employer"), "city": m.get("city"),
+                                                                       "state": m.get("state"), "occupation": m.get("occupation")},
+                                                          url=r["url"])
+                if cand_name:
+                    m["committee_of"] = self.entities.resolve(cand_name, "person", url=r["url"])
+                rcp = m.get("recipient") or ""
+                if m.get("candidate_id"):
+                    m["recipient_entity"] = self.entities.by_candidate(m["candidate_id"])
+                elif rcp:
+                    m["recipient_entity"] = self.entities.resolve(rcp, "committee" if is_org(rcp) else "person", url=r["url"])
+                if m.get("employer") and not m.get("donor_is_org"):
+                    m["employer_entity"] = self.entities.resolve(m["employer"], "org", url=r["url"])
+                self.store.add(Record(r["source_id"], r["kind"], r["url"], title=r.get("title") or "", text=r.get("text") or "",
+                                      published=r.get("published"), channel=r.get("channel") or "", jurisdiction=r.get("jurisdiction") or "",
+                                      evidence=r.get("evidence") or "", meta=m, key=r.get("key")))
+                n += 1
+        finally:
+            # Saved even when the loop stops early (an error, or the step's watchdog SIGINT). The store commits the
+            # lines as it goes, and they name these entity ids; ids made since the last save would otherwise be lost
+            # and handed to other names by the next run (new ids are a counter). Nov 9: the Georgia money step's pass
+            # crashed partway (a donor of initials only) without saving, and the next run reused its ids.
+            self.entities.flush()
+        return {"resolved": n, "relinked": len(redo), "entities": len(self.entities.entities)}
 
     # ------------------------------------------------------------------ 5. what the organizations are
     def org_queue(self, limit: int = 50, recheck_days: int = 90) -> list[str]:
