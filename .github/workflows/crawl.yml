@@ -847,12 +847,30 @@ jobs:
             [ -e "dist/electo/$f" ] && cp -r "dist/electo/$f" "/tmp/electo/${ELECTO_PATH}/"
           done
           cd /tmp/electo
+          # GitHub refuses a file over 100 MB, and the whole push with it (Nov 9: connections.json at 113 MB). Such a
+          # file is stored gzipped (Electo's ga/crawl_import.py reads <name>.gz); still too big, Electo keeps its copy
+          find "${ELECTO_PATH}" -type f -size +90M | while read -r big; do
+            gzip -n -9 -f "$big"
+            if [ "$(stat -c %s "$big.gz")" -gt 94000000 ]; then
+              rm -f "$big.gz"
+              git checkout -q HEAD -- "$big" 2>/dev/null || git checkout -q HEAD -- "$big.gz" 2>/dev/null || true
+              echo "::warning title=Packets::$big is over 90 MB even gzipped; Electo keeps its previous copy"
+            else
+              echo "::warning title=Packets::$big is over 90 MB; stored gzipped as $big.gz ($(du -h "$big.gz" | cut -f1))"
+            fi
+          done
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           git add "${ELECTO_PATH}"
           git diff --cached --quiet && { echo "Electo already has these packets"; exit 0; }
           git commit -qm "crawl data: $(date -u +%Y-%m-%dT%H:%MZ)"
-          # retried as the import below is: Electo's other writers (its own builds, the AI jobs) push in between
-          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && exit 0; sleep $((i*5)); done
+          # retried as the import below is: Electo's other writers (its own builds, the AI jobs, the police job's
+          # files in the same folder) push in between. This folder is the bundle's, so its version wins a conflict;
+          # a rebase that still stops is abandoned before the next try (else every later try fails on it)
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X theirs --autostash -q && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep $((i*5))
+          done
           exit 1
       - name: Import into Electo (profiles, councils, schools, places, records review) from the full bundle
         timeout-minutes: 30

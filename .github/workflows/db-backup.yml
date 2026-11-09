@@ -4,6 +4,8 @@ name: db-backup
 #   action save:   copy crawl.db.zst -> crawl-backup.db.zst (replaces an older copy)
 #   action remove: delete crawl-backup.db.zst
 #   action restore: copy crawl-backup.db.zst back over crawl.db.zst (only if the reprocessing went wrong)
+# asset: the release file to copy (default the database). Any other file X (a hand-off: ga-delta.db.zst, ga-kv.json,
+# fec-delta.db.zst, ...) is kept as backup-X, e.g. before a side job holding a hand-off is cancelled and run again.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +13,10 @@ on:
         type: choice
         default: save
         options: [save, remove, restore]
+      asset:
+        description: "the release file (default crawl.db.zst)"
+        required: false
+        default: crawl.db.zst
 
 permissions:
   contents: read
@@ -39,21 +45,25 @@ jobs:
           set -euo pipefail
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           id_of() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$1\") | .id"; }
+          SRC="${{ inputs.asset || 'crawl.db.zst' }}"
+          case "$SRC" in */*|"") echo "::error::a release file name"; exit 1 ;; esac
+          if [ "$SRC" = "crawl.db.zst" ]; then BK=crawl-backup.db.zst; else BK="backup-$SRC"; fi
+          check() { case "$1" in *.zst) zstd -t -q "$1" ;; *.json) python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1" ;; esac; }
           case "${{ inputs.action }}" in
             save)
-              ID=$(id_of crawl.db.zst); [ -n "$ID" ] || { echo "::error::no crawl.db.zst to copy"; exit 1; }
-              gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > crawl-backup.db.zst
-              zstd -t -q crawl-backup.db.zst
-              gh release upload "$DATA_TAG" crawl-backup.db.zst --clobber
-              echo "saved $(du -h crawl-backup.db.zst | cut -f1) as crawl-backup.db.zst" ;;
+              ID=$(id_of "$SRC"); [ -n "$ID" ] || { echo "::error::no $SRC to copy"; exit 1; }
+              mkdir -p bk && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > "bk/$BK"
+              check "bk/$BK"
+              gh release upload "$DATA_TAG" "bk/$BK" --clobber
+              echo "saved $(du -h "bk/$BK" | cut -f1) of $SRC as $BK" ;;
             remove)
-              ID=$(id_of crawl-backup.db.zst)
-              if [ -n "$ID" ]; then gh api -X DELETE "repos/$REPO/releases/assets/$ID" && echo "crawl-backup.db.zst removed"
-              else echo "no backup to remove"; fi ;;
+              ID=$(id_of "$BK")
+              if [ -n "$ID" ]; then gh api -X DELETE "repos/$REPO/releases/assets/$ID" && echo "$BK removed"
+              else echo "no $BK to remove"; fi ;;
             restore)
-              ID=$(id_of crawl-backup.db.zst); [ -n "$ID" ] || { echo "::error::no crawl-backup.db.zst"; exit 1; }
-              gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > crawl.db.zst
-              zstd -t -q crawl.db.zst
-              gh release upload "$DATA_TAG" crawl.db.zst --clobber
-              echo "crawl.db.zst restored from the backup" ;;
+              ID=$(id_of "$BK"); [ -n "$ID" ] || { echo "::error::no $BK"; exit 1; }
+              mkdir -p bk && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > "bk/$SRC"
+              check "bk/$SRC"
+              gh release upload "$DATA_TAG" "bk/$SRC" --clobber
+              echo "$SRC restored from $BK" ;;
           esac
