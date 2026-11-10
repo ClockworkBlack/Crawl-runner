@@ -420,3 +420,10 @@ def test_withdraw_sends_nothing_when_disabled(tmp_path):
     FakeSMTP.sent = []
     assert r.withdraw(smtp_factory=FakeSMTP) == {"due": 1, "withdrawn": 0, "closed": 0}
     assert FakeSMTP.sent == [] and r.tracker.data["big"]["status"] == "sent"
+
+
+def test_a_reply_that_says_no_fee_is_not_a_cost():
+    # Nov 10: Flowery Branch's clerk pointed to Municode and wrote "There is no fee for this request"
+    assert orr.mentions_cost("Please use the link below for the online library to Municode. There is no fee for this request.") == []
+    assert orr.mentions_cost("The records are provided free of charge.") == []
+    assert orr.mentions_cost("There is no fee for the first hour; after that the cost is $25.00 per hour.") == ["$25.00"]

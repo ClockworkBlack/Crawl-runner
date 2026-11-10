@@ -814,10 +814,20 @@ _COST_WORDS = re.compile(r"\b(cost|costs|fee|fees|estimate|estimated|charge|char
                          r"per page|prepay|prepayment)\b", re.I)
 
 
+# a reply that says there is nothing to pay ("There is no fee for this request", "free of charge", "no cost to you").
+# Nov 10: Flowery Branch's clerk wrote "There is no fee for this request" and an issue said they mentioned a cost
+NO_COST = re.compile(r"\b(?:there\s+(?:is|will\s+be)\s+no\s+(?:fee|charge|cost)s?|no\s+(?:fee|charge|cost)s?\s+(?:for|to|is|will|associated|required)|"
+                     r"free\s+of\s+charge|at\s+no\s+(?:cost|charge)|without\s+(?:charge|cost|a\s+fee)|no\s+(?:fee|charge|cost)\s*[.!]|"
+                     r"(?:fee|charge|cost)s?\s+(?:has|have|is|are)\s+(?:been\s+)?waived)\b", re.I)
+
+
 def mentions_cost(text: str) -> list[str]:
     """Dollar amounts in a reply that talks about paying ([] = no cost mentioned). A reply that talks about
-    fees or payment with no amount yet still counts: ['amount not stated']."""
+    fees or payment with no amount yet still counts: ['amount not stated']; one that says there is nothing to pay, and
+    names no amount, does not."""
     if not _COST_WORDS.search(text or ""):
+        return []
+    if NO_COST.search(text or "") and not _MONEY.search(text or ""):
         return []
     amounts = list(dict.fromkeys(_MONEY.findall(text)))[:5]
     if amounts:

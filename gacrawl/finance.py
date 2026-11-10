@@ -470,6 +470,14 @@ class Finance:
         if r.status != 200:
             # a refusal is said out loud once a run (it used to read as "nothing found": with no FEC_API_KEY secret
             # the shared DEMO_KEY is refused within a few calls, and no federal money was read at all)
+            if r.status in (400, 404, 422):
+                # the API turned down this one question (a name or a parameter it cannot take); the others go on.
+                # Nov 10: a 422 read "federal money is not read this run" though every other request was answered
+                self.fec_bad = getattr(self, "fec_bad", 0) + 1
+                if self.fec_bad <= 3:
+                    shown = {k: v for k, v in (params or {}).items() if k != "api_key"}
+                    self.log(f"  FEC API: HTTP {r.status} for {path} {shown}; this request is skipped")
+                return None
             self.fec_refused = getattr(self, "fec_refused", 0) + 1
             if self.fec_refused == 1:
                 why = " (no FEC_API_KEY secret: the shared DEMO_KEY allows only a few calls)" if key == "DEMO_KEY" else ""
