@@ -98,13 +98,15 @@ jobs:
           # the sentences and their log: only this job writes them; each try starts from Electo's newest main
           for i in 1 2 3 4 5; do
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD
-            python3 -I tools/ai/profile_write.py --combine "$S"/*/shard.json
+            # the log first: the combine reads it to give a sentence the checker turned down another look under its
+            # current rules (no model needed)
             mkdir -p research/train && touch research/train/profile_write_log.jsonl
             cat "$S"/*/log.jsonl >> research/train/profile_write_log.jsonl 2>/dev/null || true
             python3 -I -c "import sys; p=sys.argv[1]; L=[l for l in open(p, encoding='utf-8') if l.strip()]; seen=set(); out=[]
           for l in L:
               if l not in seen: seen.add(l); out.append(l)
           open(p, 'w', encoding='utf-8').writelines(out[-20000:])" research/train/profile_write_log.jsonl
+            python3 -I tools/ai/profile_write.py --combine "$S"/*/shard.json
             git add ga/crawl/write_ai.json research/train/profile_write_log.jsonl
             if git diff --cached --quiet; then echo "no new sentences"; break; fi
             git commit -qm "Profile topics written by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
