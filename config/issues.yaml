@@ -13,7 +13,7 @@ issues:
   Labor and wages: '\b(minimum wage|living wage|unions?\b|collective bargaining|right[- ]to[- ]work|workers?\b|paid (?:leave|sick)|overtime|wages?\b|jobs?\b|workforce)\b'
   Criminal justice: '\b(criminal justice|police|law enforcement|crime|public safety|bail|sentencing|prison\w*|jail\w*|gangs?\b|fentanyl|death penalty|recidivism|cash bail|back the blue|defund)\b'
   Housing: '\b(housing|affordable housing|rent\b|renters?|evictions?|homeless\w*|zoning|home ?ownership|institutional investors|squatt\w*|short[- ]term rentals?)\b'
-  Environment: '\b(environment\w*|climate|clean (?:water|air|energy)|pollution|okefenokee|coastal|flood\w*|conservation|pfas|ethylene oxide|wetlands?|forever chemicals)\b'
+  Environment: '\b((?<!business )(?<!business-)(?<!work )(?<!learning )(?<!regulatory )(?<!economic )(?<!security )(?<!threat )(?<!political )(?<!media )(?<!school )(?<!home )environment(?!\s+(?:for|where|that|in which))\w*|climate(?! (?:for|of) (?:business|investment|growth|innovation))|clean (?:water|air|energy)|pollution|okefenokee|coastal|flood\w*|conservation|pfas|ethylene oxide|wetlands?|forever chemicals)\b'
   Transportation: '\b(transportation|transit|marta|roads?\b|highways?|traffic|infrastructure|rail\b|airport|ports?\b|ev charging|gas tax)\b'
   Tort reform: '\b(tort reform|lawsuit (?:abuse|reform)|trial lawyers|litigation|damages caps?|insurance (?:costs|rates|reform)|sb ?68|premises liability)\b'
   Trump and national politics: '\b(trump|maga|america first|biden|harris|washington|federal government|congress|d\.c\.|the administration|tariffs?|doge\b|federal (?:cuts|funding|overreach))\b'

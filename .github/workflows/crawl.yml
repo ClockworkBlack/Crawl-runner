@@ -183,13 +183,18 @@ jobs:
             ga/pipeline_archive/aliases.json
             ga/pipeline_archive/splits.json
             ga/pipeline_archive/profiles.json
+            ga/pipeline_archive/names.json
+            ga/pipeline_archive/extra.json
+            ga/pipeline_archive/crawl_elections.json
+            ga/profiles.json
+            ga/profiles_local.json
             ga/councils.json
             ga/localcodes.json
           sparse-checkout-cone-mode: false
       - name: Import Electo
         if: steps.electo.outcome == 'success'
         run: gacrawl electo import --path electo
-      - run: mkdir -p state && touch state/.keep && bash scripts/ci_runner.sh pack state-base state imports/screens data/openrecords data/verified data/rumor_mill
+      - run: mkdir -p state && touch state/.keep && bash scripts/ci_runner.sh pack state-base state imports/screens data/openrecords data/verified data/rumor_mill data/seed_gaps.md
       - uses: actions/upload-artifact@v4
         with: {name: state-base, path: upload/, retention-days: 1, include-hidden-files: true}
 
@@ -287,7 +292,25 @@ jobs:
         timeout-minutes: 15
       - uses: actions/download-artifact@v4
         timeout-minutes: 15
-        with: {name: state-base, path: state}
+        with: {name: state-base, path: base-in}
+      - name: The prepare job's state (Electo's people for research and the export; what the seed found)
+        timeout-minutes: 10
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          # The prepare job imported Electo's people (state/electo_people.json, electo_codes.json: every name on a Georgia
+          # ballot since 2016) and, when it seeded, wrote state/discovered.json and data/seed_gaps.md. Until Nov 9 this
+          # artifact was downloaded into state/ and never unpacked: research and the export saw only the 2,881 people in
+          # config/candidates.yaml of about 7,900 (Brian Kemp's profile went out with no Electo key and never reached
+          # Electo), and every seed's findings were dropped when this job committed its own older copy
+          mkdir -p base
+          (cd base && for f in "$GITHUB_WORKSPACE"/base-in/state-base.*; do bash "$GITHUB_WORKSPACE/scripts/ci_runner.sh" unpack "$f"; done)
+          for f in state/electo_people.json state/electo_codes.json state/discovered.json data/seed_gaps.md; do
+            if [ -s "base/$f" ]; then mkdir -p "$(dirname "$f")"; cp "base/$f" "$f"; echo "from the prepare job: $f"; fi
+          done
+          rm -rf base base-in
+          bash scripts/electo_people.sh      # the prepare job had no Electo copy: read it here
       - uses: actions/download-artifact@v4
         if: needs.crawl.result != 'skipped'
         timeout-minutes: 15

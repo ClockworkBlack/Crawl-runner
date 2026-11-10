@@ -28,6 +28,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .names import name_variants
+from .stances import _d10
 from .registry import jurisdictions as registry_jurisdictions
 from .verified_posts import platform_of
 
@@ -111,6 +112,14 @@ def import_electo(electo: Path, root: Path, log=print) -> dict:
     councils = (_load(electo / "ga" / "councils.json", {}) or {}).get("counties") or {}
     profiles = (_load(arc / "profiles.json", {}) or {}).get("profiles") or {}
     names = _load(arc / "names.json", {}) or {}
+    # this year's researched profiles (ga/profiles.json: statewide, federal and legislative candidates; ga/profiles_local.json:
+    # local candidates, keyed loc-<county>-<contest>-<name>) carry campaign sites and sources too; until Nov 9 only the
+    # archive's were read, so 382 of 441 2026 candidates' sites (Jon Ossoff's among them) never reached the crawler
+    now26: dict[str, dict] = {}
+    for q in (_load(electo / "ga" / "profiles.json", {}) or {}).get("people") or []:
+        if q.get("name"):
+            now26.setdefault(pkey(q["name"]), q)
+    local26 = (_load(electo / "ga" / "profiles_local.json", {}) or {}).get("people") or {}
     key_of: dict[str, str] = {}
     if names.get("people"):
         # Electo's name registry: every person once, as its page shows them. City races reported by news sources
@@ -152,6 +161,28 @@ def import_electo(electo: Path, root: Path, log=print) -> dict:
         if a in people:
             extra_names[c].append(people[a].get("n") or a)
 
+    # a local profile's id ends with the person's name: the only person of that name in that county gets its links
+    by_tail: dict[str, list] = defaultdict(list)
+    for lid, q in local26.items():
+        m = re.match(r"loc-([a-z0-9]+)-", lid)
+        if m and (q.get("links") or q.get("sources")):
+            by_tail[lid].append((m.group(1), q))
+    tails = defaultdict(list)
+    for key, p in people.items():
+        tails[slug(key)].append(key)
+
+    def local_profile(key: str, counties: list) -> dict:
+        sk, cs = slug(key), {_alnum(c) for c in counties}
+        if len(tails.get(sk, [])) != 1:
+            return {}
+        for lid, hits in by_tail.items():
+            if lid.endswith("-" + sk):
+                for county, q in hits:
+                    if county in cs:
+                        return q
+        return {}
+
+    RANK = {"full": 4, "partial": 3, "thin": 2, "basic": 1, "none": 1}
     out = {}
     for key, p in people.items():
         if key in canon:  # an alternate ballot name; its races live under the canonical key too
@@ -173,8 +204,10 @@ def import_electo(electo: Path, root: Path, log=print) -> dict:
         last = max(races, key=lambda r: r[2]) if races else None
         parties = [r[5] for r in sorted(races, key=lambda r: r[2]) if len(r) > 5 and r[5]]
         prof = profiles.get(key) or {}
-        links = [l.get("u") for l in prof.get("links") or [] if l.get("u")]
-        prof_urls = sorted({norm_url(s.get("u")) for s in prof.get("sources") or [] if s.get("u")} | {norm_url(u) for u in links})
+        more = [q for q in (now26.get(key) or {}, local_profile(key, counties)) if q]
+        links = list(dict.fromkeys(l.get("u") for q in [prof] + more for l in q.get("links") or [] if l.get("u")))
+        prof_urls = sorted({norm_url(s.get("u")) for q in [prof] + more for s in q.get("sources") or [] if s.get("u")} | {norm_url(u) for u in links})
+        depth = max([prof.get("depth") or ("none" if not prof else "")] + [q.get("depth") or "" for q in more], key=lambda d: RANK.get(d, 0))
         city_ids = sorted(j for j in jids if not j.startswith("co-"))
         out[key] = {
             "key": key, "id": slug(key), "name": p.get("n") or key.title(),
@@ -191,7 +224,7 @@ def import_electo(electo: Path, root: Path, log=print) -> dict:
                       for r in sorted(races, key=lambda r: r[2])],
             "websites": [u for u in links if not platform_of(u)],
             "social": [u for u in links if platform_of(u)],
-            "profile_depth": prof.get("depth") or ("none" if not prof else ""),
+            "profile_depth": depth,
             "profile_urls": prof_urls,
             "split": key in splits,
             **({"same_name": p["same_name"]} if p.get("same_name") else {}),
@@ -232,8 +265,20 @@ def import_electo(electo: Path, root: Path, log=print) -> dict:
     return meta
 
 
+_WARNED: set[str] = set()
+
+
 def electo_people(root: Path) -> dict:
-    return (_load(root / "state" / "electo_people.json", {}) or {}).get("people") or {}
+    p = root / "state" / "electo_people.json"
+    people = (_load(p, {}) or {}).get("people") or {}
+    if not people and str(p) not in _WARNED:
+        # Nov 9: a job without this file researched and exported only config/candidates.yaml's people (2,881 of ~7,900;
+        # the governor among those left without Electo's key). Say so where the log is read.
+        import sys
+        _WARNED.add(str(p))
+        print(f"::warning::no Electo people in {p} (run `gacrawl electo import` or scripts/electo_people.sh first): "
+              "only config/candidates.yaml's candidates are researched and exported", file=sys.stderr, flush=True)
+    return people
 
 
 # --------------------------------------------------------------------------- packets
@@ -250,14 +295,13 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
                 sources[i]["excerpt"] = excerpt
             return i
         index[k] = len(sources)
-        sources.append({"t": (r.get("title") or "").strip()[:200] or u, "u": u, "d": (r.get("published") or "")[:10],
+        sources.append({"t": (r.get("title") or "").strip()[:200] or u, "u": u, "d": _d10({"published": r.get("published") or ""}),
                         "kind": r["kind"], "evidence": r.get("evidence") or "primary",
                         "opened_at": (r.get("fetched_at") or "")[:10], "excerpt": excerpt[:600],
                         "in_profile": k in profile_urls})
         return index[k]
 
-    def d10(r):
-        return (r.get("published") or r.get("fetched_at") or "")[:10]
+    d10 = _d10        # ISO dates, also for a feed's "Wed, 21 Oct 2026 …"
 
     votes, topics = [], defaultdict(lambda: {"yes": 0, "no": 0, "other": 0, "examples": []})
     for r in sorted(records.get("vote", []), key=d10, reverse=True)[:300]:

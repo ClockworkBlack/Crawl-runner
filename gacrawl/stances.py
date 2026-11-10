@@ -126,6 +126,18 @@ RATING2 = re.compile(r"(?P<org>(?:The\s+)?[A-Z][\w&'’.\- ]{2,70}?)\s+(?:gave|g
                      r"[A-Z][\w'’.\- ]{3,40}?)\s+(?:an?\s+)?[\"“]?(?P<rating>[A-F][+\-]?|\d{1,3}\s?%|\d{1,3}\s+percent)[\"”]?")
 YEAR = re.compile(r"\b(20\d\d|19\d\d)\b")
 SPEAKER = re.compile(r"^\s*(?:\[[0-9:]+\]\s*)?(?:<v\s+)?(?P<name>[A-Z][A-Za-z.'’\-]+(?:\s+[A-Z][A-Za-z.'’\-]+){0,3})\s*[:>]\s*(?P<said>.+)$")
+# words a record puts in someone's mouth: a quotation (curly or straight quotes) and who said it
+QUOTE_SPAN = re.compile(r"“([^“”]{30,700})”|\"([^\"“”]{30,700})\"")
+QUOTE_KINDS = {"press_release", "page", "document", "feed_item", "article", "news_item", "statement", "official"}
+TITLE_WORDS = (r"(?:Rep\.?|Representative|Sen\.?|Senator|Gov\.?|Governor|Lt\.?\s+Gov\.?|Lieutenant\s+Governor|Mayor|Commissioner|"
+               r"Council\s?(?:wo)?man|Council\s?[Mm]ember|Chairman|Chairwoman|Chair|Judge|Justice|Sheriff|Chief|Attorney\s+General|"
+               r"Superintendent|Solicitor(?:\s+General)?|District\s+Attorney|Clerk|Treasurer|Secretary(?:\s+of\s+State)?|"
+               r"Congressman|Congresswoman|President|Speaker|Leader|Dr\.?|Mr\.?|Mrs\.?|Ms\.?)")
+SAY = (r"(?:said|says|added|stated|noted|explained|remarked|continued|declared|emphasized|stressed|wrote|"
+       r"told\s+[^,.;:“”\"]{2,40}?)")
+CEREMONY = re.compile(r"(?:congratulations|thank you|thanks to|we thank|happy\b|welcome\b|we (?:mourn|grieve)|our (?:thoughts|prayers|hearts)|"
+                      r"(?:marty|i) (?:and i )?(?:are|am) (?:saddened|heartbroken|deeply)|rest in peace)", re.I)
+SOMEONE_SAID = re.compile(r"^\s*,?\s*(?:" + SAY + r")\s+(?:the\s+)?[A-Z]|^\s*,?\s*(?:[A-Z][\w.'’-]+\s+){1,4}" + SAY + r"\b")
 
 
 @lru_cache(maxsize=2)
@@ -259,7 +271,14 @@ def _split_names(tail: str) -> list[str]:
 
 
 def _d10(r: dict) -> str:
-    return (r.get("published") or r.get("fetched_at") or "")[:10]
+    d = r.get("published") or r.get("fetched_at") or ""
+    if d and not d[:1].isdigit():          # a feed's date as written ("Wed, 21 Oct 2026 14:00:00 -0400")
+        try:
+            from email.utils import parsedate_to_datetime
+            d = parsedate_to_datetime(d).date().isoformat()
+        except (TypeError, ValueError, IndexError):
+            d = r.get("fetched_at") or ""
+    return d[:10]
 
 
 ORD_VOTE = re.compile(r"\b(ordinance|resolution)\b", re.I)
@@ -405,6 +424,68 @@ class Extractor:
             attributed = bool(ATTRIB.search(s)) or bool(re.search(r"[\"“][^\"”]{12,}[\"”]", s))
             out.append((s, attributed))
         return out
+
+    def attributed_quotes(self, text: str) -> list[str]:
+        """Quotations a record attributes to the candidate: "…," said Governor Brian Kemp. / Kemp said, "…" / the
+        quotation that goes straight on after one of theirs ("…," said Kemp. "We are proud …"). Never the surname after
+        someone else's first name (First Lady Marty Kemp), and a bare surname only when the record also names the
+        candidate in full and no one else of that surname."""
+        if len(self.last) < 3:
+            return []
+        if not hasattr(self, "_q"):
+            firsts = sorted({v.split()[0] for v in self.variants if len(v.split()) > 1} | {self.first.title()}, key=len, reverse=True)
+            F, L = "|".join(re.escape(f) for f in firsts), re.escape(self.last)
+            spk = (r"(?:(?P<t>" + TITLE_WORDS + r")\s+)?(?:(?P<f>(?i:" + F + r"))\.?\s+(?:[A-Z]\.\s+|[A-Z][a-z]+\s+)?)?(?i:" + L + r")\b(?!['’]s)")
+            self._q = (re.compile(r"^\s*,?\s*(?:" + SAY + r")\s+" + spk),
+                       re.compile(r"^\s*,?\s*" + spk + r"(?:,\s[^,“”\"]{2,80},)?\s+" + SAY + r"\b"),
+                       re.compile(spk + r"(?:,\s[^,“”\"]{2,80},)?\s+" + SAY + r"(?:\s+[a-z][\w-]*){0,4}?\s*[,:]?\s*$"),
+                       re.compile(r"\b([A-Z][a-z]+)\s+(?:[A-Z]\.\s+)?(?i:" + L + r")\b"),
+                       {f.lower() for f in firsts})
+        after_say, after_name, before, others, firsts = self._q
+        t = re.sub(r"\*\*|__", "", text or "")              # bold in excerpts (**said Governor Brian Kemp**)
+        t = re.sub(r"[ \t]+", " ", t)
+
+        def ok_speaker(m: re.Match, at: int) -> bool:
+            if not m:
+                return False
+            start = at + m.start("t") if m.group("t") else at + m.start("f") if m.group("f") else None
+            if start is None:                                # the surname alone
+                pos = at + m.start()
+                around = t[max(0, pos - 3000):pos + 400]
+                if not self.rx.search(t[max(0, pos - 3000):pos]):
+                    return False                             # not named in full before
+                if any(w.lower() not in firsts and not re.fullmatch(TITLE_WORDS, w) for w in others.findall(around)):
+                    return False                             # someone else of that surname is in the record
+                start = pos
+            prev = re.findall(r"([A-Za-z][\w.'’-]*)\s*$", t[max(0, start - 30):start])
+            return not (prev and re.fullmatch(r"[A-Z][a-z]+", prev[0]) and prev[0].lower() not in firsts
+                        and not re.fullmatch(TITLE_WORDS, prev[0]))
+
+        out, chain_end, chained = [], -100, 0
+        for m in QUOTE_SPAN.finditer(t):
+            q = (m.group(1) or m.group(2) or "").strip()
+            tail = t[m.end():m.end() + 140]
+            mine = False
+            a = after_say.match(tail) or after_name.match(tail)
+            if a and ok_speaker(a, m.end()):
+                mine, chained, chain_end = True, 0, m.end() + a.end()
+            elif not SOMEONE_SAID.match(tail):
+                b = before.search(t[max(0, m.start() - 160):m.start()])
+                if b and ok_speaker(b, max(0, m.start() - 160)):
+                    mine, chained, chain_end = True, 0, m.end()
+                elif chained < 2 and 0 <= m.start() - chain_end <= 6 and re.fullmatch(r"[\s.,;:]*", t[chain_end:m.start()]):
+                    mine, chained, chain_end = True, chained + 1, m.end()     # the quotation goes straight on
+            if not mine:
+                continue
+            q = re.sub(r"\s+", " ", q).strip(" ,")
+            if len(q) < 40 or "http" in q or NOISE_SENT.search(q) or sum(ch.isalpha() for ch in q) < 0.6 * len(q):
+                continue
+            if CEREMONY.match(q):
+                continue                                     # congratulations, thanks, condolences: no stance in them
+            if q[-1] not in ".!?":
+                q += "."
+            out.append("“" + q + "”")
+        return list(dict.fromkeys(out))
 
     def transcript_utterances(self, text: str) -> list[str]:
         """Lines a transcript attributes to the candidate (speaker labels)."""
@@ -649,6 +730,34 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
             title = ""        # a scanned page's OCR title: name the record by its address instead
         for c in ex.controversies(r.get("text") or "")[:3]:
             add_controversy(c, r, "official record: " + (title or r["url"])[:80], "primary")
+    # their own words in the records that name them: a quotation a government press release, page or document (or a
+    # listed outlet's story) attributes to them. Until Nov 9 those records gave only controversies, so an officeholder
+    # whose words live in releases (a governor, a mayor) had no stances at all. The record the mention came from is read
+    # whole (the mention keeps two excerpts, which cut quotations short), by its address.
+    quoted = 0
+    for r in by_kind("mention"):
+        m = r.get("meta") or {}
+        txt = r.get("text") or ""
+        if quoted >= 30 or m.get("record_kind") not in QUOTE_KINDS or not re.search(r"[“\"]", txt) or not ATTRIB.search(txt):
+            continue
+        try:
+            rows = store.query("url=? AND kind=?", (r["url"], m.get("record_kind")), limit=4)
+        except Exception:  # noqa: BLE001
+            rows = []
+        full = next((x for x in rows if x.get("id") == m.get("record_id")), rows[0] if rows else None) or r
+        ev = "reported" if full.get("evidence") == "reported" else "primary"
+        title = re.sub(r"\s+", " ", (full.get("title") or r.get("title") or "")).strip()
+        if not title or sum(ch.isalpha() or ch == " " for ch in title) < 0.8 * len(title):
+            title = re.sub(r"^https?://(www\.)?", "", r["url"]).split("/")[0]
+        body = full.get("text") or txt
+        if len(body) > 60000:          # a long document: the stretches around their name
+            spans = [(max(0, x.start() - 2500), x.end() + 2500) for x in re.finditer(r"\b" + re.escape(ex.last) + r"\b", body, re.I)][:40]
+            body = "\n".join(body[a:b] for a, b in spans)
+        src = {**r, "url": full.get("url") or r["url"], "title": title, "published": full.get("published") or r.get("published")}
+        for q in ex.attributed_quotes(body)[:6]:
+            before_n = len(positions) + len(statements)
+            add_position(q, src, ("quoted by " if ev == "reported" else "quoted in ") + title[:100], ev)
+            quoted += (len(positions) + len(statements)) > before_n
     # questionnaires and guides (kind guide_answer, from gacrawl.guides) and endorsement records
     for r in by_kind("guide_answer"):
         m = r.get("meta", {})

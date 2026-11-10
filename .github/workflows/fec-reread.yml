@@ -57,6 +57,11 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
+      - name: Electo's people (everyone on a Georgia ballot since 2016, not only config/candidates.yaml)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: bash scripts/electo_people.sh
       - name: A copy of the crawl database (and a re-read hand-off still waiting for the crawl, carried)
         run: |
           bash scripts/ci_db.sh pull
