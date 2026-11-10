@@ -232,7 +232,7 @@ jobs:
           jobs = {"news": ("news.yml", 8), "publish-site": ("publish-site.yml", 2), "results": ("results.yml", 2),
                   "sync-code": ("sync-code.yml", 2), "fec-reread": ("fec-reread.yml", 20), "ga-money": ("ga-money.yml", 20),
                   "model-work": ("model-work.yml", 20), "candidate-news": ("candidate-news.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
-                  "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40),
+                  "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40), "ai-predict": ("ai-predict.yml", 52),
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)

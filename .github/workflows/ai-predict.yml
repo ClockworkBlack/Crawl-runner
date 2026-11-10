@@ -1,0 +1,126 @@
+name: ai-predict
+# How good the open models' predictions are, measured against what happened, and the results fed back to them
+# (Electo tools/predict/):
+#   bench    hidden votes: a legislator's later landmark vote is predicted from their earlier record, by each open model,
+#            with and without the facts counted for it (party-line record, closest earlier votes, who carries the bill),
+#            and scored against the vote cast, next to plain rules on the same questions (research/predict/vote_bench.json)
+#   check    predictions made earlier are checked against what the person later did or said (votes, signatures,
+#            statements the crawl brought), and predictions made as of an earlier date are checked against the years
+#            since, by the open model as judge (tools/predict/ledger.py); right and wrong ones go into the ledger
+#   combine  the ledger, the track record the page shows, the notes the inference job reads back (how often each kind of
+#            inference held, examples that did and did not), and fine-tuning examples (research/train/predict/)
+# Runs daily; the bench only when asked for or when its results are missing for a model.
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      bench:
+        description: "run the hidden-vote test (questions per model and variant; 0 = skip)"
+        default: "0"
+      minutes:
+        description: "minutes of model time per runner"
+        default: "240"
+
+permissions:
+  contents: read
+  actions: write        # remove this run's attachments at the end
+
+concurrency:
+  group: ai-predict-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  bench:
+    if: github.event.repository.private == false && inputs.bench != '' && inputs.bench != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [phi4, qwen3]
+        facts: ["facts", "nofacts"]
+    env:
+      ELECTO_LLM_REPO: ${{ matrix.model == 'phi4' && 'microsoft/phi-4-gguf' || 'Qwen/Qwen3-8B-GGUF' }}
+      ELECTO_LLM_QUANT: ${{ matrix.model == 'phi4' && 'Q4_K_S' || 'Q4_K_M' }}
+      ELECTO_LLM_NAME: ${{ matrix.model == 'phi4' && 'Phi-4' || 'Qwen3-8B' }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the roll calls and the test)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/predict/ /ga/pipeline_archive/legis.json /ga/pipeline_civics/acts.json /ga/pipeline_civics/legislature.json
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
+      - name: The open model (kept between runs when the cache has room)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ matrix.model == 'phi4' && 'hf-phi4-q4ks-v1' || 'hf-qwen3-8b-q4km-v1' }}
+      - name: llama.cpp (CPU build)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Predict the hidden votes
+        run: |
+          M="${{ inputs.minutes || '240' }}"; N="${{ inputs.bench || '120' }}"
+          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/vote_bench.py --n "$N" --minutes "$M" \
+            ${{ matrix.facts == 'nofacts' && '--no-facts' || '' }} --out ../run.json || echo "stopped"
+          [ -f ../run.json ] || echo '{"rows":[]}' > ../run.json
+          cp research/train/vote_bench_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: predict-bench-${{ matrix.model }}-${{ matrix.facts }}
+          path: |
+            run.json
+            log.jsonl
+          retention-days: 2
+
+  combine:
+    needs: [bench]
+    if: always() && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "predict-*", path: parts}
+        continue-on-error: true
+      - name: Combine into Electo and refresh the public site
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          set -e
+          S="$PWD/parts"; mkdir -p "$S"
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
+          cd /tmp/electo-ai
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD
+            [ -f tools/predict/combine.sh ] && bash tools/predict/combine.sh "$S" || { ls "$S"/predict-bench-*/run.json >/dev/null 2>&1 && python3 -I tools/predict/vote_bench.py --combine "$S"/predict-bench-*/run.json; }
+            git add -A research/predict research/train/predict ga/crawl/predict.json ga/pipeline_civics/bill_odds.json 2>/dev/null || true
+            if git diff --cached --quiet; then echo "nothing new"; break; fi
+            git commit -qm "Predictions checked against what happened: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push -q origin HEAD:main && break
+            [ "$i" -lt 5 ] || { echo "::error::the prediction results could not be pushed to Electo"; exit 1; }
+            sleep $((i * 10))
+          done
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+      - name: Remove this run's attachments
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done
