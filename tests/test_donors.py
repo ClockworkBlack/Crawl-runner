@@ -128,6 +128,8 @@ def test_cycles_links_own_money_and_held_federal_lines(tmp_path):
         ("Jackson for Governor, Inc.", "Candidate Committee", "Jackson, Marsha", 6_600, "2026-03-01", {}),
         ("Jackson for Governor, Inc.", "Candidate Committee", "Smith, Pat", 1_000, "2026-07-30", {}),
         ("WBJ Leadership Committee, Inc.", "Leadership Committee", "Big Co LLC", 250_000, "2025-08-01", {"donor_is_org": True}),
+        ("WBJ Leadership Committee, Inc", "Leadership Committee", "Other Co LLC", 50_000, "2026-01-05",
+         {"donor_is_org": True, "recipient_entity": "second-filer-record"}),
         ("Friends of Ann Able", "Candidate Committee", "Doe, Jane", 500, "2022-05-01", {}),
         ("Friends of Ann Able", "Candidate Committee", "Doe, Jane", 300, "2025-12-31", {}),
         ("Some Other PAC", "Political Action Committee", "Roe, Rick", 100, "2026-01-01", {}),
@@ -157,14 +159,15 @@ def test_cycles_links_own_money_and_held_federal_lines(tmp_path):
     # Burt Jones's leadership committee: its own row, under him (not his campaign's money)
     W = R["WBJ Leadership Committee, Inc."]
     assert W["pac_of"] == "burt-jones" and W["pac_of_name"] == "Burt Jones" and W["pac_of_party"] == "R" and W["level"] == "committee"
-    assert W["cy"]["2026"]["raised"] == 250_000          # August 2025 is in the 2026 cycle
+    assert W["cy"]["2026"]["raised"] == 300_000          # August 2025 is in the 2026 cycle; both filer records, one row
+    assert sum(1 for r in d["recipients"] if r["name"].startswith("WBJ")) == 1
     # "Friends of Ann Able": matched to her again at export (a full name inside the committee's), split by cycle
     A = R["Ann Able"]
     assert A["raised"] == 800 and set(A["cy"]) == {"2022", "2026"} and A["cy"]["2022"]["raised"] == 500
     assert A["held"] == 1 and d["skipped"]["fec_lines_awaiting_reread"] == 1
     assert "Some Other PAC" in R and not R["Some Other PAC"].get("pac_of") and not R["Some Other PAC"]["cid"]
     gift = next(g for g in d["gifts"] if g["name"] == "Doe, Jane")
-    assert gift["cy"] == {"2022": 500, "2026": 300} and gift["total"] == 800
+    assert gift["cy"] == {"2022": [500, 1], "2026": [300, 1]} and gift["total"] == 800
     assert d["cycles"] == ["2022", "2026"]
     # the rules on their own
     assert cycle_of("2025-01-01") == "2026" and cycle_of("2026-11-30") == "2026" and cycle_of("") == ""

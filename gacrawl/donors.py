@@ -231,7 +231,10 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         if not cid:
             c, lead = linked(m)
             cid = c["id"] if c else None
-        key = f"cand:{cid}" if c else "ent:" + str(m.get("recipient_entity") or _norm(m.get("recipient") or ""))
+        # a linked leadership committee is one recipient however many filer records the state keeps for it (Georgians First
+        # files under two); anything else by its entity, as before
+        key = (f"cand:{cid}" if c else f"lead:{lead['person']}:{_norm(m.get('recipient') or '')}" if lead
+               else "ent:" + str(m.get("recipient_entity") or _norm(m.get("recipient") or "")))
         R = recips.get(key)
         if not R:
             if m.get("leadership_pac_of"):
@@ -356,9 +359,10 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                             "fs": m.get("filing_source") or "", "u": r["url"], "review": bool(m.get("needs_review"))}
         G["total"] += amt
         G["n"] += 1
-        if cy:
-            gc = G.setdefault("cy", {})
-            gc[cy] = gc.get(cy, 0.0) + amt
+        if cy:      # [total, gifts] in each election cycle
+            gc = G.setdefault("cy", {}).setdefault(cy, [0.0, 0])
+            gc[0] += amt
+            gc[1] += 1
         if d:
             G["first"] = min(G["first"] or d, d)
             G["last"] = max(G["last"], d)
@@ -425,7 +429,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     for g in gift_list:
         g["total"] = round(g["total"], 2)
         if g.get("cy"):
-            g["cy"] = {k: round(v, 2) for k, v in sorted(g["cy"].items())}
+            g["cy"] = {k: [round(v[0], 2), v[1]] for k, v in sorted(g["cy"].items())}
     spend_list = capped(spend.values(), SPEND_CAP, cand_r)
     for s in spend_list:
         s["total"] = round(s["total"], 2)

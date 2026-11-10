@@ -85,7 +85,9 @@ FIRST_PERSON = re.compile(r"\b(i|i['’]m|i['’]ve|i['’]ll|my|we|we['’]re|w
 ATTRIB = re.compile(r"\b(said|says|told|wrote|posted|argued|added|called|explained|noted|stated|announced|vowed|pledged|"
                     r"promised|insisted|contended|maintained|responded|tweeted|declared|according to)\b", re.I)
 NOISE_SENT = re.compile(r"\b(cookie|privacy policy|all rights reserved|click here|subscribe|newsletter|sign up|donate now|"
-                        r"paid for by|menu|skip to|read more|share this|javascript|©|copyright)\b", re.I)
+                        r"paid for by|menu|skip to|read more|share this|javascript|©|copyright|donate (?:here|today)|"
+                        r"yard signs?|contact (?:us|details)|powered by|see all members|welcome to our group|my voter page|"
+                        r"add to cart|us dollars|not available, please contact|log ?in to|create a poll|email\s+protected|media inquiries|check your voter registration|register to vote here)\b", re.I)
 SELF_DESC = re.compile(
     r"\b(?:as\s+)?(?:a|an)\s+(?P<label>(?:(?:lifelong|proud|common[- ]sense|constitutional|fiscal|pragmatic|independent[- ]minded|"
     r"pro-?(?:life|choice|business|labor|growth|police|gun))\s+)?(?:conservative|progressive|moderate|liberal|libertarian|"
@@ -147,9 +149,57 @@ SENT_SPLIT = re.compile(r"(?<=[.!?])(?<![A-Z]\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bMs\
                         r"(?<!\bRep\.)(?<!\bNo\.)(?<!\bSt\.)(?<!\bJr\.)(?<!\bSr\.)(?<!\bvs\.)(?<!\bU\.S\.)\s+(?=[A-Z\"“(])")
 
 
+MD_LINK = re.compile(r"!?\[\[?([^\[\]]*)\]?\]\([^)]*\)")      # [text](url), and [[email protected]](url) as some hosts write addresses
+BULLET = re.compile(r"^(?:[-*+•]|\d{1,2}[.)])\s+")
+
+
+def not_prose(line: str) -> bool:
+    """A table row, a rule or lone mark, or a line that is nothing but links (a menu, a button, a footnote)."""
+    t = line.strip()
+    return (not t or t.startswith("|") or not re.search(r"[A-Za-z]", t)
+            or bool(MD_LINK.search(t)) and len(re.sub(r"[^A-Za-z]", "", MD_LINK.sub("", t))) < 12)
+
+
+def plain(line: str) -> str:
+    """A line without its Markdown marks: a link is its words, emphasis marks go."""
+    t = MD_LINK.sub(r"\1", line)
+    return re.sub(r"\*{2,}|__|`|/\$|(?<![\w*])[*_](?=\S)|(?<=\S)[*_](?![\w*])", "", t).strip()
+
+
+def prose_blocks(text: str) -> list[str]:
+    """A page's paragraphs as plain prose, one string each. The crawler keeps pages as Markdown: headings, menus of
+    links, table rows and rules are not prose and are left out (headlines() reads the headings), each list item is a
+    block of its own, and link and emphasis marks are removed. Sentences are then cut inside one block only: read as
+    one run of text, a page gave "sentences" like "...what matters most to families. #### Smart Growth ####
+    Efficient, Transparent Government" and "- [HOME](...) - [ABOUT](...) # Where X Stands" (Nov 9: three in ten of the
+    positions collected from campaign sites carried such page furniture)."""
+    out: list[str] = []
+    for para in re.split(r"\n[ \t]*\n", text or ""):
+        cur: list[str] = []
+        for ln in para.splitlines():
+            t = ln.strip()
+            if t.startswith("#") or not_prose(t):
+                continue                                  # a heading, a table row, a rule, a menu or a button
+            item = BULLET.match(t)
+            t = plain(BULLET.sub("", t))
+            if not t:
+                continue
+            if item and cur:                              # a list item starts a block of its own
+                out.append(" ".join(cur))
+                cur = []
+            cur.append(t)
+            if item:
+                out.append(" ".join(cur))
+                cur = []
+        if cur:
+            out.append(" ".join(cur))
+    return out
+
+
 def split_sentences(text: str) -> list[str]:
-    """Sentences, without breaking after initials ("Brian P. Kemp") or common abbreviations."""
-    return [p.strip() for p in SENT_SPLIT.split(re.sub(r"\s+", " ", text or "")) if p.strip()]
+    """Sentences, without breaking after initials ("Brian P. Kemp") or common abbreviations, and never running from
+    one paragraph, heading or list item into the next (prose_blocks)."""
+    return [p.strip() for b in prose_blocks(text) for p in SENT_SPLIT.split(re.sub(r"\s+", " ", b)) if p.strip()]
 
 
 @lru_cache(maxsize=1024)
@@ -289,7 +339,9 @@ class Extractor:
         page's headings and bullets are the candidate's own statement of priorities)."""
         out = []
         for raw in re.split(r"\n+", text or ""):
-            line = re.sub(r"^[#>*\-\d.\s]+", "", raw).strip()
+            if not_prose(raw):
+                continue                                  # a table row, a menu entry, a footnote link
+            line = plain(re.sub(r"^[#>*\-\d.\s]+", "", raw))
             if not (24 <= len(line) <= 420) or NOISE_SENT.search(line) or ENDORSED_BY.search(line):
                 continue
             if not issues_of(line, self.root):
@@ -494,6 +546,9 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
         txt = r.get("text") or ""
         if r["kind"] == "statement":
             host = re.sub(r"^https?://(www\.)?", "", r["url"]).split("/")[0].lower()
+            if re.search(r"(?:^|\.)(?:wikipedia|wikimedia|wikidata|ballotpedia)\.org$", host):
+                site["not_theirs"] = site.get("not_theirs", 0) + 1     # an encyclopedia's page about them is not their own channel
+                continue
             # a page that neither names them nor sits on a domain with their name is not their site (an expired
             # domain bought by someone else, a parked page): read nothing from it
             words = re.findall(r"[a-z]+", txt.lower())
