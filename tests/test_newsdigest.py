@@ -49,3 +49,64 @@ def test_surname_is_not_a_town_and_lifestyle_is_out():
     assert not nd.keep("My Five: Tucker Mayor's favorite local restaurants", "")
     assert not nd.keep("Still focused on D.C. projects, Trump signs order preserving Oval Office", "The county said.")
     assert nd.keep("Election Season and Business Confidence: Reading the Room in Cobb County", "The commission met.")
+
+
+def test_federal_level():
+    """The federal government's news is its own level; Georgia's rules are unchanged, and crime, sports and other
+    states' news belong to neither."""
+    assert nd.level_of("Senate passes bill to end government shutdown", "The Senate voted 60-40 Monday.") == "federal"
+    assert nd.level_of("Supreme Court to hear Texas redistricting case", "") == "federal"
+    assert nd.level_of("Stephen Miller replaces chief of staff after GOP midterm losses", "The White House said Friday.") == "federal"
+    assert nd.level_of("Ossoff, Warnock push bill for rural hospitals in Georgia", "A bill in Congress.") == "ga"
+    assert nd.level_of("Atlanta City Council approves budget", "") == "ga"
+    for t in ("Man arrested by FBI in Macon bank robbery", "California governor signs housing law", "Falcons beat Saints in overtime",
+              "Texas' School Voucher Program Could Be Extinct, Says Democratic Lawmaker"):
+        assert nd.level_of(t, "") is None, t
+    assert nd.fed_tags_of("Senate passes bill to end government shutdown", "") == ["congress", "budget"]
+
+
+def test_export_keeps_levels_apart(tmp_path):
+    import datetime as dt
+    from gacrawl.store import Record
+
+    s = Store(tmp_path / "t.db")
+    d = dt.date.today().isoformat()
+    for i, (t, m) in enumerate([("Council passes ordinance", {}), ("Senate confirms judge after Trump nomination", {"level": "federal"}),
+                                ("Ossoff bill in Congress would fund Georgia hospitals", {}),
+                                ("Budget talks continue", {"level": "federal"})]):      # a federal section's story without a federal word: dropped
+        s.add(Record(nd.SOURCE, "news_item", f"https://ex.com/{i}", title=t, text="x.", published=d, meta={"outlet_name": "Ex", **m}))
+    s.flush()
+    out = tmp_path / "news.json"
+    c = nd.export_news(s, out)
+    by = {x["t"]: x for x in json.loads(out.read_text())["items"]}
+    assert c["items"] == 3 and c["federal"] == 1
+    assert by["Senate confirms judge after Trump nomination"]["lv"] == "federal" and "courts" not in by["Council passes ordinance"]["tags"]
+    assert by["Ossoff bill in Congress would fund Georgia hospitals"].get("fed") == 1 and "lv" not in by["Ossoff bill in Congress would fund Georgia hospitals"]
+    assert "lv" not in by["Council passes ordinance"] and "fed" not in by["Council passes ordinance"]
+
+
+def test_federal_feeds_keep_only_federal_stories(tmp_path):
+    """A federal section's feed (the one its page links to, the politics feed when there are several): federal stories
+    are kept as federal, the rest dropped, and nothing from it becomes a Georgia story."""
+    class R:
+        def __init__(self, body, ct="text/html", url=""):
+            self.status, self.content, self.text, self.content_type, self.url = 200, body.encode(), body, ct, url
+    page = ('<html><head><link rel="alternate" type="application/rss+xml" href="https://fed.example/rss/main/">'
+            '<link rel="alternate" type="application/rss+xml" href="https://fed.example/rss/politics/"></head></html>')
+    today = __import__("email.utils").utils.format_datetime(__import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+    feed = ('<rss version="2.0"><channel>' + "".join(f"<item><title>{t}</title><link>https://fed.example/{i}</link><description>{x}</description><pubDate>{today}</pubDate></item>"
+            for i, (t, x) in enumerate([("House passes spending bill, sending it to Trump", "The House voted Tuesday."),
+                                        ("Atlanta City Council approves budget", "The council voted."),
+                                        ("A recipe for fall", "Soup.")])) + "</channel></rss>")
+    class F:
+        got = []
+        def get(self, url, **k):
+            F.got.append(url)
+            return R(page, url=url) if url.endswith("/politics/") and "rss" not in url else R(feed, "application/rss+xml", url)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "outlets.yaml").write_text("outlets: []\nfederal_pages:\n  fed.example: https://fed.example/politics/\n")
+    s = Store(tmp_path / "t.db")
+    st = nd.Digest(F(), s, tmp_path, tmp_path, log=lambda *a: None).run()
+    assert "https://fed.example/rss/politics/" in F.got and "https://fed.example/rss/main/" not in F.got
+    rows = list(s.iter_query("kind='news_item'"))
+    assert st["federal"] == 1 and len(rows) == 1 and rows[0]["title"].startswith("House passes spending bill")

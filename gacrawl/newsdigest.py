@@ -10,6 +10,13 @@ Kept: stories about Georgia government and politics (the legislature, the Govern
 city councils, county commissions, school boards, courts, budgets and taxes, policing). Each becomes a `news_item`
 record (source news:digest): title, outlet, date, the outlet's own excerpt (at most two sentences), topic tags.
 
+Federal news (Nov 10, 2026): a story about the federal government (Congress, the President and the White House,
+federal agencies, the federal courts) that the Georgia rules above leave out is kept as level "federal", from the same
+outlets (their national and wire stories were read and dropped before) and from the federal sections and outlets in
+config/outlets.yaml (federal_pages, federal_outlets: the feed each page itself links to). A Georgia story that is also
+about the federal government (a bill by one of Georgia's senators) stays a Georgia story and is marked fed. The page's
+News tab shows the two levels under a Georgia / Federal toggle.
+
 Export: dist/electo/news.json in the page's format ({updated, window, items: [{t, u, s, d, sum, tags, also}]}), the
 newest NEWS_KEEP stories; Electo's import merges it with any hand-written digest.
 """
@@ -27,7 +34,8 @@ from .store import Record
 
 SOURCE = "news:digest"
 NEWS_DAYS = 10          # how far back each run looks
-NEWS_KEEP = 150         # stories in the exported digest
+NEWS_KEEP = 150         # Georgia stories in the exported digest
+FED_KEEP = 120          # federal stories in it, counted apart so neither level crowds the other out
 PER_OUTLET = 30
 FEED_RECHECK_DAYS = 7
 POLITICS = re.compile(
@@ -202,6 +210,59 @@ def keep(title: str, text: str) -> bool:
     return in_georgia(title, text)
 
 
+# the federal government itself: Congress, the President, the agencies, the federal courts
+FEDERAL = re.compile(
+    r"\b(Congress|congressional|Capitol Hill|U\.S\. (?:House|Senate|senators?|Rep\.|representatives?|attorney|Supreme Court)|"
+    r"House (?:Republicans|Democrats|GOP|speaker|committee|Oversight|Judiciary|Ways and Means|Appropriations)|"
+    r"Senate (?:Republicans|Democrats|GOP|majority|minority|committee|Judiciary|Finance|Appropriations|confirm\w*)|"
+    r"Speaker (?:Mike )?Johnson|Thune|Schumer|Jeffries|filibuster|impeach\w*|White House|Oval Office|President (?:Donald )?Trump|"
+    r"Trump administration|Trump|Vance|executive orders?|Supreme Court|SCOTUS|federal (?:judge|court|appeals court|"
+    r"government|agenc\w+|workers?|employees?|funding|funds|grants?|budget|law|rule|regulations?|shutdown|prosecutors?|"
+    r"officials?|immigration|troops|layoffs|aid|election commission|trade commission|reserve)|appeals court|circuit court|"
+    r"government shutdown|Justice Department|DOJ|FBI|Homeland Security|DHS|ICE|Border Patrol|Pentagon|"
+    r"Defense Department|War Department|State Department|Treasury|IRS|EPA|FDA|CDC|HHS|FEMA|USDA|"
+    r"Education Department|Department of (?:Education|Labor|Energy|Agriculture|Transportation|Veterans Affairs|"
+    r"Health and Human Services|Justice|Defense|War|the Interior|Commerce|Housing and Urban Development)|"
+    r"Veterans Affairs|Medicare|Social Security|SNAP|Affordable Care Act|Obamacare|tariffs?|National Guard|"
+    r"Federal Reserve|the Fed|attorney general Pam Bondi|Bondi|Hegseth|Rubio|Noem|RFK Jr\.|Kennedy Jr\.|"
+    r"continuing resolution|reconciliation bill|debt ceiling|NDAA|midterms?|FEC)\b")
+FED_TAGS = [("congress", r"congress|capitol hill|u\.s\. (house|senate|senator|rep)|house (republicans|democrats|gop|speaker|committee)|"
+                         r"senate (republicans|democrats|gop|majority|minority|committee|confirm)|filibuster|speaker johnson|"
+                         r"thune|schumer|jeffries|continuing resolution|reconciliation|ndaa|shutdown|impeach"),
+            ("white house", r"white house|oval office|president trump|trump administration|\btrump\b|vance|executive order"),
+            ("courts", r"supreme court|scotus|federal (judge|court|appeals court)|appeals court|circuit court|justices?\b"),
+            ("agencies", r"justice department|\bdoj\b|\bfbi\b|homeland security|\bdhs\b|\bice\b|pentagon|department|treasury|"
+                         r"\birs\b|\bepa\b|\bfda\b|\bcdc\b|\bhhs\b|fema|usda|federal (agenc|workers|employees)|federal reserve"),
+            ("elections", r"midterm|election|ballot|voters?|voting|campaign|candidate|primary|redistrict|\bfec\b"),
+            ("budget", r"budget|appropriat|spending|tariff|tax|debt ceiling|shutdown|medicare|medicaid|social security|snap")]
+
+
+def federal(title: str, text: str) -> bool:
+    """A story about the federal government: named in the headline, or twice in the opening of the story's text."""
+    if FEDERAL.search(title):
+        return True
+    return len({m.group(0).lower() for m in FEDERAL.finditer(text[:700])}) >= 2
+
+
+def level_of(title: str, text: str) -> str | None:
+    """"ga" (Georgia government and politics, the rules of keep), "federal" (the federal government's news that keep
+    leaves out), or None. Sports, lifestyle, crime reports and newsletter headers are no one's."""
+    if keep(title, text):
+        return "ga"
+    if re.search(r"\b(NCAA|NFL|NBA|MLB|SEC|Amtrak|recipe|weather)\b", title) or NOT_NEWS.search(title) or REPORT.search(title):
+        return None
+    if not re.search(r"[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}", title):
+        return None
+    if CRIME.search(title) and not re.search(r"\b(Congress|Senate|House|White House|Trump|Supreme Court|National Guard)\b", title):
+        return None      # a crime report is not federal news because the FBI made the arrest
+    return "federal" if federal(title, text) else None
+
+
+def fed_tags_of(title: str, text: str) -> list[str]:
+    hay = f"{title} {text[:1500]}".lower()
+    return [t for t, rx in FED_TAGS if re.search(rx, hay)][:3]
+
+
 def tags_of(title: str, text: str) -> list[str]:
     hay = f"{title} {text[:1500]}".lower()
     return [t for t, rx in TAGS if re.search(rx, hay)][:3]
@@ -215,6 +276,10 @@ class Digest:
         o = load_yaml(root / "config" / "outlets.yaml") or {}
         self.outlets = [d for d in (o.get("outlets") or []) if isinstance(d, str)]
         self.names = o.get("names") or {}
+        # federal news: a section page of an outlet already listed (its politics page, whose own feed link is followed)
+        # and outlets that cover the federal government only; their stories are kept only as federal ones
+        self.fed_pages = {d: u for d, u in (o.get("federal_pages") or {}).items() if isinstance(u, str) and u.startswith("https://")}
+        self.fed_only = {d for d in (o.get("federal_outlets") or []) if isinstance(d, str)}
         self.wp = {}
         try:
             w = json.loads((state_dir / "wp_outlets.json").read_text())
@@ -226,19 +291,25 @@ class Digest:
             self.feeds = json.loads(self.feeds_p.read_text())
         except (OSError, ValueError):
             self.feeds = {}
-        self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0}
+        self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0, "federal": 0}
 
-    def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str, body: str = "") -> None:
+    def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str, body: str = "", fed_only: bool = False) -> None:
         self.stats["seen"] += 1
         title = _text(title)[:240]
-        if not url.startswith("http") or not title or not keep(title, text):
+        lv = level_of(title, text) if url.startswith("http") and title else None
+        if lv == "ga" and fed_only:      # a federal outlet or section: its stories are federal ones or nothing
+            lv = "federal" if federal(title, text) else None
+        if not lv:
             return
         self.stats["kept"] += 1
+        fed = lv == "federal"
+        self.stats["federal"] += fed
         rec = Record(SOURCE, "news_item", url, title=title, text=_excerpt(text), published=(date or "")[:10] or None,
-                     channel=via, jurisdiction="ga", evidence="reported", key=f"{SOURCE}|{url}",
-                     meta={"outlet": outlet, "outlet_name": self.names.get(outlet, outlet), "tags": tags_of(title, text),
-                           "via": via, "opened": True, "counties": counties_of(title, body or text),
-                           "statewide": bool(STATEWIDE.search(f"{title} {text}")),
+                     channel=via, jurisdiction="us" if fed else "ga", evidence="reported", key=f"{SOURCE}|{url}",
+                     meta={"outlet": outlet, "outlet_name": self.names.get(outlet, outlet),
+                           "tags": fed_tags_of(title, text) if fed else tags_of(title, text), "level": lv,
+                           "via": via, "opened": True, "counties": [] if fed else counties_of(title, body or text),
+                           "statewide": (not fed) and bool(STATEWIDE.search(f"{title} {text}")),
                            # the outlet's own text, for the model that writes the summary (never published: the page
                            # shows the headline, the outlet's excerpt or the checked summary, and links to the story)
                            "body": (body or text)[:3000]})
@@ -255,22 +326,26 @@ class Digest:
                      _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json",
                      body=_text((p.get("content") or {}).get("rendered") or ""))
 
-    def feed_of(self, dom: str) -> str | None:
-        e = self.feeds.get(dom) or {}
+    def feed_of(self, dom: str, page: str | None = None) -> str | None:
+        """The feed a page itself links to: the outlet's home page, or (page) its federal section, kept under "fed:dom"
+        and preferring the feed named for politics when the page links several."""
+        key = f"fed:{dom}" if page else dom
+        e = self.feeds.get(key) or {}
         if e.get("checked") and (dt.date.today() - dt.date.fromisoformat(e["checked"])).days < FEED_RECHECK_DAYS:
             return e.get("feed")
         feed = None
         try:
-            r = self.f.get(f"https://{dom}/", use_cache=False)
+            r = self.f.get(page or f"https://{dom}/", use_cache=False)
             if r.status == 200 and "html" in r.content_type:
-                links = extract.find_feed_links(r.text, r.url)
-                feed = next((u for u in links if not re.search(r"comments", u, re.I)), None)
+                links = [u for u in extract.find_feed_links(r.text, r.url) if not re.search(r"comments", u, re.I)]
+                pol = [u for u in links if re.search(r"politic|congress|government|washington", u, re.I)]
+                feed = (pol if page and pol else links or [None])[0]
         except Exception:  # noqa: BLE001
             feed = None
-        self.feeds[dom] = {"feed": feed, "checked": dt.date.today().isoformat()}
+        self.feeds[key] = {"feed": feed, "checked": dt.date.today().isoformat()}
         return feed
 
-    def from_feed(self, dom: str, feed: str) -> None:
+    def from_feed(self, dom: str, feed: str, fed_only: bool = False) -> None:
         from .feeds import parse_feed
 
         r = self.f.get(feed, use_cache=False)
@@ -284,12 +359,26 @@ class Digest:
             if d and d < floor:
                 continue
             self.add(item.get("link") or "", item.get("title") or "", _text(item.get("summary") or ""),
-                     d, dom, "feed")
+                     d, dom, "feed", fed_only=fed_only)
 
     def run(self, deadline: float | None = None) -> dict:
         from .fetch import OutOfTime
 
         order = [d for d in self.outlets if d in self.wp] + [d for d in self.outlets if d not in self.wp]
+        # the federal sections and outlets first (ten feeds, under a minute; the Georgia outlets can use up the run's time):
+        # each one's own feed, federal stories only
+        for dom in sorted(self.fed_only | set(self.fed_pages)):
+            if deadline and time.monotonic() > deadline:
+                break
+            try:
+                feed = self.feed_of(dom, self.fed_pages.get(dom) or f"https://{dom}/")
+                if feed:
+                    self.from_feed(dom, feed, fed_only=True)
+                self.stats["outlets"] += 1
+            except OutOfTime:
+                break
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"  news: federal {dom}: {type(exc).__name__}: {str(exc)[:100]}")
         for dom in order:
             if deadline and time.monotonic() > deadline:
                 break
@@ -322,7 +411,16 @@ def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
         d = (r.get("published") or "")[:10]
         if not d or d < floor:
             continue
-        if not keep(r.get("title") or "", r.get("text") or ""):
+        m0 = r.get("meta") or {}
+        if isinstance(m0, str):
+            try:
+                m0 = json.loads(m0)
+            except ValueError:
+                m0 = {}
+        lv = level_of(r.get("title") or "", r.get("text") or "")
+        if m0.get("level") == "federal" and lv:      # read from a federal section: federal however the excerpt reads
+            lv = "federal"
+        if not lv:
             continue
         key = re.sub(r"\W+", " ", (r.get("title") or "").lower()).strip()
         if key in seen:
@@ -339,17 +437,24 @@ def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
             co = counties_of(r.get("title") or "", m.get("body") or r.get("text") or "")
         it = {"t": r.get("title") or "", "u": r["url"], "s": m.get("outlet_name") or m.get("outlet") or "",
               "d": d, "sum": r.get("text") or "", "tags": m.get("tags") or [], "also": [], "auto": 1, "co": co}
-        if m.get("statewide") or (not co and STATEWIDE.search(it["t"] + " " + it["sum"])):
-            it["sw"] = 1
+        if lv == "federal":
+            it.update({"lv": "federal", "co": [], "tags": fed_tags_of(it["t"], it["sum"])})
+        else:
+            if federal(it["t"], it["sum"]):
+                it["fed"] = 1      # a Georgia story that is also the federal government's (shown under both)
+            if m.get("statewide") or (not co and STATEWIDE.search(it["t"] + " " + it["sum"])):
+                it["sw"] = 1
         items.append(it)
         texts[r["url"]] = m.get("body") or r.get("text") or ""
     items.sort(key=lambda x: x["d"], reverse=True)
-    items = items[:NEWS_KEEP]
+    items = sorted([x for x in items if x.get("lv") != "federal"][:NEWS_KEEP] + [x for x in items if x.get("lv") == "federal"][:FED_KEEP],
+                   key=lambda x: x["d"], reverse=True)
     window = f"{items[-1]['d']} to {items[0]['d']}" if items else ""
     out_path.write_text(json.dumps({"updated": _now(), "window": window, "note": "Headlines and the outlets' own excerpts, "
-                                    "collected by the crawler from Georgia outlets' news feeds; every line links to the story.",
+                                    "collected by the crawler from Georgia outlets' news feeds (federal stories, lv federal, also from national "
+                                    "outlets' politics feeds); every line links to the story.",
                                     "items": items}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     if text_path:
         keep_u = {x["u"] for x in items}
         text_path.write_text(json.dumps({u: t for u, t in texts.items() if u in keep_u}, ensure_ascii=False), encoding="utf-8")
-    return {"items": len(items), "window": window}
+    return {"items": len(items), "federal": sum(1 for x in items if x.get("lv") == "federal"), "window": window}

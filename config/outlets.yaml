@@ -325,6 +325,16 @@ county_outlets:
   muscogee: [ledger-enquirer.com, wtvm.com, wrbl.com]
   chatham: [savannahnow.com, wtoc.com, wsav.com, thecurrentga.org]
 names:
+  pbs.org: PBS News
+  npr.org: NPR
+  cbsnews.com: CBS News
+  propublica.org: ProPublica
+  rollcall.com: Roll Call
+  scotusblog.com: SCOTUSblog
+  govexec.com: Government Executive
+  fedscoop.com: FedScoop
+  19thnews.org: The 19th
+  stateline.org: Stateline
   ajc.com: The Atlanta Journal-Constitution
   gpb.org: Georgia Public Broadcasting
   georgiarecorder.com: Georgia Recorder
@@ -412,3 +422,20 @@ names:
   thomastontimes.com: The Thomaston Times
   upsonbeacon.com: The Upson Beacon
   butlerherald.com: The Butler Herald
+
+# Federal news for the News tab's Federal toggle (gacrawl/newsdigest.py). federal_pages: the politics or Washington
+# section of an outlet listed above; the feed that page itself links to is read, and only stories about the federal
+# government are kept. federal_outlets: outlets that cover the federal government (read for the News tab only; they are
+# not added to the "reported" evidence list above).
+federal_pages:
+  cbsnews.com: https://www.cbsnews.com/politics/
+  npr.org: https://www.npr.org/sections/politics/
+  pbs.org: https://www.pbs.org/newshour/politics
+  propublica.org: https://www.propublica.org/
+  rollcall.com: https://rollcall.com/
+  scotusblog.com: https://www.scotusblog.com/
+  govexec.com: https://www.govexec.com/
+  fedscoop.com: https://fedscoop.com/
+  19thnews.org: https://19thnews.org/
+  stateline.org: https://stateline.org/
+federal_outlets: [rollcall.com, scotusblog.com, govexec.com, fedscoop.com, 19thnews.org, stateline.org]
