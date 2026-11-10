@@ -36,3 +36,23 @@ def test_buttons_and_protected_addresses_are_not_statements():
     assert not [s for s in kept if "Donate" in s or "email" in s or "member" in s]
     own = Extractor({"id": "jane-doe", "name": "Jane Doe"}).own_sentences(PAGE)
     assert "I will fight to lower property taxes for seniors." in own and all("#" not in s for s in own)
+
+
+def test_site_builder_filler_is_not_a_candidates_statement(tmp_path):
+    """A sentence found word for word on three candidates' sites is the site builder's ("Begin by discussing the
+    primary theme ..."); each candidate's own sentence stays."""
+    from gacrawl.stances import boilerplate, profile_supplement, sentence_key
+    from gacrawl.store import Record, Store
+
+    filler_s = "Begin by discussing the primary theme or topic that you plan to cover, and support it with examples."
+    store = Store(tmp_path / "data")
+    for i, own in enumerate(("I support repaving every county road by 2030.", "I oppose the new landfill on Mill Road.", "I support a property tax cap for seniors.")):
+        store.add(Record(f"cand:c{i}", "statement", f"https://person{i}.example/issues", title="Issues", channel="html", evidence="primary",
+                         text=f"# Person {i} for Georgia\n\n{filler_s}\n\nPerson {i} here. {own}\n"))
+    store.flush()
+    f = boilerplate(store)
+    assert sentence_key(filler_s) in f and sentence_key("I oppose the new landfill on Mill Road.") not in f
+    prof = profile_supplement({"id": "c1", "name": "Person 1"}, store, filler=f)
+    texts = [x["stance"] for x in prof["positions"]] + [x["text"] for x in prof["statements"]]
+    assert any("landfill on Mill Road" in t for t in texts) and not any("primary theme" in t for t in texts)
+    store.close()

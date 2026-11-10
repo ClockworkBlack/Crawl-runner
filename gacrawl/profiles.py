@@ -19,7 +19,7 @@ from .careers import CareerIndex, career_for, summary as career_summary
 from .connections import build, money_for, patterns
 from .electo import slug
 from .entities import EntityIndex
-from .stances import SourceList, TranscriptSpeakers, profile_supplement
+from .stances import SourceList, TranscriptSpeakers, boilerplate, profile_supplement
 from .store import Store
 
 
@@ -39,6 +39,7 @@ class ProfileBuilder:
         self.ix.flush()
         self.cand_sources = {s for s in store.sources() if s.startswith("cand:")}
         self.careers_ix, self.speakers = CareerIndex(store), TranscriptSpeakers(store)
+        self.filler = boilerplate(store)      # sentences on three or more candidates' sites: a site builder's, not theirs
         self.inputs: dict[str, int] = {}
 
     def profile(self, c: dict, records: dict | None = None) -> dict | None:
@@ -47,7 +48,7 @@ class ProfileBuilder:
             return None
         money = money_for(self.g, self.store, self.ix, c["id"], self.pats) if has_records else {}
         lg = self.legis.get(c.get("electo_key") or "", None)
-        prof = profile_supplement(c, self.store, self.root, money=money, legis=lg, speakers=self.speakers,
+        prof = profile_supplement(c, self.store, self.root, money=money, legis=lg, speakers=self.speakers, filler=self.filler,
                                   records=records if records is not None else (None if has_records else {}))
         S = SourceList()
         S.items, S.index = prof["sources"], {k: i for i, k in enumerate(_keys(prof["sources"]))}

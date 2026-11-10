@@ -494,9 +494,28 @@ class Extractor:
 
 
 # ----------------------------------------------------------------------------- the profile supplement
+def sentence_key(text: str) -> str:
+    return re.sub(r"[^a-z]", "", (text or "").lower())[:120]
+
+
+def boilerplate(store: Store, min_candidates: int = 3) -> frozenset[str]:
+    """Sentences found word for word on the websites of three or more different candidates: a site builder's filler
+    ("Begin by discussing the primary theme or topic that you plan to cover ...", "Edit or delete it, then start
+    writing!", an accessibility statement's blanks, a donation form's messages), never one candidate's own words.
+    Built once per run from the stored pages (keys as sentence_key)."""
+    seen: dict[str, set[str]] = {}
+    for r in store.iter_query("kind='statement'"):
+        sid = r.get("source_id") or ""
+        for sent in set(split_sentences(r.get("text") or "")):
+            if 25 <= len(sent) <= 420:
+                seen.setdefault(sentence_key(sent), set()).add(sid)
+    return frozenset(k for k, v in seen.items() if len(v) >= min_candidates)
+
+
 def profile_supplement(cand: dict, store: Store, root: Path | None = None, outlets: set[str] | None = None,
                        money: dict | None = None, career: list[dict] | None = None, legis: dict | None = None,
-                       speakers: TranscriptSpeakers | None = None, records: dict | None = None) -> dict:
+                       speakers: TranscriptSpeakers | None = None, records: dict | None = None,
+                       filler: frozenset[str] | None = None) -> dict:
     """Everything the crawler has on one candidate, in Electo's profile item shapes with src indexes.
     speakers: a TranscriptSpeakers shared across candidates (built on the fly when not given).
     records: the candidate's records by kind when the caller already read them ({} = none); else read here."""
@@ -519,9 +538,9 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
         controversies.append({"text": item["text"], "cues": item["cues"], "d": _d10(r), "src": [S.add(r)], "basis": basis, "evidence": evidence})
 
     def add_position(text: str, r: dict, basis: str, evidence: str, review: bool = False):
-        key = re.sub(r"[^a-z]", "", text.lower())[:120]
-        if key in seen_pos:
-            return
+        key = sentence_key(text)
+        if key in seen_pos or (filler and key in filler and basis.startswith("campaign site")):
+            return                                        # said already, or a site builder's filler (boilerplate)
         seen_pos.add(key)
         topics = issues_of(text, root)
         i = S.add(r)
