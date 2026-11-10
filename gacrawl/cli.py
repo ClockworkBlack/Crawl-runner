@@ -25,7 +25,7 @@
   gacrawl electo packets [--out DIR]     write Electo research packets only
   gacrawl candidates list|research [--candidate ID] [--max-minutes M] [--since DATE] [--skip step,step]
   gacrawl rumor list|add|corroborate|debunk|retract
-  gacrawl records status|plan|contacts|send|check|follow-up|withdraw [--limit N] [--dry-run] [--max-minutes M]
+  gacrawl records status|plan|contacts|find|send|check|follow-up|withdraw [--limit N] [--dry-run] [--max-minutes M]
   gacrawl police [police|media|news|all] [--max-minutes M] [--only ID] [--refresh]   police departments, sheriffs, media tip lines; news: reported incidents
                                          Georgia Open Records Act requests for codes of ordinances
   gacrawl export [--out DIR] [--no-packets]   build the Electo import bundle
@@ -557,6 +557,13 @@ def cmd_records(cfg, args):
         n = discover_contacts(_fetcher(cfg, deadline), jur, cfg["state_dir"] / "discovered.json", deadline)
         print(f"checked {n} jurisdictions for a records contact")
         return
+    if args.action == "find":
+        from .codefinder import run as find_run
+
+        deadline = time.monotonic() + float(args.max_minutes or 40) * 60
+        only = [x for x in (args.only or "").split(",") if x] or None
+        print(json.dumps(find_run(config.ROOT, jur, _fetcher(cfg, deadline), deadline, only=only), indent=1))
+        return
     if args.action == "test":
         r = reqs.self_test(jur, to=args.to or "")
         print(json.dumps(r, indent=1))
@@ -574,7 +581,7 @@ def cmd_records(cfg, args):
         if args.action == "plan":
             reviews: list = []
             items = plan(jur, reqs.tracker, store, int(cfg.get("openrecords", {}).get("cooldown_days", 180)),
-                         reqs.contacts, reviews, reqs.have)
+                         reqs.contacts, reviews, reqs.have, reqs.found)
             write_review(config.ROOT, reviews)
             for it in items[: args.limit or 25]:
                 print(f"{it['how']:<6} {it['jurisdiction']['id']:<24} {it['to']}  (found on {it['found_on']})")
@@ -1347,10 +1354,11 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--repo", help="owner/name: count the month's Actions minutes of every run in it (needs GH_TOKEN)")
     cx = sub.add_parser("codeacts"); cx.add_argument("--max-minutes", type=float); cx.add_argument("--limit", type=int)
     cx.add_argument("--only", help="comma list of legislation ids")
-    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "send", "check", "follow-up", "withdraw", "test", "deadlines"])
+    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines"])
     rq.add_argument("--to", help="test: send the sample here instead of the project mailbox")
     rq.add_argument("--limit", type=int); rq.add_argument("--dry-run", action="store_true")
     rq.add_argument("--max-minutes", type=float); rq.add_argument("--show", action="store_true", help="plan: print the first draft")
+    rq.add_argument("--only", help="find: these ids only (comma-separated), even if looked at recently")
     return ap
 
 

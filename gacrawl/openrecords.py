@@ -265,6 +265,7 @@ def downloaded_places(root: Path, places=None) -> set[str]:
 
     places = places or _of.Places(_of.load_places(root))
     have: set[str] = set()
+    roots: dict[str, set[str]] = {}   # id -> the folders (or top-level files) that named it
     for rel in _inbox_paths(root):
         parts = [x for x in rel.split("/") if x]
         if len(parts) < 2:  # a loose file at the top: <id>__<name>.pdf
@@ -272,8 +273,9 @@ def downloaded_places(root: Path, places=None) -> set[str]:
             jid = places.resolve(m.group(1)) if m else None
             if jid:
                 have.add(jid)
+                roots.setdefault(jid, set()).add("")
             continue
-        for x in parts[:-1]:
+        for i, x in enumerate(parts[:-1]):
             if x.lower().endswith(".zip") or _of._norm(x) in _of.NOISE_DIRS:
                 continue
             k = re.sub(r" (consolidated|unified) government$", "", _of._norm(x))  # webster_county_consolidated_government
@@ -281,7 +283,15 @@ def downloaded_places(root: Path, places=None) -> set[str]:
             jid = jid or places.resolve_folder(k)[0]
             if jid:
                 have.add(jid)
+                roots.setdefault(jid, set()).add("/".join(parts[: i + 1]))
                 break
+    # what the code finder saved counts only when it adds up to the code (a whole code or a chapter series): a place
+    # with a few individual ordinances from its site, and nothing else, is still without its code
+    from .codefinder import load_found
+
+    for jid, f in load_found(root).items():
+        if f.get("saved") and not f.get("complete") and roots.get(jid) == {jid}:
+            have.discard(jid)
     # a consolidated government's code is its county's too (macon-bibb -> co-bibb), and the reverse
     for j in places.places:
         if j.get("kind") == "consolidated" and "-" in j["id"]:
@@ -292,9 +302,12 @@ def downloaded_places(root: Path, places=None) -> set[str]:
 
 
 def plan(jurisdictions: list[dict], tracker: Tracker, store=None, cooldown_days: int = 180,
-         contacts: dict | None = None, reviews: list | None = None, have: set | None = None) -> list[dict]:
+         contacts: dict | None = None, reviews: list | None = None, have: set | None = None,
+         found: dict | None = None) -> list[dict]:
     """Jurisdictions due a request, largest first, each with how it would be sent. Places whose only addresses
-    need a check are appended to `reviews` (when given) instead. `have`: ids with a downloaded code (skipped)."""
+    need a check are appended to `reviews` (when given) instead. `have`: ids with a downloaded code (skipped).
+    `found`: codefinder's results (data/openrecords/found.json): its address is used when the seed found none,
+    and a place whose site links to its code on a code library is skipped (the code is online)."""
     now = dt.datetime.now(dt.timezone.utc)
     contacts = contacts or {}
     out = []
@@ -303,6 +316,12 @@ def plan(jurisdictions: list[dict], tracker: Tracker, store=None, cooldown_days:
             continue
         if j.get("enabled") is False or crawlable_code(j, store) or j["id"] in (have or ()):
             continue
+        f = (found or {}).get(j["id"]) or {}
+        if f.get("libraries"):
+            continue
+        rec, frec = j.get("records") or {}, f.get("records") or {}
+        if not (rec.get("emails") or rec.get("portal")) and (frec.get("emails") or frec.get("portal")):
+            j = {**j, "records": frec}   # the seed found no address; the deeper look did
         t = tracker.data.get(j["id"], {})
         if t.get("sent_at") and (now - dt.datetime.fromisoformat(t["sent_at"])).days < cooldown_days:
             continue
@@ -434,6 +453,9 @@ class Requests:
         self.organization = self.opts.get("organization") or ""
         self.contacts = load_contacts(root)
         self._have: set | None = None
+        from .codefinder import load_found
+
+        self.found = load_found(root)
 
     @property
     def have(self) -> set:
@@ -467,7 +489,7 @@ class Requests:
         today = dt.datetime.now(dt.timezone.utc).date().isoformat()  # sent_at is UTC; compare like with like
         sent_today = sum(1 for t in self.tracker.data.values() if (t.get("sent_at") or "")[:10] == today)
         reviews: list = []
-        due = plan(jurisdictions, self.tracker, store, cooldown, self.contacts, reviews, self.have)
+        due = plan(jurisdictions, self.tracker, store, cooldown, self.contacts, reviews, self.have, self.found)
         write_review(self.root, reviews)
         out = {"due": len(due), "sent": 0, "portal_only": 0, "needs_review": len(reviews),
                "dry_run": dry_run or not self.enabled, "errors": 0}
