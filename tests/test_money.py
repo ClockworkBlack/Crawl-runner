@@ -26,7 +26,7 @@ def test_rules(tmp_path):
     L = list(money.lines(s, st))
     assert [round(x["amount"]) for x in L] == [5000, 1000]
     assert L[0]["via"] == "" and L[1]["via"] == "AIPAC PAC"
-    assert st == {"memo": 1, "repeat": 1, "legacy": 1, "transfer": 1, "lines": 2}
+    assert st == {"memo": 1, "repeat": 1, "legacy": 1, "transfer": 1, "lines": 2, "legacy_by": {"x": 1}}
 
 
 def test_fec_name_match(tmp_path):

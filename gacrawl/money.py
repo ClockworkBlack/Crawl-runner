@@ -94,6 +94,10 @@ def clean(records, own: dict | None = None, stats: dict | None = None):
         fec = m.get("filing_source") == "FEC"
         if fec and m.get("committee") and not m.get("fec_v"):
             st["legacy"] += 1
+            # whose: the page marks exactly those campaigns' totals as waiting for the re-read
+            who = m.get("candidate_id") or m.get("leadership_pac_of") or m.get("committee")
+            lb = st.setdefault("legacy_by", {})
+            lb[who] = lb.get(who, 0) + 1
             continue
         ln = str(m.get("line_number") or "").upper().lstrip("L")
         if fec and ln and not ln.startswith(("11", "12", "13")):

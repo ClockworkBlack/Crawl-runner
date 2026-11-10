@@ -28,7 +28,7 @@ jobs:
   watch:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25    # two workflows, each given six minutes for a cancel to finish
     env:
       DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
       ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN }}
@@ -48,7 +48,7 @@ jobs:
       - name: Check the chain and repair what can be repaired
         run: |
           python3 - <<'PY'
-          import datetime as dt, json, os, urllib.request, urllib.error
+          import datetime as dt, json, os, time, urllib.request, urllib.error
 
           now = dt.datetime.now(dt.timezone.utc)
           problems, repairs = [], []
@@ -152,10 +152,20 @@ jobs:
               hung = stuck(wf)
               if hung:
                   w, j, s = hung
-                  # force-cancel: a plain cancel waits on the hung step and may never take (Nov 8: 20+ minutes and still
-                  # running). A force-cancelled run skips its own cleanup step, so its attachments are removed here.
-                  r = api(f"repos/{runner_repo}/actions/runs/{w['id']}/force-cancel", runner_tok, "POST")
+                  # a plain cancel first: it stops the hung step and lets the run's saving steps run (the database, the
+                  # temp save, the state, the next backfill run; GitHub gives a cancelled job five minutes). Until Nov 9
+                  # the merge job was declared always(), which GitHub never cancels, hence the force-cancel that
+                  # follows when the run is still going after six minutes (a run started on the older code, or saving
+                  # steps that hang too). A force-cancelled run skips its own cleanup, so its attachments are removed here.
                   why = f"run {w['id']} was stuck in '{s['name']}' ({j['name']}) for {hours_since(s['started_at']):.1f}h"
+                  api(f"repos/{runner_repo}/actions/runs/{w['id']}/cancel", runner_tok, "POST")
+                  r = {}
+                  for _ in range(24):
+                      time.sleep(15)
+                      if (api(f"repos/{runner_repo}/actions/runs/{w['id']}", runner_tok) or {}).get("status") == "completed":
+                          break
+                  else:
+                      r = api(f"repos/{runner_repo}/actions/runs/{w['id']}/force-cancel", runner_tok, "POST")
                   if r.get("_error") and r["_error"] != 409:      # 409: already cancelling
                       problems.append(f"**{wf}**: {why}, and cancelling it failed (HTTP {r['_error']}).")
                   else:

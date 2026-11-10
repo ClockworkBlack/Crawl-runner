@@ -83,6 +83,69 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+SUFFIX = {"jr", "sr", "ii", "iii", "iv"}
+
+
+def cycle_of(d: str) -> str:
+    """The two-year election cycle a date falls in, as the FEC counts them: 2025 and 2026 are the 2026 cycle."""
+    try:
+        y = int((d or "")[:4])
+    except ValueError:
+        return ""
+    return str(y if y % 2 == 0 else y + 1) if 1980 <= y <= 2100 else ""
+
+
+def load_links(root: Path) -> dict:
+    """config/committee_links.yaml: committees linked to their candidate by hand, each with its source, by name."""
+    import yaml
+
+    p = root / "config" / "committee_links.yaml"
+    try:
+        doc = yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    out = {}
+    for L in (doc or {}).get("links") or []:
+        if L.get("committee") and L.get("person") and L.get("relation") in ("campaign", "leadership"):
+            out[_norm(L["committee"])] = {"person": L["person"], "name": L.get("name") or "", "party": L.get("party") or "",
+                                          "relation": L["relation"], "source": L.get("source") or ""}
+    return out
+
+
+_FIRSTS: dict = {}
+
+
+def _first_forms(first: str) -> set:
+    if first not in _FIRSTS:
+        from .ethics import _firsts
+
+        _FIRSTS[first] = set(_firsts(first))
+    return _FIRSTS[first]
+
+
+def is_self(donor: str, cand: str) -> bool:
+    """Is a gift's donor the candidate (their own money)? The filed name ("Last, First Middle" or "First Last") against
+    the candidate's: the same last name AND a first or middle name that is theirs (Rick / Richard, Burt / Burton). A
+    relative or a stranger with the same last name is not the candidate."""
+    cw = [w for w in _norm(cand).split() if w not in SUFFIX]
+    if len(cw) < 2 or not donor:
+        return False
+    cf, cl = cw[0], cw[-1]
+    if "," in donor:
+        last, given = donor.split(",", 1)
+        lw = [w for w in _norm(last).split() if w not in SUFFIX]
+        dl, gw = (lw[-1] if lw else ""), [w for w in _norm(given).split() if w not in SUFFIX]
+    else:
+        w = [x for x in _norm(donor).split() if x not in SUFFIX]
+        if len(w) < 2:
+            return False
+        dl, gw = w[-1], w[:-1]
+    if dl != cl or not gw:
+        return False
+    forms = _first_forms(cf)
+    return any(g in forms or cf in _first_forms(g) or (len(cf) >= 4 and g.startswith(cf)) for g in gw if len(g) > 1)
+
+
 def _level(c: dict) -> str:
     lv = c.get("levels") or []
     for k in ("federal", "statewide", "legislative", "judicial", "local", "school"):
@@ -131,21 +194,69 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     donors: dict[str, dict] = {}
     conduits_total: dict[str, float] = defaultdict(float)
     n_rows = 0
+    links = load_links(root)
+    link_party = {L["person"]: L["party"] for L in links.values() if L.get("party")}
+    from .ethics import candidate_index
+    from .ethics import match as filer_match
+
+    cidx = candidate_index(candidates)
+    rematched: dict = {}
+
+    def linked(m: dict):
+        """(candidate, leadership link) for a line no candidate was set on when it was read: the hand link table first
+        (config/committee_links.yaml), then the filer's name matched again against today's candidates, by the same
+        rule as when Georgia's lines are read (ethics.match: the candidate's own name, or a full name inside the
+        committee's), since the candidate list grows after a filing is read."""
+        for n in (m.get("filer_name") or "", m.get("recipient") or ""):
+            L = links.get(_norm(n)) if n else None
+            if L:
+                if L["relation"] == "leadership":
+                    return None, L
+                c = by_id.get(L["person"]) or {"id": L["person"], "name": L["name"], "electo_key": "", "office": "",
+                                                "levels": [], "counties": [], "jurisdiction": ""}
+                return {**c, "party": c.get("party") or L["party"], "_link": L}, None
+        if m.get("ga_system") and m.get("filer_name"):
+            k = (m["filer_name"], m.get("filer_type") or "")
+            if k not in rematched:
+                ft = m.get("filer_type") or ""
+                rematched[k] = filer_match({"filerName": m["filer_name"], "filerTypeDesc": ft,
+                                            "filerTypeCode": ft if len(ft) <= 3 else ""}, cidx)
+            return rematched[k], None
+        return None, None
 
     def recip_of(m: dict, r: dict) -> dict:
         cid = m.get("candidate_id")
         c = by_id.get(cid) if cid else None
+        lead = None
+        if not cid:
+            c, lead = linked(m)
+            cid = c["id"] if c else None
         key = f"cand:{cid}" if c else "ent:" + str(m.get("recipient_entity") or _norm(m.get("recipient") or ""))
         R = recips.get(key)
         if not R:
+            if m.get("leadership_pac_of"):
+                pac = {"pac_of": m["leadership_pac_of"], "pac_of_name": (by_id.get(m["leadership_pac_of"]) or {}).get("name", ""),
+                       "pac_of_key": m.get("leadership_pac_of_key") or ""}
+            elif lead:
+                pc = by_id.get(lead["person"]) or {}
+                pac = {"pac_of": lead["person"], "pac_of_name": pc.get("name") or lead["name"], "pac_of_key": pc.get("electo_key") or "",
+                       "pac_of_party": pc.get("party") or lead["party"], "link_src": lead["source"]}
+            else:
+                pac = {}
             R = recips[key] = {"i": len(recips), "name": c["name"] if c else (m.get("recipient") or ""), "key": (c or {}).get("electo_key") or "",
                                "cid": cid or "", "party": (c or {}).get("party") or "", "office": (c or {}).get("office") or "",
-                               "level": _level(c) if c else ("committee" if m.get("recipient_kind") == "committee" else ""),
+                               "level": _level(c) if c else ("committee" if m.get("recipient_kind") == "committee" or lead else ""),
                                "county": ((c or {}).get("counties") or [""])[0], "jur": (c or {}).get("jurisdiction") or "",
-                               "raised": 0.0, "n": 0, "spent": 0.0, "nx": 0, "loans": 0.0, "in_kind": 0.0, "in_ga": 0.0, "small": 0.0,
-                               "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": "", "_fec": 0.0,
-                               **({"pac_of": m["leadership_pac_of"], "pac_of_name": (by_id.get(m["leadership_pac_of"]) or {}).get("name", ""),
-                                   "pac_of_key": m.get("leadership_pac_of_key") or ""} if m.get("leadership_pac_of") else {})}
+                               "raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "nx": 0, "loans": 0.0, "in_kind": 0.0, "in_ga": 0.0,
+                               "small": 0.0, "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": "",
+                               "_fec": 0.0, "cy": {}, **pac}
+            if c and c.get("_link"):
+                R["link_src"] = c["_link"]["source"]
+        fn = (m.get("filer_name") or "").strip()
+        if c and fn and _norm(fn) != _norm(R["name"]):
+            cm = R.setdefault("_comm", set())      # the committees that filed as this candidate's (shown on the page)
+            if len(cm) < 6:
+                cm.add(fn)
         return R
 
     # every line once, by the shared rules (gacrawl/money.py): no memo lines, no line twice, no FEC line read before
@@ -165,9 +276,18 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         if d:
             R["first"] = min(R["first"] or d, d)
             R["last"] = max(R["last"], d)
+        cy = cycle_of(d)
+        C = None
+        if cy:      # the same totals for each two-year election cycle, with the dates the lines in it carry
+            C = R["cy"].get(cy)
+            if C is None:
+                C = R["cy"][cy] = {"raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "loans": 0.0, "first": d, "last": d}
+            C["first"], C["last"] = min(C["first"], d), max(C["last"], d)
         if t == "expenditure":
             R["spent"] += amt
             R["nx"] += 1
+            if C is not None:
+                C["spent"] += amt
             k = (R["i"], _norm(m.get("name") or ""))
             S = spend.get(k)
             if not S:
@@ -179,15 +299,21 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             continue
         if t == "loan":
             R["loans"] += amt
+            if C is not None:
+                C["loans"] += amt
             continue
         if t == "in_kind":
             R["in_kind"] += amt
         R["raised"] += amt
+        if C is not None:
+            C["raised"] += amt
         if m.get("filing_source") == "FEC":
             R["_fec"] += amt
         if amt <= 0:
             continue      # a refund or a correction: nets out of the total, counts as nothing else
         R["n"] += 1
+        if C is not None:
+            C["n"] += 1
         st = (m.get("state") or "").upper()[:2]
         if st == "GA" or (not st and m.get("city") and _norm(m["city"]) in city_county):
             R["in_ga"] += amt
@@ -206,8 +332,11 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             conduits_total[conduit] += amt
             continue          # many people's gifts in one line: not a donor, no donor geography
         et = (m.get("entity_type") or "").upper()
-        if et in ("CAN",) or (len(last) > 2 and "," in nm and nm.lower().split(",")[0].strip() == last and not m.get("donor_is_org")):
+        if R["cid"] and (et in ("CAN",) or (not m.get("donor_is_org") and is_self(nm, R["name"]))):
             kind = "self"     # the candidate's own money
+            R["self"] += amt
+            if C is not None:
+                C["self"] += amt
         elif et in ("ORG", "CCM", "PAC", "COM", "PTY") or m.get("contributor_committee_id") or m.get("donor_is_org") or ("," not in nm and ORGISH.search(nm)):
             kind = "committee" if (et in ("PAC", "COM", "PTY", "CCM") or m.get("contributor_committee_id") or re.search(r"\b(pac|committee|party|fund)\b", nm, re.I)) else "org"
         else:
@@ -227,6 +356,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                             "fs": m.get("filing_source") or "", "u": r["url"], "review": bool(m.get("needs_review"))}
         G["total"] += amt
         G["n"] += 1
+        if cy:
+            gc = G.setdefault("cy", {})
+            gc[cy] = gc.get(cy, 0.0) + amt
         if d:
             G["first"] = min(G["first"] or d, d)
             G["last"] = max(G["last"], d)
@@ -267,7 +399,16 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             if chk and chk.get("check") != "unchecked":
                 R["fec"] = {"receipts": chk.get("receipts"), "itemized": chk.get("itemized"), "check": chk["check"],
                             "cycles": chk.get("cycles") or []}
+    legacy_by = mstats.get("legacy_by") or {}
     for R in rec_list:
+        if R.get("cid") and legacy_by.get(R["cid"]):
+            R["held"] = legacy_by[R["cid"]]     # FEC lines waiting for the re-read: the page says this total is incomplete
+        if not R["party"] and R.get("cid") in link_party:
+            R["party"] = link_party[R["cid"]]
+        if R.get("_comm"):
+            R["committees"] = sorted(R.pop("_comm"))
+        R["self"] = round(R["self"], 2)
+        R["cy"] = {k: {kk: (round(vv, 2) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in sorted(R["cy"].items())}
         emp = sorted(R["employers"].items(), key=lambda kv: -kv[1])[:8]
         R["employers"] = [{"name": k, "total": round(v, 2)} for k, v in emp]
         R["sources"] = sorted(R["sources"])
@@ -283,6 +424,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     gift_list = capped(gifts.values(), GIFT_CAP, cand_r)
     for g in gift_list:
         g["total"] = round(g["total"], 2)
+        if g.get("cy"):
+            g["cy"] = {k: round(v, 2) for k, v in sorted(g["cy"].items())}
     spend_list = capped(spend.values(), SPEND_CAP, cand_r)
     for s in spend_list:
         s["total"] = round(s["total"], 2)
@@ -309,7 +452,13 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                    "Campaign Contribution Disclosure Reports the crawler read or that were imported. Each gift is the filer's "
                    "own line (u is the filing it was read from); donors are matched across filings by name and address, "
                    "which can split one person or merge two with the same name. Only a candidate's own campaign committees count as what the candidate raised; a leadership PAC the candidate runs is listed as its own committee (pac_of), and a joint fundraising committee's money is counted where it was transferred. Each federal campaign carries fec: the FEC's own receipts total for its committees, against which the itemized lines are checked. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
-                   "employer, occupation and address. review marks rows parsed from a scanned PDF.",
+                   "employer, occupation and address. review marks rows parsed from a scanned PDF. Each recipient's and gift's money is also "
+                   "split by two-year election cycle (cy; 2025 and 2026 are the 2026 cycle, as the FEC counts them), with the first and last "
+                   "date of the lines in it. self is the candidate's own money (gifts filed under the candidate's own name). A committee "
+                   "whose name does not carry its candidate's full name is linked to the candidate only by config/committee_links.yaml, "
+                   "each link with its source (link_src); committees lists the committees counted under a candidate. held is the number "
+                   "of the campaign's FEC lines waiting to be read again: its federal total is incomplete until then.",
+           "cycles": sorted({k for R in rec_list for k in R["cy"]}),
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
            "by": by_out, "conduits": [{"name": k, "total": round(v, 2)} for k, v in sorted(conduits_total.items(), key=lambda kv: -kv[1])],
            "hold": ("Federal campaign money (FEC) is being read again with the FEC's own line codes: a check found FEC memo "

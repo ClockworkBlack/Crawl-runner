@@ -1,0 +1,43 @@
+# Georgia committees whose names don't carry their candidate's full name, so the filings can't be matched to the
+# candidate by name (gacrawl/ethics.py match): each linked by hand, with the source that says whose committee it is.
+# Read by gacrawl/donors.py (export_donors) for the Donors tab:
+#   relation: campaign    the candidate's own campaign committee: its money is what the candidate raised
+#   relation: leadership  a leadership committee the candidate controls (O.C.G.A. 21-5-34.2): listed under the candidate,
+#                         its money kept apart from the campaign's
+# committee is the name as filed (matched without case or punctuation); person is the Electo person id, name the
+# person's name as Electo shows it (used when the person is not among the export's candidates); party as on the ballot.
+links:
+  - committee: "Jackson for Governor, Inc."
+    person: rick-jackson
+    name: Rick Jackson
+    party: R
+    relation: campaign
+    source: https://caselaw.findlaw.com/court/us-11th-circuit/120365.html   # Jackson v. WBJ (11th Cir., June 12, 2026)
+
+  - committee: "WBJ Leadership Committee, Inc."
+    person: burt-jones
+    name: Burt Jones
+    party: R
+    relation: leadership
+    source: https://caselaw.findlaw.com/court/us-11th-circuit/120365.html   # the same opinion: Lt. Gov. Burt Jones's leadership committee
+
+  - committee: "Burt Jones for Georgia"
+    person: burt-jones
+    name: Burt Jones
+    party: R
+    relation: campaign
+    source: https://peachfile.ethics.ga.gov/public/cf/contributions        # the committee's own filings, under his name
+
+  - committee: "Georgians First Leadership Committee, Inc."
+    person: brian-kemp
+    name: Brian Kemp
+    party: R
+    relation: leadership
+    source: https://atlantaciviccircle.org/2022/07/13/latest-georgia-campaign-money-report-lots-of-commas/
+
+  - committee: "One Georgia"
+    person: stacey-abrams
+    name: Stacey Abrams
+    party: D
+    relation: leadership
+    source: https://atlantaciviccircle.org/2022/07/13/latest-georgia-campaign-money-report-lots-of-commas/

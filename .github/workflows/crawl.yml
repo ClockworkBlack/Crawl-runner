@@ -256,7 +256,11 @@ jobs:
 
   merge:
     needs: [prepare, crawl]
-    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true'
+    # not always(): GitHub never applies a cancel to a job declared always() (Nov 9: a run cancelled twice went on to
+    # its next step and could only be force-cancelled, which skips every saving step). With !cancelled() the job
+    # still runs when a crawl shard failed, and a cancel stops the step in hand and runs the saving steps below (the
+    # database, the temp save, the next backfill run, the state) inside GitHub's five minutes for a cancelled job.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
     # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes
     # kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
@@ -369,7 +373,7 @@ jobs:
         # stored (the database stayed a day old, and every FEC re-read applied to it was lost with it, so the re-read
         # started over from the same old lines each time). Stored here as soon as it is merged, and again at the end.
         # A failed upload here doesn't stop the run: the later stores try again (and the last one does fail the run).
-        if: always() && steps.merged.outcome == 'success'
+        if: ${{ !cancelled() && steps.merged.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 20
         run: |
@@ -498,7 +502,7 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-qwen3-8b-q4km-v1
       - name: Store the database again (research and news so far), before the open model's long steps
-        if: always() && steps.merged.outcome == 'success'
+        if: ${{ !cancelled() && steps.merged.outcome == 'success' }}   # a cancelled run stores once, in the step for that below
         continue-on-error: true
         timeout-minutes: 15
         run: bash scripts/ci_db.sh push
@@ -713,9 +717,10 @@ jobs:
             rm -f modeld/applied
           fi
       - name: Temp save of a stopped run's data (tempsave-crawl.db.zst, deleted once a later run's data is on Electo)
-        # a run cancelled by hand or by the watchdog stores what it read in the steps above; a copy of that database is
-        # also kept as tempsave-crawl.db.zst until a later run that read it has pushed its data to Electo (the step after
-        # the Electo import deletes it then), so nothing a stopped run gathered depends on a single upload
+        # a cancelled run stores what it read in the step above; a copy of that database is also kept as
+        # tempsave-crawl.db.zst until a later run that read it has pushed its data to Electo (the step after the Electo
+        # import deletes it then), so nothing a stopped run gathered depends on a single upload. (A force-cancel skips
+        # every step: before one, save by hand with db-backup's temp option.)
         if: cancelled() && env.IS_MAIN == 'true' && steps.merged.outcome == 'success'
         timeout-minutes: 20
         run: |
@@ -800,7 +805,7 @@ jobs:
           fi
       - name: Coverage (what the data holds per Electo feature, against the last run)
         timeout-minutes: 15
-        if: always() && env.IS_MAIN == 'true'
+        if: ${{ !cancelled() && env.IS_MAIN == 'true' }}   # a report: a cancelled run's minutes go to saving
         run: |
           # data/coverage.md and state/coverage.json, kept in the private repository; zero or shrinking features are
           # flagged there (and as warnings on the private repository's own runs)
