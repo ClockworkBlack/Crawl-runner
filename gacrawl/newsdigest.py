@@ -48,14 +48,23 @@ POLITICS = re.compile(
     r"democrat\w*|republican\w*|gop|annexation|charter|municipal)\b", re.I)
 GEORGIA = re.compile(r"\b(georgia|ga\.|atlanta|savannah|augusta|macon|columbus|athens|albany|valdosta|gwinnett|cobb|"
                      r"dekalb|fulton|clayton|henry|cherokee|forsyth|chatham|county|city of)\b", re.I)
-TAGS = [("elections", r"election|ballot|vot|runoff|recount|precinct|campaign|candidate|primary"),
-        ("legislature", r"legislat|general assembly|lawmaker|state rep|state senat|\bbill\b"),
-        ("governor", r"governor|kemp|executive order"),
-        ("local", r"council|commission|mayor|city manager|county manager|zoning|rezon|annexation|ordinance"),
-        ("schools", r"school board|board of education|superintendent|school district"),
-        ("budget", r"budget|millage|tax|splost|appropriat|bond"),
-        ("courts", r"court|judge|ruling|lawsuit|indict|district attorney"),
-        ("policing", r"sheriff|police|arrest|shooting")]
+# whole words only ("vot" was inside "pivotal", "court" inside "courtesy", "bond" inside "Bondi", "commission" inside
+# "Public Service Commission"); the News tab reads these tags with the story's own words to file it under its topics
+TAGS = [("elections", r"\b(elections?|electoral|ballots?|vot(e|es|ed|ers?|ing)|runoffs?|recounts?|precincts?|campaign\w*|"
+                      r"candidates?|primary|primaries)\b"),
+        ("legislature", r"\b(legislat\w*|general assembly|lawmakers?|state reps?\b|state representatives?|state senat\w*|bill)\b"),
+        ("governor", r"\b(governor\w*|kemp|executive order)\b"),
+        ("local", r"\b((city|town|county) (council|commission)\w*|board of commissioners|county commissioners?|"
+                  r"council(man|woman|member|members)?|mayors?|city manager|county manager|zoning|rezon\w*|annexation|ordinances?)\b"),
+        ("schools", r"\b(school board|board of education|superintendent|school district)\b"),
+        ("budget", r"\b(budget\w*|millage|tax|taxes|splost|tsplost|e-?splost|appropriat\w*|bonds?)\b"),
+        ("courts", r"\b(courts?|judges?|ruling|lawsuits?|indict\w*|district attorney)\b"),
+        ("policing", r"\b(sheriff\w*|police|arrest\w*|shooting)\b")]
+# set aside before tagging: bodies that share the words of a city's or county's ("Public Service Commission",
+# "Georgia Council for the Arts", "former mayor")
+TAG_ASIDE = re.compile(r"\b(public service|utility|insurance|agriculture|labor) commission\w*|\bpsc\b|"
+                       r"\b(georgia|sports|arts|student|youth|security|advisory|tourism) council\b|\bcouncil (for|of|on) \w+|"
+                       r"\b(former|ex|then)[- ](\w+ ){0,3}mayor\b")
 
 
 def _now() -> str:
@@ -90,6 +99,7 @@ GOV_TITLE = re.compile(r"\b(council|commission|board|legislat|lawmaker|governor|
 LOCAL = re.compile(r"\b(council\w*|commission(ers?)?|board of (education|elections|commissioners)|school board|mayor|"
                    r"city|town|county|millage)\b", re.I)
 NOT_NEWS = re.compile(r"\b(restaurants?|favorite|recipes?|things to do|this weekend|ends season|playoffs?|football|basketball|"
+                      r"marathon|half marathon|5k|filmmakers?|film festival|to screen|concert|"
                       r"baseball|soccer|softball|volleyball|touchdown|quarterback|fundraising campaign|"
                       r"news quiz|quiz|horoscope|obituar\w*|my five|at your service)\b", re.I)
 NATIONAL = re.compile(r"\b(Trump|White House|Oval Office|Pentagon|D\.C\.|Washington|Vance|Cruz|DeSantis|Biden|Harris|"
@@ -97,8 +107,10 @@ NATIONAL = re.compile(r"\b(Trump|White House|Oval Office|Pentagon|D\.C\.|Washing
 REPORT = re.compile(r"\b(arrest|booking|jail) (report|log)s?\b|\bnewsletter\b", re.I)
 
 
-STATEWIDE = re.compile(r"\b(kemp|raffensperger|bottoms|gold dome|general assembly|state capitol|gov\.?-elect|"
-                       r"lieutenant governor|state house|state senate|public service commission)\b", re.I)
+# the whole state's news (shown under every county): not a single state House or Senate district's race
+STATEWIDE = re.compile(r"\b(kemp|raffensperger|bottoms|gold dome|general assembly|state capitol|gov\.?-elect|governor-elect|"
+                       r"lieutenant governor|public service commission|statewide|legislature|"
+                       r"control of (the )?(georgia )?(state )?(house|senate)|state (house|senate) (majority|control|is in play))\b", re.I)
 AMBIGUOUS = {"washington", "lincoln", "jackson", "franklin", "union", "columbia", "georgia", "america", "early", "price",
              "lumber city", "jefferson", "madison", "monroe", "clay", "grant", "lee", "hart", "berlin", "milan", "rome",
              "perry", "douglas", "baker", "warwick", "allen", "riddleville", "white", "young", "harris", "smith"}
@@ -160,19 +172,40 @@ def _in_a_name(hay: str, a: int, b: int) -> bool:
     return False
 
 
+_CUE_BEFORE = {"in", "of", "at", "from", "near", "to", "city", "town", "downtown", "outside", "around", "across"}
+_CUE_AFTER = {"city", "county", "council", "mayor", "commission", "commissioners", "police", "residents", "school", "schools",
+              "area", "officials", "voters", "downtown", "municipal", "city's"}
+
+
+def _place_cue(hay: str, a: int, b: int) -> bool:
+    before = re.findall(r"([A-Za-z.'’]+)\W*$", hay[max(0, a - 30):a])
+    after = re.findall(r"^\W*([A-Za-z.'’]+)", hay[b:b + 30])
+    return bool((before and before[0].lower() in _CUE_BEFORE) or (after and after[0].lower() in _CUE_AFTER))
+
+
 def counties_of(title: str, text: str) -> list[str]:
     """The Georgia counties a story names: a county by name ("Wilcox County"), a city by name (its county)."""
     hay = f"{title} {text[:2500]}"
     pl = _places()
     out: list[str] = []
+    ms = [m for m in (pl.finditer(hay) if pl else []) if not m.group(0).lower().endswith(" county")]
+    # a word that is someone's name in this story ("Rep. Jim Kingston", "Mike Collins") is that person's surname in its
+    # other mentions too ("Kingston said"), unless a place word sits next to it ("in Kingston", "Collins City Council")
+    named = {m.group(0).lower() for m in ms if _in_a_name(hay, m.start(), m.end())}
+    # the state's own news happens in Atlanta (the Capitol, the governor's office): Atlanta is Fulton and DeKalb's only
+    # when the city itself is the subject ("Atlanta City Council", "Atlanta residents")
+    statewide = bool(STATEWIDE.search(hay[:1500]))
     for m in (pl.finditer(hay) if pl else []):
-        if not m.group(0).lower().endswith(" county") and _in_a_name(hay, m.start(), m.end()):
+        k = m.group(0).lower()
+        if not k.endswith(" county") and (_in_a_name(hay, m.start(), m.end()) or (k in named and not _place_cue(hay, m.start(), m.end()))):
             continue      # "Jason Collins", "Butler Smith": a surname, not the town
-        for c in _COUNTY_OF.get(m.group(0).lower(), []):
+        if statewide and k in BIG and not re.match(r"^\W*(" + "|".join(_CUE_AFTER) + r")\b", hay[m.end():m.end() + 20], re.I):
+            continue
+        for c in _COUNTY_OF.get(k, []):
             if c not in out:
                 out.append(c)
     for m in re.finditer(r"\b(" + "|".join(BIG) + r")\b", hay, re.I):
-        if m.group(0).lower() in ("cobb", "dekalb", "fulton", "gwinnett", "clayton", "cherokee", "forsyth", "chatham") or not out:
+        if m.group(0).lower() in ("cobb", "dekalb", "fulton", "gwinnett", "clayton", "cherokee", "forsyth", "chatham") or not (out or statewide):
             for c in BIG[m.group(0).lower()]:
                 if c not in out:
                     out.append(c)
@@ -182,7 +215,8 @@ def counties_of(title: str, text: str) -> list[str]:
 def in_georgia(title: str, text: str) -> bool:
     hay = f"{title} {text[:1500]}"
     pl = _places()
-    return bool(GEORGIA.search(hay) or STATEWIDE.search(hay) or LOCAL.search(title) or (pl and pl.search(hay)))
+    return bool(GEORGIA.search(hay) or STATEWIDE.search(hay) or re.search(r"\bstate (house|senate)\b", hay, re.I)
+                or LOCAL.search(title) or (pl and pl.search(hay)))
 
 
 def _other_state(title: str) -> bool:
@@ -212,7 +246,9 @@ def keep(title: str, text: str) -> bool:
 
 # the federal government itself: Congress, the President, the agencies, the federal courts
 FEDERAL = re.compile(
-    r"\b(Congress|congressional|Capitol Hill|U\.S\. (?:House|Senate|senators?|Rep\.|representatives?|attorney|Supreme Court)|"
+    r"\b(Congress|congressional|congress(?:man|woman)|Capitol Hill|"
+    r"U\.?S\.? (?:House|Senate|[Ss]enators?|Sen\.|Rep\.|Reps\.|[Rr]epresentatives?|[Cc]ongress\w*|attorney|Supreme Court)|"
+    r"(?:Sen\.|Senator) (?:Jon )?Ossoff|(?:Sen\.|Senator) (?:Raphael )?Warnock|"
     r"House (?:Republicans|Democrats|GOP|speaker|committee|Oversight|Judiciary|Ways and Means|Appropriations)|"
     r"Senate (?:Republicans|Democrats|GOP|majority|minority|committee|Judiciary|Finance|Appropriations|confirm\w*)|"
     r"Speaker (?:Mike )?Johnson|Thune|Schumer|Jeffries|filibuster|impeach\w*|White House|Oval Office|President (?:Donald )?Trump|"
@@ -225,8 +261,8 @@ FEDERAL = re.compile(
     r"Health and Human Services|Justice|Defense|War|the Interior|Commerce|Housing and Urban Development)|"
     r"Veterans Affairs|Medicare|Social Security|SNAP|Affordable Care Act|Obamacare|tariffs?|National Guard|"
     r"Federal Reserve|the Fed|attorney general Pam Bondi|Bondi|Hegseth|Rubio|Noem|RFK Jr\.|Kennedy Jr\.|"
-    r"continuing resolution|reconciliation bill|debt ceiling|NDAA|midterms?|FEC)\b")
-FED_TAGS = [("congress", r"congress|capitol hill|u\.s\. (house|senate|senator|rep)|house (republicans|democrats|gop|speaker|committee)|"
+    r"continuing resolution|reconciliation bill|debt ceiling|NDAA|midterm (?:losses|voters|wave)|(?:national|congressional) midterms?|FEC)\b")
+FED_TAGS = [("congress", r"congress|capitol hill|u\.?s\.? (house|senate|senator|sen\.|rep)|house (republicans|democrats|gop|speaker|committee)|"
                          r"senate (republicans|democrats|gop|majority|minority|committee|confirm)|filibuster|speaker johnson|"
                          r"thune|schumer|jeffries|continuing resolution|reconciliation|ndaa|shutdown|impeach"),
             ("white house", r"white house|oval office|president trump|trump administration|\btrump\b|vance|executive order"),
@@ -264,7 +300,7 @@ def fed_tags_of(title: str, text: str) -> list[str]:
 
 
 def tags_of(title: str, text: str) -> list[str]:
-    hay = f"{title} {text[:1500]}".lower()
+    hay = TAG_ASIDE.sub(" ", f"{title} {text[:1500]}".lower())
     return [t for t, rx in TAGS if re.search(rx, hay)][:3]
 
 
@@ -432,17 +468,17 @@ def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
                 m = json.loads(m)
             except ValueError:
                 m = {}
-        co = m.get("counties")
-        if co is None:      # a story stored before counties were kept
-            co = counties_of(r.get("title") or "", m.get("body") or r.get("text") or "")
+        # tags, counties and the statewide mark by today's rules (stories stored earlier were filed by older ones)
+        co = counties_of(r.get("title") or "", m.get("body") or r.get("text") or "")
         it = {"t": r.get("title") or "", "u": r["url"], "s": m.get("outlet_name") or m.get("outlet") or "",
-              "d": d, "sum": r.get("text") or "", "tags": m.get("tags") or [], "also": [], "auto": 1, "co": co}
+              "d": d, "sum": r.get("text") or "", "tags": tags_of(r.get("title") or "", r.get("text") or "") or m.get("tags") or [],
+              "also": [], "auto": 1, "co": co}
         if lv == "federal":
             it.update({"lv": "federal", "co": [], "tags": fed_tags_of(it["t"], it["sum"])})
         else:
             if federal(it["t"], it["sum"]):
                 it["fed"] = 1      # a Georgia story that is also the federal government's (shown under both)
-            if m.get("statewide") or (not co and STATEWIDE.search(it["t"] + " " + it["sum"])):
+            if STATEWIDE.search(it["t"] + " " + it["sum"]):
                 it["sw"] = 1
         items.append(it)
         texts[r["url"]] = m.get("body") or r.get("text") or ""

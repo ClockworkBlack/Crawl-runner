@@ -110,3 +110,21 @@ def test_federal_feeds_keep_only_federal_stories(tmp_path):
     assert "https://fed.example/rss/politics/" in F.got and "https://fed.example/rss/main/" not in F.got
     rows = list(s.iter_query("kind='news_item'"))
     assert st["federal"] == 1 and len(rows) == 1 and rows[0]["title"].startswith("House passes spending bill")
+
+
+def test_news_audit_nov10():
+    """The Nov 10 News audit: whole-word tags, a district race is not statewide, a surname is not a town in its other
+    mentions, "US Senate" and "Sen. Ossoff" are federal, "midterm" alone is not, and races and screenings are not news."""
+    assert nd.tags_of("Pivotal week for courtesy", "Pam Bondi spoke.") == []
+    assert "local" not in nd.tags_of("Democrats flip Georgia Public Service Commission", "The commission sets rates.")
+    assert "local" in nd.tags_of("Augusta Commission weighs rentals", "The city council met.")
+    assert not nd.STATEWIDE.search("David Dillie wins state House District 161 race")
+    assert nd.STATEWIDE.search("Democrats win control of the state House")
+    assert nd.counties_of("Rep. Mike Collins wins Senate seat", "Collins said he would work for Georgia.") == []
+    assert nd.counties_of("Collins council approves budget", "") == ["Tattnall"]
+    assert nd.counties_of("Bottoms takes office", "Bottoms spoke in Atlanta.") == []
+    assert nd.federal("Incoming chair of US Senate panel visits Macon", "")
+    assert nd.federal("Sen. Ossoff introduces rural hospitals bill", "")
+    assert not nd.federal("Cobb certifies 2026 midterm results after record turnout", "")
+    assert not nd.keep("Augusta Half Marathon seeks 300 volunteers for 2027 race", "The Augusta Sports Council needs help.")
+    assert not nd.keep("Conyers filmmakers to screen Southern Gothic film", "The city council approved.")
