@@ -60,7 +60,10 @@ def test_federal_level():
     assert nd.level_of("Ossoff, Warnock push bill for rural hospitals in Georgia", "A bill in Congress.") == "ga"
     assert nd.level_of("Atlanta City Council approves budget", "") == "ga"
     for t in ("Man arrested by FBI in Macon bank robbery", "California governor signs housing law", "Falcons beat Saints in overtime",
-              "Texas' School Voucher Program Could Be Extinct, Says Democratic Lawmaker"):
+              "Texas' School Voucher Program Could Be Extinct, Says Democratic Lawmaker",
+              "FBI investigates suspected homicide aboard MSC Seascape cruise ship after sudden return to Texas",
+              "Check your freezers: USDA warns consumers about frozen meat, poultry products sold nationwide",
+              "Trump says Air Force pilots described a round UFO flying three times faster than an F-22 fighter jet"):
         assert nd.level_of(t, "") is None, t
     assert nd.fed_tags_of("Senate passes bill to end government shutdown", "") == ["congress", "budget"]
 

@@ -273,6 +273,11 @@ FED_TAGS = [("congress", r"congress|capitol hill|u\.?s\.? (house|senate|senator|
             ("budget", r"budget|appropriat|spending|tariff|tax|debt ceiling|shutdown|medicare|medicaid|social security|snap")]
 
 
+# not the federal government's news even when an agency is named (seen in the first federal run, Nov 10)
+FED_NOT = re.compile(r"\b(homicide|cruise ship|recalls?|recalled|warns consumers|check your (freezers?|pantry|fridge)|UFOs?|"
+                     r"affair|celebrity|box office)\b", re.I)
+
+
 def federal(title: str, text: str) -> bool:
     """A story about the federal government: named in the headline, or twice in the opening of the story's text."""
     if FEDERAL.search(title):
@@ -289,8 +294,8 @@ def level_of(title: str, text: str) -> str | None:
         return None
     if not re.search(r"[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}.*\s.*[A-Za-z]{3,}", title):
         return None
-    if CRIME.search(title) and not re.search(r"\b(Congress|Senate|House|White House|Trump|Supreme Court|National Guard)\b", title):
-        return None      # a crime report is not federal news because the FBI made the arrest
+    if (CRIME.search(title) or FED_NOT.search(title)) and not re.search(r"\b(Congress|Senate|House|White House|Supreme Court|National Guard)\b", title):
+        return None      # a crime report is not federal news because the FBI made the arrest; nor a product recall or a UFO
     return "federal" if federal(title, text) else None
 
 
