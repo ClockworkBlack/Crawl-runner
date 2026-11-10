@@ -169,8 +169,66 @@ def test_cycles_links_own_money_and_held_federal_lines(tmp_path):
     gift = next(g for g in d["gifts"] if g["name"] == "Doe, Jane")
     assert gift["cy"] == {"2022": [500, 1], "2026": [300, 1]} and gift["total"] == 800
     assert d["cycles"] == ["2022", "2026"]
+    # and by calendar year: August 2025 and 2026 are one cycle but two years
+    assert set(W["yr"]) <= {"2025", "2026"} and sum(v["raised"] for v in W["yr"].values()) == 300_000
+    assert J["yr"] == {"2026": J["cy"]["2026"]} and set(A["yr"]) <= {"2021", "2022", "2025", "2026"}
+    assert sum(v[0] for v in gift["yr"].values()) == 800 and set(d["years"]) >= set(W["yr"])
     # the rules on their own
     assert cycle_of("2025-01-01") == "2026" and cycle_of("2026-11-30") == "2026" and cycle_of("") == ""
     assert is_self("JACKSON, RICHARD L", "Rick Jackson") and is_self("Jones, William Burton", "Burt Jones")
     assert not is_self("Jones, Mary", "Burt Jones") and not is_self("Jackson Healthcare", "Rick Jackson")
     assert is_self("Ann Able", "Ann Able") and not is_self("Able", "Ann Able")
+
+
+def test_source_kind_is_the_filings_own_word():
+    from gacrawl.donors import own_campaign, source_kind
+
+    assert source_kind("Individual") == "person" and source_kind("Lobbyist") == "person" and source_kind("Spouse / Dependent Child") == "person"
+    assert source_kind("Corporation / Business / Unregistered Committee") == "org" and source_kind("Lobbying Organization") == "org"
+    assert source_kind("Committee") == "committee" and source_kind("Non-Candidate Committee") == "committee"
+    assert source_kind("Candidate / Candidate Committee") == "committee" and source_kind("Self") == "self"
+    assert source_kind("Other") is None and source_kind("") is None and source_kind(None) is None
+    assert own_campaign("JACKSON, RICHARD L.", "Jackson for Governor, Inc.") and own_campaign("Rick Jackson", "Jackson for Governor")
+    assert not own_campaign("JACKSON, RICHARD L.", "Georgians for Jackson")        # not the campaign form of the name
+    assert not own_campaign("Smith, Ann", "Jackson for Governor, Inc.") and not own_campaign("", "Jackson for Governor")
+
+
+def test_donor_kinds_from_the_filing_and_totals_over_every_line(tmp_path):
+    """Georgia's lines say what the donor is (source_type): "The Justice Project" and "AFSCME" are not people, whatever
+    their names look like; a person of a campaign's surname who gave it more than anyone else may is the candidate; and
+    totals and each recipient's kinds cover every line, not only the listed gifts."""
+    s = Store(tmp_path / "data")
+    cands = [{"id": "a", "name": "Ann Able", "electo_key": "ANN ABLE", "party": "D", "office": "State Senate", "levels": ["state"], "counties": ["fulton"], "jurisdiction": ""}]
+    rows = [  # recipient, candidate id, donor, amount, source_type, filer_type, donor entity
+        ("Democratic Party of Georgia", "", "The Justice Project", 1350000, "Corporation / Business / Unregistered Committee", "Party Committee", "d1"),
+        ("One Georgia", "", "AFSCME", 1000000, "Other", "Leadership Committee", "d2"),
+        ("Take Back Georgia", "", "SAVE AMERICA", 2000000, "Committee", "Independent Committee", "d3"),
+        ("Quimby for Governor, Inc.", "", "QUIMBY, PAT L.", 13000000, "Individual", "Candidate Committee", "d4"),
+        ("Quimby for Governor, Inc.", "", "QUIMBY, MARY", 5000, "Individual", "Candidate Committee", "d5"),
+        ("Ann Able", "a", "Able, Ann", 20000, "Self", "Candidate", "d6"),
+        ("Ann Able", "a", "Smith, Joe", 300, "Individual", "Candidate", "d7"),
+        ("Ann Able", "a", "Smith Holdings LLC", 700, "Individual", "Candidate", "d8")]
+    for i, (rec, cid, name, amt, st, ft, ent) in enumerate(rows):
+        m = {"type": "contribution", "name": name, "amount": amt, "date": f"2026-02-{i+1:02d}", "city": "Atlanta", "state": "GA", "recipient": rec,
+             "recipient_kind": "candidate" if cid or "Quimby" in rec else "committee", "donor_is_org": False, "source_type": st, "filer_type": ft,
+             "filer_name": rec, "filing_source": "Georgia State Ethics Commission", "donor_entity": ent, **({"candidate_id": cid} if cid else {})}
+        s.add(Record(f"cand:{cid}" if cid else "ga-ethics", "contribution", f"https://filings.example/{i}", title=name, text="", published=m["date"],
+                     channel="api", evidence="primary", key=f"ga2|x|{i}", meta=m))
+    s.flush()
+    export_donors(s, ROOT, cands, tmp_path / "donors.json", log=lambda *a: None)
+    d = json.loads((tmp_path / "donors.json").read_text())
+    kind = {g["name"]: g["kind"] for g in d["gifts"]}
+    assert kind["The Justice Project"] == "org" and kind["SAVE AMERICA"] == "committee"      # as filed, not from the name
+    assert kind["AFSCME"] == "org"                    # filed as "Other" (the filer passed over "Individual"): not a person
+    assert kind["Able, Ann"] == "self" and kind["Smith, Joe"] == "person" and kind["Smith Holdings LLC"] == "org"
+    jack = next(g for g in d["gifts"] if g["name"] == "QUIMBY, PAT L.")
+    assert jack["kind"] == "self" and jack["self_inferred"] is True
+    assert kind["QUIMBY, MARY"] == "person"                                                 # the same surname, an ordinary gift
+    R = {r["name"]: r for r in d["recipients"]}
+    assert R["Quimby for Governor, Inc."]["kinds"] == {"person": 5000, "self": 13000000} and R["Quimby for Governor, Inc."]["self"] == 13000000
+    assert R["Ann Able"]["kinds"] == {"org": 700, "person": 300, "self": 20000}
+    T = d["totals"]
+    assert T["raised"] == sum(r[3] for r in rows) and T["gifts"] == 8 and T["pairs"] == 8 and T["donors"] == 8 and T["recipients"] == 5
+    assert T["listed"] == 8 and T["self_inferred"] == 1
+    by = {b["k"]: b["t"] for b in d["by"]["kind"]}
+    assert by["self"] == 13020000 and by["person"] == 5300

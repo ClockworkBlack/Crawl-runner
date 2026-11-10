@@ -51,6 +51,40 @@ CONDUITS = {"C00694323": "WinRed", "C00401224": "ActBlue"}   # a platform's lump
 CONDUIT_NAME = re.compile(r"^(winred|actblue|democracy engine|anedot)\b", re.I)
 CONDUIT_LABEL = {"winred": "WinRed", "actblue": "ActBlue", "democracy engine": "Democracy Engine", "anedot": "Anedot"}
 JFC = re.compile(r"\b(victory (fund|committee)|joint fund|jfc)\b", re.I)
+# The State Ethics Commission's own "source type" of a contribution line (EFile and PeachFile), which the filer chose:
+# what a donor is comes from it first, and from the name only where the filer chose "Other" or nothing. Guessed from
+# the name alone, "The Justice Project", "Save America" and "AFSCME" were listed as people (Nov 9).
+SELF_OVER = 100000.0       # a person's gifts to one campaign committee above this can only be the candidate's own money
+
+
+def source_kind(source_type: str | None) -> str | None:
+    """person, org, committee or self as the filing itself says, or None when it does not (then the name decides)."""
+    t = (source_type or "").strip().lower()
+    if not t or t == "other":
+        return None
+    if t == "self":
+        return "self"
+    if "individual" in t or t == "lobbyist" or "spouse" in t:
+        return "person"
+    if "corporation" in t or "business" in t or "organization" in t:      # "... / Unregistered Committee" is the business row
+        return "org"
+    if "committee" in t or "party" in t or "pac" in t.split():
+        return "committee"
+    return None
+
+
+def own_campaign(donor: str, committee: str) -> bool:
+    """Is `committee` a campaign named for the donor's surname ("Jackson for Governor, Inc." and "JACKSON, RICHARD L.")?
+    Only the surname and the campaign form of the name ("<Surname> for <office>") are compared: used with SELF_OVER,
+    since Georgia caps what anyone but the candidate may give a campaign (O.C.G.A. 21-5-41), a person of the
+    candidate's surname who gave far more than the cap is the candidate."""
+    d = (donor or "").strip()
+    if not d or not committee:
+        return False
+    last = d.split(",")[0] if "," in d else d.split()[-1]
+    last = _norm(last).split()
+    cw = _norm(committee).split()
+    return bool(last) and len(last[-1]) > 2 and "for" in cw[1:] and last[-1] in cw[:cw.index("for")]
 ORGISH = re.compile(r"\b(llc|inc|corp|co|company|group|strategies|partners|associates|pac|committee|fund|party|union|association|foundation)\b\.?$|\b(llc|inc|strategies)\b", re.I)
 SPEND_CAP = 4000             # what Electo keeps (donors_from)
 DONOR_CAP = 6000
@@ -252,7 +286,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                                "county": ((c or {}).get("counties") or [""])[0], "jur": (c or {}).get("jurisdiction") or "",
                                "raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "nx": 0, "loans": 0.0, "in_kind": 0.0, "in_ga": 0.0,
                                "small": 0.0, "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": "",
-                               "_fec": 0.0, "cy": {}, **pac}
+                               "_fec": 0.0, "cy": {}, "yr": {}, **pac}
             if c and c.get("_link"):
                 R["link_src"] = c["_link"]["source"]
         fn = (m.get("filer_name") or "").strip()
@@ -280,16 +314,20 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             R["first"] = min(R["first"] or d, d)
             R["last"] = max(R["last"], d)
         cy = cycle_of(d)
-        C = None
-        if cy:      # the same totals for each two-year election cycle, with the dates the lines in it carry
-            C = R["cy"].get(cy)
+        yr = d[:4] if cy else ""
+        CS = []     # the same totals for each two-year election cycle (cy) and each calendar year (yr), with their dates
+        for part, k in (("cy", cy), ("yr", yr)):
+            if not k:
+                continue
+            C = R[part].get(k)
             if C is None:
-                C = R["cy"][cy] = {"raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "loans": 0.0, "first": d, "last": d}
+                C = R[part][k] = {"raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "loans": 0.0, "first": d, "last": d}
             C["first"], C["last"] = min(C["first"], d), max(C["last"], d)
+            CS.append(C)
         if t == "expenditure":
             R["spent"] += amt
             R["nx"] += 1
-            if C is not None:
+            for C in CS:
                 C["spent"] += amt
             k = (R["i"], _norm(m.get("name") or ""))
             S = spend.get(k)
@@ -302,20 +340,20 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             continue
         if t == "loan":
             R["loans"] += amt
-            if C is not None:
+            for C in CS:
                 C["loans"] += amt
             continue
         if t == "in_kind":
             R["in_kind"] += amt
         R["raised"] += amt
-        if C is not None:
+        for C in CS:
             C["raised"] += amt
         if m.get("filing_source") == "FEC":
             R["_fec"] += amt
         if amt <= 0:
             continue      # a refund or a correction: nets out of the total, counts as nothing else
         R["n"] += 1
-        if C is not None:
+        for C in CS:
             C["n"] += 1
         st = (m.get("state") or "").upper()[:2]
         if st == "GA" or (not st and m.get("city") and _norm(m["city"]) in city_county):
@@ -335,12 +373,20 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             conduits_total[conduit] += amt
             continue          # many people's gifts in one line: not a donor, no donor geography
         et = (m.get("entity_type") or "").upper()
-        if R["cid"] and (et in ("CAN",) or (not m.get("donor_is_org") and is_self(nm, R["name"]))):
+        sk = source_kind(m.get("source_type"))       # Georgia: what the filing itself says the donor is
+        orgish = "," not in nm and bool(ORGISH.search(nm))
+        if sk == "self" or (R["cid"] and (et in ("CAN",) or (sk in (None, "person") and not m.get("donor_is_org") and is_self(nm, R["name"])))):
             kind = "self"     # the candidate's own money
             R["self"] += amt
-            if C is not None:
+            for C in CS:
                 C["self"] += amt
-        elif et in ("ORG", "CCM", "PAC", "COM", "PTY") or m.get("contributor_committee_id") or m.get("donor_is_org") or ("," not in nm and ORGISH.search(nm)):
+        elif sk in ("org", "committee"):
+            kind = sk
+        elif sk == "person":
+            kind = "org" if orgish else "person"      # filed as an individual, but the name is a company's ("... LLC")
+        elif (et in ("ORG", "CCM", "PAC", "COM", "PTY") or m.get("contributor_committee_id") or m.get("donor_is_org") or orgish
+              # filed as "Other": the filer passed over "Individual", so not a person unless the name is one ("Last, First")
+              or ((m.get("source_type") or "").strip().lower() == "other" and "," not in nm and nm)):
             kind = "committee" if (et in ("PAC", "COM", "PTY", "CCM") or m.get("contributor_committee_id") or re.search(r"\b(pac|committee|party|fund)\b", nm, re.I)) else "org"
         else:
             kind = "person"
@@ -348,6 +394,10 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             R["orgs"] += amt
         elif m.get("employer"):
             R["employers"][m["employer"].strip()[:60]] += amt
+        R.setdefault("_kinds", defaultdict(float))[kind] += amt
+        ft = (m.get("filer_type") or "").lower()
+        if ft and "_ft" not in R:
+            R["_ft"] = ft
         did = str(m.get("donor_entity") or "") or _norm(m.get("name") or "")
         k = (did, R["i"])
         G = gifts.get(k)
@@ -363,6 +413,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             gc = G.setdefault("cy", {}).setdefault(cy, [0.0, 0])
             gc[0] += amt
             gc[1] += 1
+            gy = G.setdefault("yr", {}).setdefault(yr, [0.0, 0])     # and in each calendar year
+            gy[0] += amt
+            gy[1] += 1
         if d:
             G["first"] = min(G["first"] or d, d)
             G["last"] = max(G["last"], d)
@@ -388,6 +441,26 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             G["via"][L["via"]] = G["via"].get(L["via"], 0.0) + amt
 
     rec_list = sorted(recips.values(), key=lambda x: x["i"])
+    # a candidate's own money filed under a campaign this crawl has not linked to a candidate: a person of the campaign's
+    # surname ("Jackson, Richard L." to "Jackson for Governor, Inc.") whose gifts to it pass SELF_OVER. No one else may
+    # give a campaign that much, so it is the candidate's own (marked self_inferred, and the page says how it was told)
+    for G in gifts.values():
+        R = rec_list[G["r"]]
+        ft = R.get("_ft") or ""
+        if (G["kind"] == "person" and not R.get("cid") and G["total"] >= SELF_OVER and own_campaign(G["name"], R["name"])
+                and not any(w in ft for w in ("leadership", "independent", "party", "non-candidate"))):
+            G["kind"], G["self_inferred"] = "self", True
+            R["self"] += G["total"]
+            for part in ("cy", "yr"):       # and in each cycle and year it was given
+                for k, v in (G.get(part) or {}).items():
+                    if k in R[part]:
+                        R[part][k]["self"] += v[0]
+            K = R.setdefault("_kinds", defaultdict(float))
+            K["person"] -= G["total"]
+            K["self"] += G["total"]
+            D = donors.get(G["donor"])
+            if D and D["kind"] == "person" and G["total"] >= D["total"] / 2:
+                D["kind"] = "self"
     # each federal campaign checked against what the FEC itself reports its committees raised: itemized lines can never
     # add up to more than the committee's receipts, so more than 5% over means a line is counted twice or belongs to
     # someone else (the page then says so beside the total)
@@ -412,7 +485,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         if R.get("_comm"):
             R["committees"] = sorted(R.pop("_comm"))
         R["self"] = round(R["self"], 2)
-        R["cy"] = {k: {kk: (round(vv, 2) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in sorted(R["cy"].items())}
+        for part in ("cy", "yr"):
+            R[part] = {k: {kk: (round(vv, 2) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in sorted(R[part].items())}
         emp = sorted(R["employers"].items(), key=lambda kv: -kv[1])[:8]
         R["employers"] = [{"name": k, "total": round(v, 2)} for k, v in emp]
         R["sources"] = sorted(R["sources"])
@@ -424,12 +498,16 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         R["office"] = (R["office"] or "").split(";")[0].strip()
         for k in ("raised", "spent", "loans", "in_kind", "in_ga", "small", "orgs"):
             R[k] = round(R[k], 2)
+        # what named donors of each kind gave (every line): the page's "by donor type" under a recipient filter
+        R["kinds"] = {k: round(v, 2) for k, v in sorted((R.pop("_kinds", None) or {}).items()) if round(v, 2) > 0}
+        R.pop("_ft", None)
     cand_r = {R["i"] for R in recips.values() if R.get("cid")}
     gift_list = capped(gifts.values(), GIFT_CAP, cand_r)
     for g in gift_list:
         g["total"] = round(g["total"], 2)
-        if g.get("cy"):
-            g["cy"] = {k: [round(v[0], 2), v[1]] for k, v in sorted(g["cy"].items())}
+        for part in ("cy", "yr"):
+            if g.get(part):
+                g[part] = {k: [round(v[0], 2), v[1]] for k, v in sorted(g[part].items())}
     spend_list = capped(spend.values(), SPEND_CAP, cand_r)
     for s in spend_list:
         s["total"] = round(s["total"], 2)
@@ -458,13 +536,23 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                    "which can split one person or merge two with the same name. Only a candidate's own campaign committees count as what the candidate raised; a leadership PAC the candidate runs is listed as its own committee (pac_of), and a joint fundraising committee's money is counted where it was transferred. Each federal campaign carries fec: the FEC's own receipts total for its committees, against which the itemized lines are checked. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
                    "employer, occupation and address. review marks rows parsed from a scanned PDF. Each recipient's and gift's money is also "
                    "split by two-year election cycle (cy; 2025 and 2026 are the 2026 cycle, as the FEC counts them), with the first and last "
-                   "date of the lines in it. self is the candidate's own money (gifts filed under the candidate's own name). A committee "
+                   "date of the lines in it, and by calendar year (yr, the same shape). self is the candidate's own money (gifts filed under the candidate's own name, or filed as Self). "
+                   "A donor's kind (person, org, committee) is the source type the Georgia filing itself gives, and the name only "
+                   "where the filing gives none. A gift marked self_inferred is counted as the candidate's own money because a person "
+                   "of the campaign's surname gave it more than $100,000, which Georgia law (O.C.G.A. 21-5-41) lets no one but the "
+                   "candidate give. kinds is each recipient's money from named donors by kind; totals covers every line. A committee "
                    "whose name does not carry its candidate's full name is linked to the candidate only by config/committee_links.yaml, "
                    "each link with its source (link_src); committees lists the committees counted under a candidate. held is the number "
                    "of the campaign's FEC lines waiting to be read again: its federal total is incomplete until then.",
            "cycles": sorted({k for R in rec_list for k in R["cy"]}),
+           "years": sorted({k for R in rec_list for k in R["yr"]}),
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
            "by": by_out, "conduits": [{"name": k, "total": round(v, 2)} for k, v in sorted(conduits_total.items(), key=lambda kv: -kv[1])],
+           # over every line, not only the listed gifts: what the page's headline figures are (the gift list is the
+           # largest donor-to-recipient totals; a page that added those up alone showed $191M of $305M raised)
+           "totals": {"raised": round(sum(R["raised"] for R in rec_list), 2), "gifts": sum(R["n"] for R in rec_list),
+                      "named": round(sum(g["total"] for g in gifts.values()), 2), "pairs": len(gifts), "donors": len(donors),
+                      "recipients": len(rec_list), "listed": len(gift_list), "self_inferred": sum(1 for g in gifts.values() if g.get("self_inferred"))},
            "hold": ("Federal campaign money (FEC) is being read again with the FEC's own line codes: a check found FEC memo "
                      "lines counted as gifts (one AIPAC PAC figure was counted 20 times). Federal candidates come back as each "
                      "campaign is read again; until then their money is left out rather than shown wrong."
