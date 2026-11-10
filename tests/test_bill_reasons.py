@@ -31,6 +31,16 @@ def test_excerpts_and_stance():
     assert not any("9601" in e["x"] for e in ex)
 
 
+def test_quotes_keep_a_markdown_links_words_not_its_address():
+    """An article read with its links in Markdown: the quote reads "builds on HB 340", not the 200-character address."""
+    t = ("Kemp signed HB 1009 on Tuesday. The law builds on [HB 340](https://urldefense.com/v3/__https://office.example/t/y-l__;!!HW%24), "
+         "signed by the governor last year, which banned devices in K-8 classrooms. ![photo](https://x.example/p.jpg)")
+    ex = br.excerpts_for(t, "HB 340")
+    assert ex and all("](" not in e["x"] and "urldefense" not in e["x"] for e in ex)
+    assert any("The law builds on HB 340, signed by the governor last year" in e["x"] for e in ex)
+    assert br.plain("[Wiki (page)](https://en.wikipedia.org/wiki/A_(b)) and [x] y") == "Wiki (page) and [x] y"
+
+
 def test_outcome_and_session_end():
     assert br.outcome_of({"enacted": True}, True) == "law"
     assert br.outcome_of({"vetoed": True}, False) == "vetoed"

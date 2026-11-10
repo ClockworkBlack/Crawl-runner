@@ -77,8 +77,17 @@ def bill_rx(number: str) -> re.Pattern:
     return re.compile(r"(?<![\w.])(?:" + ch + r"\.?\s?" + kind + r"\.?|" + word + r")\s*" + n + re.escape(suf) + r"(?!\d)", re.I)
 
 
+# a link or an image written as Markdown in an article's text as read ("[HB 340](https://urldefense.com/...)"): the quote
+# keeps the link's words, not the address (the Proofpoint-wrapped addresses ran to 200 characters inside quotes)
+MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
+
+
+def plain(text: str) -> str:
+    return MD_LINK.sub(lambda m: "" if m.group(1) else m.group(2), text or "")
+
+
 def sentences(text: str) -> list[str]:
-    t = re.sub(r"\s+", " ", text or "").strip()
+    t = re.sub(r"\s+", " ", plain(text)).strip()
     return [s.strip() for s in re.split(r"(?:(?<=[.!?])|(?<=[.!?][\"”’)]))\s+(?=[A-Z“\"])", t) if s.strip()]
 
 
@@ -457,7 +466,9 @@ def export_reasons(store, root: Path, out_path: Path) -> dict:
         for r in store.iter_query("kind='bill_reason' AND source_id=?", (src,)):
             m = r["meta"]
             reasons_by[m.get("legislation_id")].append({"t": r.get("title") or "", "u": r["url"], "d": r.get("published") or "",
-                                                        "outlet": m.get("outlet", ""), "excerpts": m.get("excerpts") or [],
+                                                        "outlet": m.get("outlet", ""),
+                                                        "excerpts": [{**e, "x": plain(e.get("x"))} if isinstance(e, dict) and e.get("x") else e
+                                                                     for e in m.get("excerpts") or []],
                                                         **({"official": True} if m.get("official") else {}),
                                                         **({"press_release": True} if m.get("press_release") else {}),
                                                         **({"hearing": True, "at": m.get("at")} if m.get("hearing") else {})})
