@@ -85,6 +85,13 @@ def own_campaign(donor: str, committee: str) -> bool:
     last = _norm(last).split()
     cw = _norm(committee).split()
     return bool(last) and len(last[-1]) > 2 and "for" in cw[1:] and last[-1] in cw[:cw.index("for")]
+# a political committee's name: on Georgia's shared "Corporation / Business / Unregistered Committee" row it tells a committee
+# (a PAC, a party, a governors' association, a campaign) from a business
+POLITICAL = re.compile(r"\b(pac|political|committee|party|republicans?|democrats?|democratic|caucus|leadership|campaign|victory "
+                       r"(fund|committee|pac)|friends of|re-?elect|to elect|for (governor|lieutenant governor|lt\.? governor|senate|congress|"
+                       r"house|state (senate|house)|georgia|attorney general|secretary of state|commissioner|judge|sheriff|mayor|council))\b", re.I)
+CAMPAIGN_FORM = re.compile(r"^([a-z][a-z ]*?) for (governor|lieutenant governor|lt governor|georgia)\b")    # on _norm'd names
+COMMITTEE_WORDS = re.compile(r"\b(friends|committee|elect|campaign|for|pac|fund)\b", re.I)    # a campaign committee's name
 ORGISH = re.compile(r"\b(llc|inc|corp|co|company|group|strategies|partners|associates|pac|committee|fund|party|union|association|foundation)\b\.?$|\b(llc|inc|strategies)\b", re.I)
 SPEND_CAP = 4000             # what Electo keeps (donors_from)
 DONOR_CAP = 6000
@@ -142,7 +149,7 @@ def load_links(root: Path) -> dict:
     for L in (doc or {}).get("links") or []:
         if L.get("committee") and L.get("person") and L.get("relation") in ("campaign", "leadership"):
             out[_norm(L["committee"])] = {"person": L["person"], "name": L.get("name") or "", "party": L.get("party") or "",
-                                          "relation": L["relation"], "source": L.get("source") or ""}
+                                          "relation": L["relation"], "source": L.get("source") or "", "committee": L["committee"]}
     return out
 
 
@@ -258,6 +265,56 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             return rematched[k], None
         return None, None
 
+    # whose committee each filer on record is (one grouped query over the filers, not a pass over every line), by the same
+    # rules as the recipients below: money one of a candidate's committees moved to another of theirs (a leadership
+    # committee paying into the campaign, an old account into the new one) was counted where it was first given, so it is
+    # not counted again where it arrived. For All Georgians' $5M to Jackson for Governor was counted twice on his bar.
+    owner_of: dict[str, str] = {}
+    fields = ("filer_name", "recipient", "candidate_id", "leadership_pac_of", "ga_system", "filer_type")
+    try:
+        filers = store.distinct(", ".join(f"json_extract(meta, '$.{f}')" for f in fields), "kind='contribution'")
+    except Exception:  # noqa: BLE001  (a store without the grouped query: no transfers told apart, as before)
+        filers = []
+    for row in filers:
+        m0 = dict(zip(fields, tuple(row)))
+        who = m0["candidate_id"] or m0["leadership_pac_of"] or ""
+        if not who:
+            c0, l0 = linked(m0)
+            who = (c0 or {}).get("id") or (l0 or {}).get("person") or ""
+        if not who:
+            continue
+        for n in (m0["filer_name"], m0["recipient"]):
+            k = _norm(n or "")
+            if k:
+                owner_of[k] = who if owner_of.get(k, who) == who else ""      # "": two owners, so no one's
+
+    def own_transfer(m: dict, R: dict) -> bool:
+        """A Georgia line from another committee of the recipient's own candidate (FEC transfers are told by committee id,
+        gacrawl/money.py). The candidate's own money (a person, or filed as Self) is not a transfer, nor a committee
+        naming itself as its own donor."""
+        mine = R.get("cid") or R.get("pac_of") or ""
+        nm = (m.get("name") or "").strip()
+        if not mine or not nm or m.get("filing_source") == "FEC":
+            return False
+        kn = _norm(nm)
+        if kn in (_norm(m.get("filer_name") or ""), _norm(m.get("recipient") or "")):
+            return False
+        sk = source_kind(m.get("source_type"))
+        if sk in ("person", "self") or (sk is None and ("," in nm and not ORGISH.search(nm) or is_self(nm, R["name"]))):
+            return False
+        if kn not in owner_of:
+            # a committee that never filed here under this spelling ("Friends of Blake Tillery-Senate"): the hand link table,
+            # else the rule that links filers (a candidate's full name inside a campaign committee's name)
+            L0 = links.get(kn)
+            c0 = None if L0 else filer_match({"filerName": nm, "filerTypeDesc": "", "filerTypeCode": ""}, cidx) if (sk == "committee" or COMMITTEE_WORDS.search(nm)) else None
+            owner_of[kn] = (L0 or {}).get("person") or (c0 or {}).get("id") or ""
+        if owner_of[kn]:
+            return owner_of[kn] == mine
+        # a leadership committee's own candidate's campaign by its campaign name ("Abrams for Governor", $5M to One Georgia
+        # in 2022): the surname of the candidate who chairs it, and the statewide office it exists for (O.C.G.A. 21-5-34.2)
+        cf = CAMPAIGN_FORM.match(kn) if R.get("pac_of") and R.get("pac_of_name") else None
+        return bool(cf) and cf.group(1).split()[-1] == (_norm(R["pac_of_name"]).split() or [""])[-1]
+
     def recip_of(m: dict, r: dict) -> dict:
         cid = m.get("candidate_id")
         c = by_id.get(cid) if cid else None
@@ -287,8 +344,13 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                                "raised": 0.0, "self": 0.0, "n": 0, "spent": 0.0, "nx": 0, "loans": 0.0, "in_kind": 0.0, "in_ga": 0.0,
                                "small": 0.0, "orgs": 0.0, "employers": defaultdict(float), "sources": set(), "first": "", "last": "",
                                "_fec": 0.0, "cy": {}, "yr": {}, **pac}
-            if c and c.get("_link"):
-                R["link_src"] = c["_link"]["source"]
+        if c and c.get("_link"):
+            # each committee linked by hand, with its own source (a candidate can have several: Tillery's Senate account is
+            # matched by his name, his lieutenant governor campaign only by the link)
+            lk = R.setdefault("_links", {})
+            if c["_link"]["committee"] not in lk and len(lk) < 6:
+                lk[c["_link"]["committee"]] = c["_link"]["source"]
+            R.setdefault("link_src", c["_link"]["source"])
         fn = (m.get("filer_name") or "").strip()
         if c and fn and _norm(fn) != _norm(R["name"]):
             cm = R.setdefault("_comm", set())      # the committees that filed as this candidate's (shown on the page)
@@ -308,6 +370,17 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         R = recip_of(m, r)
         t = m.get("type") or "contribution"
         d = (m.get("date") or r.get("published") or "")[:10]
+        if t in ("contribution", "in_kind") and own_transfer(m, R):
+            # counted where it was first given; kept here only as a note, by committee and by cycle and year
+            Mv = R.setdefault("_moved", {"total": 0.0, "n": 0, "from": defaultdict(float), "cy": defaultdict(float), "yr": defaultdict(float)})
+            Mv["total"] += amt
+            Mv["n"] += 1
+            Mv["from"][(m.get("name") or "").strip()] += amt
+            if cycle_of(d):
+                Mv["cy"][cycle_of(d)] += amt
+                Mv["yr"][d[:4]] += amt
+            mstats["own_transfer"] = mstats.get("own_transfer", 0) + 1
+            continue
         if len(R["sources"]) < 6:
             R["sources"].add(r["url"])
         if d:
@@ -358,8 +431,12 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         st = (m.get("state") or "").upper()[:2]
         if st == "GA" or (not st and m.get("city") and _norm(m["city"]) in city_county):
             R["in_ga"] += amt
+            for C in CS:      # the shares per cycle and year too, so the page never has to show every year's under one
+                C["in_ga"] = C.get("in_ga", 0.0) + amt
         if amt < 200:
             R["small"] += amt
+            for C in CS:
+                C["small"] = C.get("small", 0.0) + amt
         nm = (m.get("name") or "").strip()
         last = (R["name"].split()[-1] if R["name"] else "").lower()
         if L["via"]:      # one person's gift that passed through a conduit (ActBlue, WinRed, AIPAC PAC ...): theirs, via it
@@ -375,11 +452,20 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         et = (m.get("entity_type") or "").upper()
         sk = source_kind(m.get("source_type"))       # Georgia: what the filing itself says the donor is
         orgish = "," not in nm and bool(ORGISH.search(nm))
-        if sk == "self" or (R["cid"] and (et in ("CAN",) or (sk in (None, "person") and not m.get("donor_is_org") and is_self(nm, R["name"])))):
+        st_low = (m.get("source_type") or "").strip().lower()
+        # the candidate's own name, filed as a committee or a business ("Greene, Karen Scott" giving to her own campaign as
+        # "Candidate/Campaign Committee"): their own money (an account of theirs that filed is a transfer, left out above)
+        named_self = (bool(R["cid"]) and sk in ("committee", "org") and not orgish and not COMMITTEE_WORDS.search(nm)
+                      and is_self(nm, R["name"]))
+        if sk == "self" or named_self or (R["cid"] and (et in ("CAN",) or (sk in (None, "person") and not m.get("donor_is_org") and is_self(nm, R["name"])))):
             kind = "self"     # the candidate's own money
             R["self"] += amt
             for C in CS:
                 C["self"] += amt
+        elif sk == "org" and "unregistered committee" in st_low and POLITICAL.search(nm):
+            # Georgia's one row for "Corporation / Business / Unregistered Committee": a political committee by its name (the
+            # Republican and Democratic Governors Associations, the RNC, a PAC) is a committee, not a business
+            kind = "committee"
         elif sk in ("org", "committee"):
             kind = sk
         elif sk == "person":
@@ -392,9 +478,14 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             kind = "person"
         if kind in ("committee", "org"):
             R["orgs"] += amt
+            for C in CS:
+                C["orgs"] = C.get("orgs", 0.0) + amt
         elif m.get("employer"):
             R["employers"][m["employer"].strip()[:60]] += amt
         R.setdefault("_kinds", defaultdict(float))[kind] += amt
+        for C in CS:
+            CK = C.setdefault("kinds", {})
+            CK[kind] = CK.get(kind, 0.0) + amt
         ft = (m.get("filer_type") or "").lower()
         if ft and "_ft" not in R:
             R["_ft"] = ft
@@ -455,6 +546,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                 for k, v in (G.get(part) or {}).items():
                     if k in R[part]:
                         R[part][k]["self"] += v[0]
+                        CK = R[part][k].setdefault("kinds", {})
+                        CK["person"] = CK.get("person", 0.0) - v[0]
+                        CK["self"] = CK.get("self", 0.0) + v[0]
             K = R.setdefault("_kinds", defaultdict(float))
             K["person"] -= G["total"]
             K["self"] += G["total"]
@@ -491,9 +585,13 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             R["party"] = link_party[R["cid"]]
         if R.get("_comm"):
             R["committees"] = sorted(R.pop("_comm"))
+        if R.get("_links"):
+            R["links"] = [{"committee": k, "source": v} for k, v in sorted(R.pop("_links").items())]
         R["self"] = round(R["self"], 2)
         for part in ("cy", "yr"):
-            R[part] = {k: {kk: (round(vv, 2) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in sorted(R[part].items())}
+            R[part] = {k: {kk: (round(vv, 2) if isinstance(vv, float) else
+                                {a: round(b, 2) for a, b in sorted(vv.items()) if round(b, 2) > 0} if isinstance(vv, dict) else vv)
+                           for kk, vv in v.items()} for k, v in sorted(R[part].items())}
         emp = sorted(R["employers"].items(), key=lambda kv: -kv[1])[:8]
         R["employers"] = [{"name": k, "total": round(v, 2)} for k, v in emp]
         R["sources"] = sorted(R["sources"])
@@ -508,6 +606,11 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         # what named donors of each kind gave (every line): the page's "by donor type" under a recipient filter
         R["kinds"] = {k: round(v, 2) for k, v in sorted((R.pop("_kinds", None) or {}).items()) if round(v, 2) > 0}
         R.pop("_ft", None)
+        Mv = R.pop("_moved", None)
+        if Mv and round(Mv["total"], 2):
+            R["moved"] = {"total": round(Mv["total"], 2), "n": Mv["n"],
+                          "from": [{"name": k, "total": round(v, 2)} for k, v in sorted(Mv["from"].items(), key=lambda kv: -kv[1])][:6],
+                          "cy": {k: round(v, 2) for k, v in sorted(Mv["cy"].items())}, "yr": {k: round(v, 2) for k, v in sorted(Mv["yr"].items())}}
     cand_r = {R["i"] for R in recips.values() if R.get("cid")}
     gift_list = capped(gifts.values(), GIFT_CAP, cand_r)
     for g in gift_list:
@@ -549,10 +652,13 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                    "of the campaign's surname gave it more than $100,000, which Georgia law (O.C.G.A. 21-5-41) lets no one but the "
                    "candidate give. kinds is each recipient's money from named donors by kind; totals covers every line. A committee "
                    "whose name does not carry its candidate's full name is linked to the candidate only by config/committee_links.yaml, "
-                   "each link with its source (link_src); committees lists the committees counted under a candidate. held is the number "
+                   "each link with its source (links: committee and source; link_src: the first); committees lists the committees counted under a candidate. held is the number "
                    "of the campaign's FEC lines waiting to be read again: its federal total is incomplete until then. fec_cy is the FEC's "
                    "own totals for a federal campaign's committees per cycle (receipts, gifts under $200 included; through: the "
-                   "newest report's end date): the page shows these as the campaign's money, the itemized lines as the detail.",
+                   "newest report's end date): the page shows these as the campaign's money, the itemized lines as the detail. "
+                   "moved is money another committee of the same candidate moved to this one (a leadership committee paying "
+                   "into the campaign, an old campaign account into the new one: total, from whom, by cycle and year): it was "
+                   "counted where it was first given, so it is not in raised here.",
            "cycles": sorted({k for R in rec_list for k in R["cy"]}),
            "years": sorted({k for R in rec_list for k in R["yr"]}),
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
@@ -567,7 +673,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                      "campaign is read again; until then their money is left out rather than shown wrong."
                      if mstats.get("legacy") else ""),
            "skipped": {"memo_lines": mstats.get("memo", 0), "duplicate_lines": mstats.get("repeat", 0),
-                       "transfers_between_own_committees": mstats.get("transfer", 0),
+                       "transfers_between_own_committees": mstats.get("transfer", 0) + mstats.get("own_transfer", 0),
                        "fec_lines_awaiting_reread": mstats.get("legacy", 0)}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
     for g in gift_list:
         if g.get("via"):

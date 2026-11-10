@@ -282,6 +282,12 @@ class Store:
         with self._lock:
             return self.db.execute(f"SELECT {cols} FROM records WHERE {where} ORDER BY rid", params).fetchall()
 
+    def distinct(self, cols: str, where: str = "1", params: tuple = ()) -> list[sqlite3.Row]:
+        """The distinct combinations of a few columns or meta fields (json_extract(meta, '$.x')) over the matching rows:
+        one grouped query where a pass over every row would decode each row's meta."""
+        with self._lock:
+            return self.db.execute(f"SELECT DISTINCT {cols} FROM records WHERE {where}", params).fetchall()
+
     def raw_iter(self, where: str, params: tuple = (), cols: str = "*", batch: int = 2000) -> Iterator[sqlite3.Row]:
         """Undecoded rows in rid order, streamed in batches (keyset pagination): exports that copy `meta` through."""
         last = 0

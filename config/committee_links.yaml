@@ -41,3 +41,52 @@ links:
     party: D
     relation: leadership
     source: https://atlantaciviccircle.org/2022/07/13/latest-georgia-campaign-money-report-lots-of-commas/
+
+  - committee: "Jones, William Burton"
+    person: burt-jones
+    name: Burt Jones
+    party: R
+    relation: campaign
+    source: https://en.wikipedia.org/wiki/Burt_Jones      # William Burton Jones: the account Georgia keeps under his legal name
+
+  - committee: "For All Georgians, Inc."
+    person: rick-jackson
+    name: Rick Jackson
+    party: R
+    relation: leadership
+    source: https://flagpole.com/news/news-features/2026/08/19/republicans-out-fundraise-democrats-in-most-georgia-statewide-races/   # "For All Georgians, Jackson's new leadership committee"
+
+  - committee: "Project Battleground Georgia"
+    person: keisha-lance-bottoms
+    name: Keisha Lance Bottoms
+    party: D
+    relation: leadership
+    source: https://flagpole.com/news/news-features/2026/08/19/republicans-out-fundraise-democrats-in-most-georgia-statewide-races/   # "the leadership committee Bottoms created once she became the official Democratic nominee"
+
+  - committee: "Georgia Liberty PAC"
+    person: greg-dolezal
+    name: Greg Dolezal
+    party: R
+    relation: leadership
+    source: https://flagpole.com/news/news-features/2026/08/19/republicans-out-fundraise-democrats-in-most-georgia-statewide-races/   # "His leadership committee, Georgia Liberty PAC"
+
+  - committee: "Tillery for Georgia, Inc."
+    person: blake-tillery
+    name: Blake Tillery
+    party: R
+    relation: campaign
+    source: https://thecitizen.com/2026/04/22/senator-blake-tillery-candidate-for-lieutenant-governor-visits-fayetteville-on-april-21-2026/   # his lieutenant governor campaign, quoting its "Tillery for Georgia campaign manager"
+
+  - committee: "Harper for Georgia, Inc."
+    person: tyler-harper
+    name: Tyler Harper
+    party: R
+    relation: campaign
+    source: https://www.transparencyusa.org/ga/candidate/tyler-harper/contributors   # the committee's donors (D W Harper, Elecia Harper) listed as Tyler Harper's
+
+  - committee: "Duncan for Georgia"
+    person: geoff-duncan
+    name: Geoff Duncan
+    party: D
+    relation: campaign
+    source: https://nripulse.com/former-republican-lt-gov-geoff-duncan-now-running-as-democrat-reports-1-1-million-raised/   # his 2026 campaign for governor (the article's photo: "Duncan for Georgia website"); its filings list his own gift

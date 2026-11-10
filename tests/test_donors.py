@@ -152,8 +152,12 @@ def test_cycles_links_own_money_and_held_federal_lines(tmp_path):
     J = R["Rick Jackson"]
     assert J["cid"] == "rick-jackson" and J["party"] == "R" and J["committees"] == ["Jackson for Governor, Inc."]
     assert J["link_src"].startswith("https://caselaw.findlaw.com/") and J["raised"] == 40_007_600 and J["self"] == 40_000_000
-    assert J["cy"] == {"2026": {"raised": 40_007_600, "self": 40_000_000, "n": 3, "spent": 0, "loans": 0,
-                                "first": "2026-02-04", "last": "2026-07-30"}}
+    assert J["links"] == [{"committee": "Jackson for Governor, Inc.", "source": J["link_src"]}]      # each linked committee's own source
+    assert {k: J["cy"]["2026"][k] for k in ("raised", "self", "n", "spent", "loans", "first", "last")} == {
+        "raised": 40_007_600, "self": 40_000_000, "n": 3, "spent": 0, "loans": 0, "first": "2026-02-04", "last": "2026-07-30"}
+    # the shares per cycle: Georgia addresses, gifts under $200, organizations, and money by donor type
+    assert J["cy"]["2026"]["in_ga"] == 40_007_600 and J["cy"]["2026"].get("orgs", 0) == 0
+    assert J["cy"]["2026"]["kinds"] == {"person": 7_600, "self": 40_000_000}
     kinds = {g["name"]: g["kind"] for g in d["gifts"]}
     assert kinds["Jackson, Richard L"] == "self" and kinds["Jackson, Marsha"] == "person"
     # Burt Jones's leadership committee: its own row, under him (not his campaign's money)
@@ -178,6 +182,65 @@ def test_cycles_links_own_money_and_held_federal_lines(tmp_path):
     assert is_self("JACKSON, RICHARD L", "Rick Jackson") and is_self("Jones, William Burton", "Burt Jones")
     assert not is_self("Jones, Mary", "Burt Jones") and not is_self("Jackson Healthcare", "Rick Jackson")
     assert is_self("Ann Able", "Ann Able") and not is_self("Able", "Ann Able")
+
+
+def test_money_moved_between_a_candidates_own_committees_counts_once(tmp_path):
+    """A leadership committee paying into its candidate's campaign (For All Georgians to Jackson for Governor), or an old
+    campaign account into the new one, is money counted where it was first given: left out of what the receiving
+    committee raised and noted under moved. The candidate's own gifts, a committee naming itself, the leadership
+    committee's gifts to other candidates and a business carrying the candidate's name are counted as before."""
+    s = Store(tmp_path / "data")
+    cands = [{"id": "bea-bold", "name": "Bea Bold", "electo_key": "BEA BOLD", "party": "D", "office": "State Senate",
+              "levels": ["legislative"], "counties": [], "jurisdiction": ""}]
+    lines = [  # (filer, filer type, donor, source type, amount, date, type)
+        ("For All Georgians, Inc.", "Leadership Committee", "Republican Governors Association", "Non-Candidate Committee", 10_000_000, "2026-07-01", "contribution"),
+        ("Jackson for Governor, Inc.", "Campaign Committee", "For All Georgians, Inc.", "Non-Candidate Committee", 5_000_000, "2026-07-30", "contribution"),
+        ("Jackson for Governor, Inc.", "Campaign Committee", "For All Georgians Inc", "Non-Candidate Committee", 2_000, "2026-07-02", "in_kind"),
+        ("Jackson for Governor, Inc.", "Campaign Committee", "Smith, Pat", "Individual", 1_000, "2026-07-30", "contribution"),
+        ("For All Georgians, Inc.", "Leadership Committee", "Doe, Jane", "Individual", 500, "2026-07-03", "contribution"),
+        ("Friends of Bea Bold", "Campaign Committee", "Roe, Rick", "Individual", 900, "2024-05-01", "contribution"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Friends of Bea Bold-Senate", "Corporation / Business / Unregistered Committee", 700, "2026-01-10", "contribution"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Bold, Bea", "Individual", 300, "2026-01-11", "contribution"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Committee to Elect Bea Bold", "Candidate / Candidate Committee", 40, "2026-01-12", "in_kind"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "For All Georgians, Inc.", "Non-Candidate Committee", 2_500, "2026-02-01", "contribution"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Bea Bold Farms LLC", "Corporation / Business / Unregistered Committee", 250, "2026-02-02", "contribution"),
+        # the leadership committee's own candidate's campaign under a name that never filed: by the chair's surname
+        ("For All Georgians, Inc.", "Leadership Committee", "Jackson for Governor", "Corporation / Business / Unregistered Committee", 1_500, "2026-07-05", "contribution"),
+        # the candidate's own name filed as a committee: her own money
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Bold, Bea", "Candidate/Campaign Committee", 600, "2026-01-13", "contribution"),
+        # Georgia's shared business / unregistered committee row: a political committee by its name, else a business
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Republican Governors Association", "Corporation / Business / Unregistered Committee", 5_000, "2026-02-03", "contribution"),
+        ("Committee to Elect Bea Bold", "Campaign Committee", "Georgia Bankers Association", "Corporation / Business / Unregistered Committee", 1_000, "2026-02-04", "contribution"),
+    ]
+    for i, (filer, ft, donor, st, amt, d, t) in enumerate(lines):
+        m = {"type": t, "name": donor, "source_type": st, "amount": amt, "date": d, "recipient": filer, "recipient_kind": "committee",
+             "filer_name": filer, "filer_type": ft, "ga_system": "peachfile", "filing_source": "GA Ethics", "city": "Atlanta",
+             "state": "GA", "donor_entity": donor, "line": str(i)}
+        s.add(Record("ga-ethics", "contribution", f"https://peachfile.example/{i}", title=donor, text="", published=d,
+                     channel="api", evidence="primary", key=f"g{i}", meta=m))
+    s.flush()
+    export_donors(s, ROOT, cands, tmp_path / "donors.json", log=lambda *a: None)
+    d = json.loads((tmp_path / "donors.json").read_text())
+    R = {r["name"]: r for r in d["recipients"]}
+    J, F, B = R["Rick Jackson"], R["For All Georgians, Inc."], R["Bea Bold"]
+    assert F["pac_of"] == "rick-jackson" and F["raised"] == 10_000_500       # the leadership committee: what it raised
+    assert F["moved"]["total"] == 1_500 and F["moved"]["from"] == [{"name": "Jackson for Governor", "total": 1_500}]
+    assert J["raised"] == 1_000 and J["in_kind"] == 0 and J["cy"]["2026"]["raised"] == 1_000      # the campaign: not again
+    assert J["moved"] == {"total": 5_002_000, "n": 2, "from": [{"name": "For All Georgians, Inc.", "total": 5_000_000},
+                                                               {"name": "For All Georgians Inc", "total": 2_000}],
+                          "cy": {"2026": 5_002_000}, "yr": {"2026": 5_002_000}}
+    # Bea Bold: her Senate account's money moved into the new campaign counts once; her own gift, the committee naming
+    # itself, For All Georgians' gift to her and her farm's gift count as before
+    assert B["moved"]["total"] == 700 and B["moved"]["cy"] == {"2026": 700} and B["self"] == 300 + 600
+    assert B["raised"] == 900 + 300 + 40 + 2_500 + 250 + 600 + 5_000 + 1_000
+    assert B["kinds"] == {"person": 900, "self": 900, "committee": 40 + 2_500 + 5_000, "org": 250 + 1_000}
+    kinds = {g["name"]: g["kind"] for g in d["gifts"]}
+    assert kinds["Republican Governors Association"] == "committee" and kinds["Georgia Bankers Association"] == "org" and kinds["Bold, Bea"] == "self"
+    named = {(g["name"], g["r"]) for g in d["gifts"]}
+    assert ("For All Georgians, Inc.", B["i"]) in named and ("For All Georgians, Inc.", J["i"]) not in named
+    assert ("Bea Bold Farms LLC", B["i"]) in named and not any(n == "Friends of Bea Bold-Senate" for n, _ in named)
+    assert d["skipped"]["transfers_between_own_committees"] == 4
+    assert d["totals"]["raised"] == sum(r["raised"] for r in d["recipients"]) == 10_000_500 + 1_000 + 3_990 + 6_600
 
 
 def test_source_kind_is_the_filings_own_word():
