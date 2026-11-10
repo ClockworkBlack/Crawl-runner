@@ -390,8 +390,15 @@ class Extractor:
         return out
 
     def someone_elses(self, s: str) -> bool:
-        """A sentence on their own channel that reports what others did, with no I/we and no mention of them."""
-        return not FIRST_PERSON.search(s) and not self.named(s) and bool(HEADLINE.match(s) or REPORTED.match(s))
+        """A sentence on their own channel that is not their stance: a report of what others did, with no I/we and no
+        mention of them; or someone speaking about them in the first person (a testimonial or a letter posted on their
+        site: "Amelia Inman is an excellent community leader and I really appreciate her board ...")."""
+        if FIRST_PERSON.search(s):
+            L = re.escape(self.last)
+            return bool(re.search(r"\b" + L + r"(?:['’]s\b|\s+(?:is|was|has|had|will|would|can|could|helped|gave|made|serves|served|"
+                                  r"believes|works|worked|truly|really|always|recognized|supported|showed)\b)", s, re.I)
+                        and not re.search(r"\b(?:i am|i['’]m|my name is|this is)\s+(?:\w+\s+){0,2}?" + L + r"\b", s, re.I))
+        return not self.named(s) and bool(HEADLINE.match(s) or REPORTED.match(s))
 
     def controversies(self, text: str, own: bool = False) -> list[dict]:
         """Sentences that name the candidate and report an investigation, charge, lawsuit, ethics matter, sanction,

@@ -83,3 +83,10 @@ def test_business_environment_is_not_environmental():
     from gacrawl.stances import issues_of
     assert "Environment" not in issues_of("our pro-business environment is fostering sustained success for businesses")
     assert "Environment" in issues_of("We must protect the environment and our coastal marshes")
+
+
+def test_a_letter_about_them_on_their_site_is_not_their_stance():
+    ex = Extractor({"id": "amelia-inman", "name": "Amelia Inman", "aliases": []})
+    assert ex.someone_elses("Amelia Inman is an excellent community leader and I really appreciate her board for recognizing me.")
+    assert not ex.someone_elses("I'm Amelia Inman and I will fight for affordable housing in Lithonia.")
+    assert not ex.someone_elses("I will fight for affordable housing in Lithonia.")
