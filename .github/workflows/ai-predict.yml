@@ -9,7 +9,7 @@ name: ai-predict
 #            since, by the open model as judge (tools/predict/ledger.py); right and wrong ones go into the ledger
 #   combine  the ledger, the track record the page shows, the notes the inference job reads back (how often each kind of
 #            inference held, examples that did and did not), and fine-tuning examples (research/train/predict/)
-# Runs daily; the bench only when asked for or when its results are missing for a model.
+# Runs daily (check and combine); the hidden-vote test only when asked for (bench = questions per model and variant).
 on:
   schedule:
     - cron: "41 4 * * *"
@@ -26,8 +26,9 @@ permissions:
   contents: read
   actions: write        # remove this run's attachments at the end
 
+# the hidden-vote test and the daily check never wait on each other (each pushes with a fetch-and-retry loop)
 concurrency:
-  group: ai-predict-${{ github.ref_name }}
+  group: ai-predict-${{ github.ref_name }}-${{ (inputs.bench != '' && inputs.bench != '0') && 'bench' || 'check' }}
   cancel-in-progress: false
 
 env:
@@ -81,8 +82,56 @@ jobs:
             log.jsonl
           retention-days: 2
 
+  check:
+    if: github.event.repository.private == false && (inputs.bench == '' || inputs.bench == '0')
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      ELECTO_LLM_REPO: microsoft/phi-4-gguf       # the model that writes the page's inferences
+      ELECTO_LLM_QUANT: Q4_K_S
+      ELECTO_LLM_NAME: Phi-4
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the records, the page's inferences and the ledger)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/predict/ /ga/profiles.json /ga/profiles_local.json \
+            /ga/pipeline_archive/profiles.json /ga/pipeline_archive/legis.json /ga/crawl/infer_ai.json /ga/crawl/people.json \
+            /ga/crawl/predict.json /research/predict/
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
+      - name: The open model (kept between runs when the cache has room)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-phi4-q4ks-v1
+      - name: llama.cpp (CPU build)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Check earlier predictions against what happened since
+        run: |
+          M="${{ inputs.minutes || '240' }}"; [ "$M" -le 300 ] || M=300
+          cd electo
+          [ -f tools/predict/ledger.py ] || { echo "no ledger tool in Electo yet"; echo '{"entries":[]}' > ../part.json; : > ../log.jsonl; exit 0; }
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/ledger.py --run --shard ${{ matrix.shard }} --of 4 --minutes "$M" --out ../part.json || echo "stopped"
+          [ -f ../part.json ] || echo '{"entries":[]}' > ../part.json
+          cp research/train/predict_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: predict-check-${{ matrix.shard }}
+          path: |
+            part.json
+            log.jsonl
+          retention-days: 2
+
   combine:
-    needs: [bench]
+    needs: [bench, check]
     if: always() && github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -105,9 +154,10 @@ jobs:
           git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
           cd /tmp/electo-ai
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          RC=0
           for i in 1 2 3 4 5; do
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD
-            [ -f tools/predict/combine.sh ] && bash tools/predict/combine.sh "$S" || { ls "$S"/predict-bench-*/run.json >/dev/null 2>&1 && python3 -I tools/predict/vote_bench.py --combine "$S"/predict-bench-*/run.json; }
+            RC=0; bash tools/predict/combine.sh "$S" || RC=$?
             git add -A research/predict research/train/predict ga/crawl/predict.json ga/pipeline_civics/bill_odds.json 2>/dev/null || true
             if git diff --cached --quiet; then echo "nothing new"; break; fi
             git commit -qm "Predictions checked against what happened: $(date -u +%Y-%m-%dT%H:%MZ)"
@@ -116,6 +166,8 @@ jobs:
             sleep $((i * 10))
           done
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          # what could be combined is kept either way; a disagreement among the inputs still fails the run, so it is seen
+          [ "$RC" = 0 ] || { echo "::error::tools/predict/combine.sh ended with $RC (see its lines above)"; exit "$RC"; }
       - name: Remove this run's attachments
         if: always()
         env:
