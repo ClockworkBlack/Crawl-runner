@@ -135,6 +135,19 @@ TITLE_WORDS = (r"(?:Rep\.?|Representative|Sen\.?|Senator|Gov\.?|Governor|Lt\.?\s
                r"Congressman|Congresswoman|President|Speaker|Leader|Dr\.?|Mr\.?|Mrs\.?|Ms\.?)")
 SAY = (r"(?:said|says|added|stated|noted|explained|remarked|continued|declared|emphasized|stressed|wrote|"
        r"told\s+[^,.;:“”\"]{2,40}?)")
+# a news headline or report about what someone else did ("Georgia House OKs bill to limit ...", "The case targeted ..."),
+# copied onto a candidate's site: not their stance unless it says I/we or names them (Electo tools/ai/llm.py not_theirs)
+HEADLINE = re.compile(r"^(?:[A-Z][\w'’.&-]*,?\s+){1,6}?(?i:OKs?|pass(?:es|ed)?|approves?|approved|adopts?|adopted|votes?|voted|"
+                      r"signs?|signed|vetoe?s|vetoed|announces?|announced|prevails?|rules?|ruled|unveils?|rejects?|rejected|blocks?|"
+                      r"blocked|kills?|killed|advances?|advanced|sues|sued|wins?|won|loses?|lost|clears?|cleared|halts?|halted|"
+                      r"strikes? down|upholds?|upheld|weighs?|considers?|debates?|launches?|launched|files?|filed|introduces?|"
+                      r"introduced|backs?|backed|says|said|warns?|calls? for|urges?|pushes?|eyes|plans?)\b")
+REPORTED = re.compile(r"^(?:The|A|An|This|That|These|Those|Its|Their)\s+(?:[\w'’-]+\s+){0,3}?(?:case|lawsuit|suit|court|judge|"
+                      r"justices?|plaintiffs?|defendants?|ruling|order|decision|complaint|indictment|investigation|report|study|"
+                      r"audit|poll|survey|bill|law|measure|legislature|senate|house|council|commission|board|agency|department|"
+                      r"group|coalition|party|campaign|opponents?|critics?|supporters?|administration|governor|mayor)\b"
+                      r"[^.;:]{0,60}?\b(?:\w+ed|said|says|argues|claims?|found|ruled|held|sought|seeks|would|will|has|had|is|"
+                      r"was|were|are)\b", re.I)
 CEREMONY = re.compile(r"(?:congratulations|thank you|thanks to|we thank|happy\b|welcome\b|we (?:mourn|grieve)|our (?:thoughts|prayers|hearts)|"
                       r"(?:marty|i) (?:and i )?(?:are|am) (?:saddened|heartbroken|deeply)|rest in peace)", re.I)
 SOMEONE_SAID = re.compile(r"^\s*,?\s*(?:" + SAY + r")\s+(?:the\s+)?[A-Z]|^\s*,?\s*(?:[A-Z][\w.'’-]+\s+){1,4}" + SAY + r"\b")
@@ -346,7 +359,7 @@ class Extractor:
         """Sentences from the candidate's own channel that take a stance."""
         out = []
         for s in sentences(text):
-            if NOISE_SENT.search(s) or not STANCE_CUES.search(s):
+            if NOISE_SENT.search(s) or not STANCE_CUES.search(s) or self.someone_elses(s):
                 continue
             if ENDORSED_BY.search(s) and not FIRST_PERSON.search(s):
                 continue
@@ -365,8 +378,14 @@ class Extractor:
                 continue
             if not issues_of(line, self.root):
                 continue
+            if self.someone_elses(line):
+                continue                                  # a headline or report about others on their news page
             out.append(line)
         return out
+
+    def someone_elses(self, s: str) -> bool:
+        """A sentence on their own channel that reports what others did, with no I/we and no mention of them."""
+        return not FIRST_PERSON.search(s) and not self.named(s) and bool(HEADLINE.match(s) or REPORTED.match(s))
 
     def controversies(self, text: str, own: bool = False) -> list[dict]:
         """Sentences that name the candidate and report an investigation, charge, lawsuit, ethics matter, sanction,
@@ -646,8 +665,10 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
         txt = r.get("text") or ""
         if r["kind"] == "statement":
             host = re.sub(r"^https?://(www\.)?", "", r["url"]).split("/")[0].lower()
-            if re.search(r"(?:^|\.)(?:wikipedia|wikimedia|wikidata|ballotpedia)\.org$", host):
-                site["not_theirs"] = site.get("not_theirs", 0) + 1     # an encyclopedia's page about them is not their own channel
+            if re.search(r"(?:^|\.)(?:wikipedia\.org|wikimedia\.org|wikidata\.org|ballotpedia\.org|ontheissues\.org|votesmart\.org|isidewith\.com)$", host):
+                # an encyclopedia's or an issues digest's page about them is not their own channel (Nov 9: OnTheIssues pages
+                # taken for Jim Barksdale's site gave him a congressman's floor votes and other candidates' endorsements)
+                site["not_theirs"] = site.get("not_theirs", 0) + 1
                 continue
             # a page that neither names them nor sits on a domain with their name is not their site (an expired
             # domain bought by someone else, a parked page): read nothing from it

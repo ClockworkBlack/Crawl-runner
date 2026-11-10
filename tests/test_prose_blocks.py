@@ -56,3 +56,16 @@ def test_site_builder_filler_is_not_a_candidates_statement(tmp_path):
     texts = [x["stance"] for x in prof["positions"]] + [x["text"] for x in prof["statements"]]
     assert any("landfill on Mill Road" in t for t in texts) and not any("primary theme" in t for t in texts)
     store.close()
+
+
+def test_issue_digest_is_not_their_site(tmp_path):
+    """OnTheIssues and the like collect many people's records on their own pages: never the candidate's own channel."""
+    from gacrawl.stances import profile_supplement
+    from gacrawl.store import Record, Store
+    st = Store(tmp_path)
+    st.add(Record("cand:jim-barksdale", "statement", "https://ontheissues.org/SENATE/Jim_Barksdale.htm", title="Jim Barksdale on the Issues",
+                  text="Jim Barksdale on the issues. Voted YES on banning partial-birth abortion except to save mother's life.",
+                  evidence="primary"))
+    st.flush()
+    p = profile_supplement({"id": "jim-barksdale", "name": "Jim Barksdale", "aliases": [], "jurisdictions": []}, st)
+    assert not p["positions"] and not p["statements"]

@@ -101,7 +101,9 @@ jobs:
           git add ga/crawl/profile_ai.json research/train/profile_ai_log.jsonl
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
           git commit -qm "Profile sorting by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; git rebase --abort 2>/dev/null || true; sleep $((i*5)); done
+          # the profiles written from the records read these labels: folded in on Electo's newest main (ga/written.py)
+          [ -f tools/written_publish.sh ] && bash tools/written_publish.sh || echo "written profiles not refreshed"
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
       - name: Remove this run's attachments
         if: always()

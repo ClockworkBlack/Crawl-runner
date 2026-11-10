@@ -953,6 +953,9 @@ jobs:
             python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
             (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)
             python3 -I ga/crawl_import.py --policing-only --force | tail -1 | cut -c1-300   # police, media, records, bill reasons, donors
+            # everyone's profile written from the records this import just brought (ga/written.py: races, the legislature's
+            # records, the open model's checked lines for their own words), folded into the archive and this year's profiles
+            [ ! -f ga/written.py ] || python3 -I ga/written.py | tail -3
             # the rest of build_all.sh, none of which needs the live web: the bill list (statuses, act numbers, new bills)
             # from legislation.json, the Code as amended by every enacted act from code_acts.json (a run that changes
             # nothing rewrites nothing), and the name registry last (record-only council voters get their pages)
@@ -964,7 +967,7 @@ jobs:
             git checkout -q -- ga/news.json 2>/dev/null || true
             # only what the import writes
             git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-            git add -A ga/crawl ga/councils.json ga/places.json ga/pipeline_archive/profiles.json ga/pipeline_archive/names.json ga/pipeline_archive/crawl_elections.json ga/profiles_local.json ga/pipeline_civics/acts.json ga/pipeline_civics/ocga_cur research/crawl_quarantine.json research/crawl_review.json 2>/dev/null || true
+            git add -A ga/crawl ga/councils.json ga/places.json ga/profiles.json ga/pipeline_archive/profiles.json ga/pipeline_archive/names.json ga/pipeline_archive/crawl_elections.json ga/profiles_local.json ga/pipeline_civics/acts.json ga/pipeline_civics/ocga_cur research/crawl_quarantine.json research/crawl_review.json 2>/dev/null || true
             git diff --cached --quiet && { echo "Electo already up to date"; return 0; }
             git diff --cached --stat | tail -1
             git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1

@@ -69,3 +69,11 @@ def test_profile_gets_quoted_positions(tmp_path):
     assert pos and pos[0]["topic"] == "Taxes and budget" and pos[0]["evidence"] == "primary"
     assert pos[0]["stance"].endswith("from property taxes.”") and pos[0]["d"] == "2026-11-02"
     assert p["sources"][pos[0]["src"][0]]["u"] == url
+
+
+def test_headlines_on_their_site_are_not_their_stances():
+    ex = Extractor({"id": "park-cannon", "name": "Park Cannon", "aliases": []})
+    assert ex.issue_sentences("Georgia House OKs bill to limit transgender care for minors as GOP prevails in party-line vote") == []
+    assert ex.own_sentences("The case targeted five provisions of the law, including one that bans watching votes and must be stopped.") == []
+    assert ex.issue_sentences("Expand Medicaid to cover working families in Georgia") != []
+    assert ex.own_sentences("I will fight to protect access to health care for every family.") != []
