@@ -79,3 +79,26 @@ def test_fetch_texts_reads_each_page_once(tmp_path):
     # the next run asks for nothing: one page kept, the refused one waits TEXT_RETRY_DAYS
     f.asked.clear()
     assert rumors_ai.fetch_texts(f, tmp_path, [], time.monotonic() + 30, log=lambda *_: None)["todo"] == 0 and not f.asked
+
+
+def test_a_failed_reading_is_not_asked_again_until_the_text_changes(tmp_path, monkeypatch):
+    from gacrawl import llm
+    (tmp_path / "data" / "rumor_mill").mkdir(parents=True)
+    rm = RumorMill(tmp_path)
+    text = "Commissioner Lee Ward voted against the budget, saying it raised taxes. " * 4
+    rm.add("lee-ward", "https://news.example.com/a", "Ward and the budget", "article", meta={"text": text})
+    rm.flush()
+    asked = []
+    monkeypatch.setattr(llm, "_LOGGED", {})
+    monkeypatch.setattr(llm, "chat", lambda msgs, **k: (asked.append(1), '{"named": true, "quote": "Ward resigned.", "attribution": "none"}')[1])
+    cands = [{"id": "lee-ward", "name": "Lee Ward"}]
+    st = rumors_ai.run(tmp_path, cands, time.monotonic() + 60, log=lambda *a: None)
+    assert st["read"] == 1 and st["kept"] == 0 and len(asked) == 1
+    st = rumors_ai.run(tmp_path, cands, time.monotonic() + 60, log=lambda *a: None)          # the same text: not asked
+    assert st["read"] == 0 and st["same"] == 1 and len(asked) == 1
+    rm = RumorMill(tmp_path)
+    rm.all()[0]["meta"]["text"] = text + "Ward later told reporters the vote was about schools."
+    rm._dirty = True
+    rm.flush()
+    st = rumors_ai.run(tmp_path, cands, time.monotonic() + 60, log=lambda *a: None)          # new text: asked again
+    assert st["read"] == 1 and len(asked) == 2

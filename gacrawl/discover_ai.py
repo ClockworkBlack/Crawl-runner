@@ -488,6 +488,28 @@ class Discovery:
         return {"msgs": msgs, "out": out, "kind": str(d.get("kind") or "other"), "about": bool(d.get("about")),
                 "office": bool(d.get("office")), "quote": " ".join(str(d.get("quote") or "").split())[:400]}
 
+    def precheck(self, task: dict, page: dict) -> list[str]:
+        """The checks that need no model, each of which drops the page whatever the model says: run() makes them before
+        asking the model, so a page that never names the person (half of the pages opened) costs no model time."""
+        from .names import name_regex, name_variants
+
+        fails = []
+        hay = _norm(page["title"] + " " + page["h1"] + " " + page["text"])
+        if task["type"] == "candidate":
+            rx = name_regex(name_variants(task["name"], []))
+            if not rx.search(page["title"] + " " + page["h1"] + " " + page["text"]):
+                fails.append("the page does not name the person")
+        else:
+            if task["name"].lower() not in hay:
+                fails.append("the page does not name the place")
+        if task.get("rumor"):
+            # research on a rumor: the page must tell the same story (most of the claim's key words) ...
+            ck = [w for w in _norm(task.get("claim", "")).split() if len(w) > 3]
+            have = sum(1 for w in ck if w in hay)
+            if len(ck) < 3 or have < 0.6 * len(ck):
+                fails.append("the page does not tell the same story as the rumor")
+        return fails
+
     def decide(self, task: dict, page: dict, j: dict) -> tuple[str, str, list[str]]:
         """(what it is, auto | pending | drop, the checks that failed)."""
         from .candidates import domain_of
@@ -502,19 +524,7 @@ class Discovery:
             fails.append("no sentence quoted")
         if not j["about"]:
             fails.append("the model says the page is not about them")
-        if task["type"] == "candidate":
-            rx = name_regex(name_variants(task["name"], []))
-            if not rx.search(page["title"] + " " + page["h1"] + " " + page["text"]):
-                fails.append("the page does not name the person")
-        else:
-            if task["name"].lower() not in hay:
-                fails.append("the page does not name the place")
-        if task.get("rumor"):
-            # research on a rumor: the page must tell the same story (most of the claim's key words) ...
-            ck = [w for w in _norm(task.get("claim", "")).split() if len(w) > 3]
-            have = sum(1 for w in ck if w in hay)
-            if len(ck) < 3 or have < 0.6 * len(ck):
-                fails.append("the page does not tell the same story as the rumor")
+        fails += self.precheck(task, page)
         if fails:
             return "", "drop", fails
         kind = j["kind"]
@@ -590,6 +600,13 @@ class Discovery:
                     break
                 page, err = self._open(hit["url"])
                 if not page:
+                    continue
+                early = self.precheck(task, page)
+                if early:                 # dropped whatever the model would say: the model is not asked
+                    self.llm.log(self.log_p, {"task": "judge_page", "target": task["key"], "url": page["url"], "asked": False,
+                                              "decision": "drop", "what": "", "why": early})
+                    self.stats["dropped"] += 1
+                    self.stats["not_asked"] = self.stats.get("not_asked", 0) + 1
                     continue
                 try:
                     j = self.judge(task, page)

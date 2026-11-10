@@ -38,13 +38,16 @@ sentences and at most 75 words, like the opening of a profile: what it is (its t
 been registered or filing if the texts say, where it is based, whom it is connected to or affiliated with, and what it
 says it does. Use only the texts above; leave out anything they do not say. Do not mention amounts of money.
 Answer with the background only."""
-VERIFY = """Texts:
+# The second reading opens exactly like ASK (name and texts), so the model does not read the texts a second time
+# (llm.chat): only the description and the question are new to it.
+VERIFY = """Organization: {name}
+
 {texts}
 
 Description to check:
 {line}
 
-Does the description state anything the texts do not say: a wrong type, a wrong connection, a purpose or activity
+Does the description state anything the texts above do not say: a wrong type, a wrong connection, a purpose or activity
 the texts do not give? Answer with one word, OK, if every statement is supported, or NO followed by the unsupported
 statement."""
 
@@ -113,7 +116,7 @@ def run(store, root: Path, deadline: float, log=print) -> dict:
         second = ""
         if not why:
             second = llm.chat([{"role": "system", "content": SYSTEM},
-                               {"role": "user", "content": VERIFY.format(texts=body, line=line)}], max_tokens=60).strip()
+                               {"role": "user", "content": VERIFY.format(name=name, texts=body, line=line)}], max_tokens=60).strip()
             if not second.upper().startswith("OK"):
                 why = ["the model's second reading: " + second[:160]]
         st["read"] += 1

@@ -36,3 +36,27 @@ def test_dropped_when_it_adds_things(tmp_path, monkeypatch):
     donors_ai.run(s, tmp_path, time.monotonic() + 60, log=lambda *a: None)
     a = json.loads(s.kv_get("donor_about"))["e1"]
     assert "t" not in a and a["why"]
+
+
+def test_second_reading_opens_like_the_first_so_the_texts_are_read_once(tmp_path, monkeypatch):
+    s = _setup(tmp_path)
+    seen = []
+    answers = iter(["AFLAC PAC is registered with the FEC as a qualified PAC connected to AFLAC Incorporated.", "OK"])
+    monkeypatch.setattr(llm, "chat", lambda msgs, **k: (seen.append(msgs), next(answers))[1])
+    donors_ai.run(s, tmp_path, time.monotonic() + 60, log=lambda *a: None)
+    first, second = (m[-1]["content"] for m in seen)
+    assert seen[0][0] == seen[1][0]                                           # the same system message
+    head = first[: first.index("Write a short background")]
+    assert len(head) > 60 and second.startswith(head)                        # name and texts, word for word
+
+
+def test_log_appends_and_keeps_the_newest(tmp_path, monkeypatch):
+    p = str(tmp_path / "train" / "x_log.jsonl")
+    monkeypatch.setattr(llm, "_LOGGED", {})
+    for i in range(6):
+        llm.log(p, {"i": i})
+    assert [json.loads(x)["i"] for x in open(p, encoding="utf-8")] == list(range(6))
+    llm.trim(p, keep=4)
+    assert [json.loads(x)["i"] for x in open(p, encoding="utf-8")] == [2, 3, 4, 5]
+    llm.trim(p, max_bytes=len(open(p, encoding="utf-8").readline().encode()) * 2)
+    assert [json.loads(x)["i"] for x in open(p, encoding="utf-8")] == [4, 5]

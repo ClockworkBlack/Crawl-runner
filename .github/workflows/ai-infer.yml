@@ -8,7 +8,9 @@ name: ai-infer
 # and the public site is refreshed.
 on:
   schedule:
-    - cron: "11 7,19 * * *"
+    # every 6 hours: each run is up to five hours on six runners, so the runners read nearly around the clock (it was
+    # twice a day, and 6,500 people were still unread on Nov. 9); a run with nothing to read ends in a minute or two
+    - cron: "11 1,7,13,19 * * *"
   workflow_dispatch:
     inputs:
       minutes:
@@ -50,12 +52,21 @@ jobs:
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
           cd electo && git sparse-checkout set --no-cone /tools/ai/ /ga/profiles.json /ga/profiles_local.json /ga/pipeline_archive/profiles.json /ga/pipeline_archive/legis.json /ga/crawl/infer_ai.json
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+      - name: Anything to read? (with nothing for this runner, the model is neither fetched nor installed)
+        id: need
+        run: |
+          cd electo
+          N=$(python3 -I tools/ai/infer_ai.py --list --shard ${{ matrix.shard }} --of 6 2>/dev/null | sed -n 's/^TODO=//p' || true)
+          echo "to read: ${N:-not known (an older tool): the model is fetched as before}"
+          if [ "$N" = "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
       - name: The open model (Phi-4, 4-bit; kept between runs when the cache has room)
+        if: steps.need.outputs.go == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-phi4-q4ks-v1
       - name: llama.cpp (CPU build)
+        if: steps.need.outputs.go == 'true'
         run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
       - name: Infer for this runner's share of the people
         run: |
@@ -99,7 +110,9 @@ jobs:
           python3 -I -c "import sys; p=sys.argv[1]; L=[l for l in open(p, encoding='utf-8') if l.strip()]; seen=set(); out=[]
           for l in L:
               if l not in seen: seen.add(l); out.append(l)
-          open(p, 'w', encoding='utf-8').writelines(out[-20000:])" research/train/infer_ai_log.jsonl
+          out=out[-20000:]; i=len(out); size=0      # and under 80 MB: GitHub refuses a file over 100 MB, and the push with it
+          while i and size+len(out[i-1].encode('utf-8'))<=80000000: i-=1; size+=len(out[i].encode('utf-8'))
+          open(p, 'w', encoding='utf-8').writelines(out[i:])" research/train/infer_ai_log.jsonl
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           git add ga/crawl/infer_ai.json research/train/infer_ai_log.jsonl
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi

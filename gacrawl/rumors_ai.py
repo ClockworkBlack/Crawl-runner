@@ -11,7 +11,7 @@ questions, as JSON:
                or "none" (the writer's own assertion or opinion)
   opinion      whether the piece is opinion or commentary rather than reporting
 The answer is kept only when its quote is copied exactly from the text and names the person; otherwise the item is
-read again next run (or after the text changes). Saved in the row as "ai": {"v", "m", "named", "quote",
+read again when its text changes (the same question is not put to the same model twice: the training log remembers). Saved in the row as "ai": {"v", "m", "named", "quote",
 "attribution", "opinion", "at"}. A row already confirmed or debunked by hand is never read.
 
     gacrawl rumors-ai --max-minutes 10
@@ -83,6 +83,28 @@ def verdict(ans: dict | None, name: str, text: str) -> tuple[dict | None, list[s
     if why:
         return None, why
     return {"named": named, "quote": quote[:400], "attribution": attr, "opinion": bool(ans.get("opinion"))}, []
+
+
+def _sig(msgs: list) -> str:
+    import hashlib
+    return hashlib.sha1(json.dumps(msgs, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _failed_before(log_path: Path, model: str) -> set[str]:
+    """The questions (by signature) this model already answered with something the check refused (the training log)."""
+    out: set[str] = set()
+    try:
+        with open(log_path, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("task") == "rumor_reading" and r.get("model") == model and isinstance(r.get("input"), list):
+                    (out.discard if r.get("kept") else out.add)(_sig(r["input"]))
+    except OSError:
+        pass
+    return out
 
 
 TEXT_MAX = 3000          # what the reading sees of a page (run() reads at most this much)
@@ -188,7 +210,8 @@ def run(root: Path, candidates: list[dict], deadline: float, log=print) -> dict:
             and (r.get("ai") or {}).get("v") != VERSION and len(r["meta"]["text"]) > 200]
     todo.sort(key=lambda r: r.get("last_seen") or "", reverse=True)
     log_path = root / "data" / "train" / "rumor_log.jsonl"
-    st = {"todo": len(todo), "read": 0, "kept": 0}
+    failed = _failed_before(log_path, llm.model_name())
+    st = {"todo": len(todo), "read": 0, "kept": 0, "same": 0}
     for r in todo:
         if time.monotonic() > deadline:
             break
@@ -198,6 +221,11 @@ def run(root: Path, candidates: list[dict], deadline: float, log=print) -> dict:
         office = f" ({c['office'].split(';')[0]})" if c.get("office") else ""
         msgs = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": ASK.format(name=name, office=office, domain=r.get("domain", ""), text=text)}]
+        if _sig(msgs) in failed:
+            # this exact question got an answer that failed the check: the model is greedy and would give it again, so
+            # the item waits until its text changes instead of taking the newest items' place on every run
+            st["same"] += 1
+            continue
         t0 = time.time()
         try:
             out = llm.chat(msgs, max_tokens=220)
@@ -215,6 +243,7 @@ def run(root: Path, candidates: list[dict], deadline: float, log=print) -> dict:
         log(f"  {'kept' if keep else 'dropped'} ({time.time() - t0:.0f}s): {r['id']} {name}: {r.get('claim', '')[:60]}"
             + (f"  [{'; '.join(why[:2])}]" if why else ""))
     rm.flush()
-    st["left"] = st["todo"] - st["read"]
-    log(f"rumors ai: {st['read']} items read, {st['kept']} readings kept; {st['left']} left for the next run")
+    st["left"] = st["todo"] - st["read"] - st["same"]
+    log(f"rumors ai: {st['read']} items read, {st['kept']} readings kept; {st['left']} left for the next run"
+        + (f" ({st['same']} not asked again: the same text failed the check before)" if st["same"] else ""))
     return st

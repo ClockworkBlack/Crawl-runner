@@ -159,3 +159,23 @@ def test_scope_covers_police_schools_and_city_roles():
     assert _office_words("alderman") == {"council"}
     assert _office_words("Cobb County Schools board member") >= {"board of education"}
     assert _office_words("school board chair") & _office_words("board of education member")
+
+
+def test_page_that_never_names_the_person_is_dropped_without_asking_the_model(tmp_path):
+    u1 = "https://somesite.example.org/about"
+    u2 = "https://electjanedoe.com/"
+    q = "Jane Doe is running for Fulton County Commission District 3."
+    pages = {u1: page("About us", "We cover county government."), u2: page("Jane Doe for Fulton County Commission", q)}
+    d = make(tmp_path, pages, {u1: {"kind": "campaign", "about": True, "office": True, "quote": "We cover county government."},
+                               u2: {"kind": "campaign", "about": True, "office": True, "quote": q}})
+    asked = []
+    chat = d.llm.chat
+    d.llm.chat = lambda msgs, max_tokens=0: (asked.append(msgs[-1]["content"]), chat(msgs, max_tokens))[1]
+    d.news_people = lambda: None
+    d.gaps = lambda: [{"type": "candidate", "key": "c:jane", "id": "jane-doe", "name": "Jane Doe", "office": "County Commission",
+                       "place": "Fulton", "q": "q"}]
+    d.run(time.monotonic() + 60)
+    assert len(asked) == 1 and u2 in asked[0]                    # only the page that names her went to the model
+    drop = [r for r in d.llm.logged if r.get("task") == "judge_page" and r.get("asked") is False]
+    assert len(drop) == 1 and drop[0]["url"].startswith(u1) and drop[0]["why"] == ["the page does not name the person"]
+    assert [x["url"] for x in d.st["items"].values()] == [u2]
