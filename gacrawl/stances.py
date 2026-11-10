@@ -162,8 +162,14 @@ def _issues(path: str) -> tuple[tuple[str, re.Pattern], ...]:
     return tuple((name, re.compile(rx, re.I)) for name, rx in (d.get("issues") or {}).items())
 
 
+# "environment" and "climate" that are not about nature ("our pro-business environment", "a climate for investment")
+NOT_NATURE = re.compile(r"\b(?:pro-?\s?)?business(?:-friendly)?\s+(?:environment|climate)\b|\b(?:work|learning|regulatory|economic|"
+                        r"political|security|threat|media|school|home|investment|tax)\s+(?:environment|climate)\b|"
+                        r"\bclimate\s+(?:for|of)\s+(?:business|investment|growth|innovation|fear)\b", re.I)
+
+
 def issues_of(text: str, root: Path | None = None) -> list[str]:
-    hay = (text or "")[:4000]
+    hay = NOT_NATURE.sub(" ", (text or "")[:4000])
     out = [name for name, rx in _issues(str((root or ROOT) / "config" / "issues.yaml")) if rx.search(hay)]
     if not out:
         out = tag(hay, path=(root or ROOT) / "config" / "topics.yaml")

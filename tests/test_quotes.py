@@ -77,3 +77,9 @@ def test_headlines_on_their_site_are_not_their_stances():
     assert ex.own_sentences("The case targeted five provisions of the law, including one that bans watching votes and must be stopped.") == []
     assert ex.issue_sentences("Expand Medicaid to cover working families in Georgia") != []
     assert ex.own_sentences("I will fight to protect access to health care for every family.") != []
+
+
+def test_business_environment_is_not_environmental():
+    from gacrawl.stances import issues_of
+    assert "Environment" not in issues_of("our pro-business environment is fostering sustained success for businesses")
+    assert "Environment" in issues_of("We must protect the environment and our coastal marshes")
