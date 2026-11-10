@@ -464,9 +464,16 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     # each federal campaign checked against what the FEC itself reports its committees raised: itemized lines can never
     # add up to more than the committee's receipts, so more than 5% over means a line is counted twice or belongs to
     # someone else (the page then says so beside the total)
-    from .connections import fec_check
+    from .connections import fec_check, fec_cycle_totals
 
     for R in rec_list:
+        if R.get("cid") and R["level"] == "federal" or R.get("_fec"):
+            try:
+                off = fec_cycle_totals(store, R["cid"]) if R.get("cid") else {}
+            except Exception:  # noqa: BLE001
+                off = {}
+            if off:
+                R["fec_cy"] = off      # the FEC's own totals per cycle: what the page shows as the campaign's money
         fx = R.pop("_fec", 0.0)
         if R.get("cid") and fx:
             try:
@@ -543,7 +550,9 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                    "candidate give. kinds is each recipient's money from named donors by kind; totals covers every line. A committee "
                    "whose name does not carry its candidate's full name is linked to the candidate only by config/committee_links.yaml, "
                    "each link with its source (link_src); committees lists the committees counted under a candidate. held is the number "
-                   "of the campaign's FEC lines waiting to be read again: its federal total is incomplete until then.",
+                   "of the campaign's FEC lines waiting to be read again: its federal total is incomplete until then. fec_cy is the FEC's "
+                   "own totals for a federal campaign's committees per cycle (receipts, gifts under $200 included; through: the "
+                   "newest report's end date): the page shows these as the campaign's money, the itemized lines as the detail.",
            "cycles": sorted({k for R in rec_list for k in R["cy"]}),
            "years": sorted({k for R in rec_list for k in R["yr"]}),
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,

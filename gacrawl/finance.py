@@ -689,6 +689,27 @@ class Finance:
             self._fec_totals(r["k"])
         return n
 
+    def fec_totals_all(self, deadline: float | None = None) -> int:
+        """The official per-cycle totals of every federal committee whose lines are kept (one call each, at most weekly):
+        what the Donors tab shows as a federal campaign's money, since the itemized lines leave out gifts under $200 and
+        are only as complete as the read. They used to be fetched only after a committee's lines were read in full, so
+        most campaigns (Ossoff's Senate committee among them) had none."""
+        with self.store._lock:
+            rows = self.store.db.execute(
+                "SELECT DISTINCT json_extract(meta,'$.committee') AS k FROM records WHERE kind='contribution' AND "
+                "json_extract(meta,'$.filing_source')='FEC' AND (json_extract(meta,'$.candidate_id') IS NOT NULL OR "
+                "json_extract(meta,'$.leadership_pac_of') IS NOT NULL)").fetchall()
+        n = 0
+        for r in rows:
+            if not r["k"] or getattr(self, "fec_refused", 0) or (deadline and time.monotonic() > deadline):
+                continue
+            before = (json.loads(self.store.kv_get("fec_totals") or "{}").get(r["k"]) or {}).get("checked")
+            self._fec_totals(r["k"])
+            n += (json.loads(self.store.kv_get("fec_totals") or "{}").get(r["k"]) or {}).get("checked") != before
+        if n:
+            self.log(f"  fec: official totals of {n} committees fetched")
+        return n
+
     def _fec_totals(self, com_id: str) -> None:
         """The committee's official totals per two-year cycle (receipts, contributions, itemized individual gifts,
         money from other committees), against which what the crawler holds is checked."""
@@ -1320,6 +1341,13 @@ class Finance:
                     except Exception as exc:  # noqa: BLE001
                         self.log(f"  commission {c['id']}: {type(exc).__name__}: {exc}"[:200])
         out["fec"] = fec_n
+        if self.f:
+            try:
+                out["fec_totals"] = self.fec_totals_all(deadline)
+            except OutOfTime:
+                pass
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"  fec totals: {type(exc).__name__}: {exc}"[:200])
         if getattr(self, "fec_refused", 0):
             out["fec_refused_calls"] = self.fec_refused
         out.update(self.resolve_all(candidates))

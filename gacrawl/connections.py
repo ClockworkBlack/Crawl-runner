@@ -513,6 +513,26 @@ def fec_check(store: Store, candidate_id: str, itemized_fec: float) -> dict | No
             "check": check}
 
 
+def fec_cycle_totals(store: Store, candidate_id: str) -> dict:
+    """The FEC's own totals for the candidate's campaign committees, added up per two-year cycle (2016 on): receipts (all
+    the money in, gifts under $200 included), individual and unitemized gifts, and the date the newest report covers.
+    What the Donors tab shows as a federal campaign's money. {} when none has been fetched."""
+    if not _COMMITTEES:
+        fec_check(store, candidate_id, 0.0)          # loads the candidate -> committees map
+    T = json.loads(store.kv_get("fec_totals") or "{}")
+    out: dict = {}
+    for k in sorted(_COMMITTEES.get(candidate_id) or ()):
+        for cy, t in ((T.get(k) or {}).get("cycles") or {}).items():
+            if not str(cy).isdigit() or int(cy) < SINCE_CYCLE or not t.get("receipts"):
+                continue
+            o = out.setdefault(str(cy), {"receipts": 0.0, "individual": 0.0, "unitemized": 0.0, "through": ""})
+            o["receipts"] += float(t.get("receipts") or 0)
+            o["individual"] += float(t.get("individual_contributions") or 0)
+            o["unitemized"] += float(t.get("individual_unitemized_contributions") or 0)
+            o["through"] = max(o["through"], (t.get("coverage_end_date") or "")[:10])
+    return {cy: {k: (round(v, 2) if isinstance(v, float) else v) for k, v in o.items()} for cy, o in sorted(out.items())}
+
+
 PATTERN_CAP = 4000            # patterns of each kind in connections.json (largest first); profiles keep their own
 MONEY_EDGES = ("contributed", "paid", "employed_by")
 

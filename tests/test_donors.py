@@ -232,3 +232,30 @@ def test_donor_kinds_from_the_filing_and_totals_over_every_line(tmp_path):
     assert T["listed"] == 8 and T["self_inferred"] == 1
     by = {b["k"]: b["t"] for b in d["by"]["kind"]}
     assert by["self"] == 13020000 and by["person"] == 5300
+
+
+def test_federal_campaign_gets_the_fecs_own_totals_per_cycle(tmp_path):
+    """A federal campaign's money on the Donors tab is what the FEC reports its committees raised (gifts under $200
+    included), per cycle; the itemized lines stay the detail. Only cycles from 2016 on, only the candidate's committees."""
+    import gacrawl.connections as cx
+
+    cx._COMMITTEES.clear()
+    s = Store(tmp_path / "data")
+    cands = [{"id": "f", "name": "Fed Person", "electo_key": "FED PERSON", "party": "D", "office": "U.S. Senate",
+              "levels": ["federal"], "counties": [], "jurisdiction": ""}]
+    for i, (com, d) in enumerate([("C001", "2026-04-06"), ("C002", "2026-05-01")]):
+        s.add(Record("cand:f", "contribution", f"https://fec.example/{i}", title="x", text="", published=d, channel="api",
+                     evidence="primary", key=f"f{i}", meta={"type": "contribution", "name": f"Giver, {i}", "amount": 1000,
+                     "date": d, "recipient": "Fed Person", "candidate_id": "f", "committee": com, "filing_source": "FEC",
+                     "fec_v": 2, "donor_entity": f"g{i}", "state": "GA"}))
+    s.kv_set("fec_totals", json.dumps({
+        "C001": {"checked": "2026-11-09", "cycles": {"2026": {"receipts": 30_000_000, "individual_contributions": 25_000_000,
+                 "individual_unitemized_contributions": 9_000_000, "coverage_end_date": "2026-06-30T00:00:00"},
+                 "2014": {"receipts": 5}}},
+        "C002": {"checked": "2026-11-09", "cycles": {"2026": {"receipts": 3_000_000, "coverage_end_date": "2026-09-30T00:00:00"}}},
+        "C999": {"checked": "2026-11-09", "cycles": {"2026": {"receipts": 99}}}}))
+    s.flush()
+    export_donors(s, ROOT, cands, tmp_path / "donors.json", log=lambda *a: None)
+    R = {r["name"]: r for r in json.loads((tmp_path / "donors.json").read_text())["recipients"]}["Fed Person"]
+    assert R["fec_cy"] == {"2026": {"receipts": 33_000_000, "individual": 25_000_000, "unitemized": 9_000_000, "through": "2026-09-30"}}
+    assert R["raised"] == 2000          # the itemized lines, unchanged

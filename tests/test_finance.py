@@ -230,3 +230,29 @@ def test_finance_pipeline_and_connections(server, fetcher, tmp_path, monkeypatch
     assert a[-1]["min_date"] == ["2026-04-02"]                     # re-run starts at the cursor (minus 60 days), not 2025
     assert sum(1 for q in a if "last_index" not in q) == 2          # one first page per run; seek pagination after it
     store.close()
+
+
+def test_official_totals_fetched_for_every_federal_committee(tmp_path):
+    """fec_totals_all: one /totals/ call per FEC committee whose lines are kept (not just those read in full), at most
+    weekly; nothing once the API refuses."""
+    import json as _json
+    from gacrawl.finance import Finance
+    from gacrawl.store import Record, Store
+
+    s = Store(tmp_path / "data")
+    for i, (c, k) in enumerate([("a", "C1"), ("a", "C2"), ("b", "C3")]):
+        s.add(Record(f"cand:{c}", "contribution", f"https://fec.example/{i}", title="x", text="", published="2026-01-01",
+                     channel="api", evidence="primary", key=f"k{i}", meta={"type": "contribution", "candidate_id": c,
+                     "committee": k, "filing_source": "FEC", "amount": 1}))
+    s.flush()
+    fin = Finance(tmp_path, {}, None, s)
+    calls = []
+
+    def fake(path, params=None):
+        calls.append(path)
+        return {"results": [{"cycle": 2026, "receipts": 10.0, "coverage_end_date": "2026-06-30T00:00:00"}]}
+    fin._fec = fake
+    assert fin.fec_totals_all() == 3 and sorted(calls) == ["/committee/C1/totals/", "/committee/C2/totals/", "/committee/C3/totals/"]
+    assert _json.loads(s.kv_get("fec_totals"))["C3"]["cycles"]["2026"]["receipts"] == 10.0
+    calls.clear()
+    assert fin.fec_totals_all() == 0 and calls == []          # checked this week
