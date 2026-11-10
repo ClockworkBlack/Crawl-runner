@@ -107,18 +107,29 @@ jobs:
             /ga/pipeline_archive/profiles.json /ga/pipeline_archive/legis.json /ga/crawl/infer_ai.json /ga/crawl/people.json \
             /ga/crawl/predict.json /research/predict/
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
+      - name: Anything to write or check? (with nothing for this runner, the model is neither fetched nor installed)
+        id: need
+        run: |
+          cd electo
+          N=$(python3 -I tools/predict/ledger.py --todo --shard ${{ matrix.shard }} --of 4 2>/dev/null | sed -n 's/^TODO=//p' || true)
+          echo "model jobs waiting: ${N:-not known: the model is fetched}"
+          if [ "$N" = "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
       - name: The open model (kept between runs when the cache has room)
+        if: steps.need.outputs.go == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-phi4-q4ks-v1
       - name: llama.cpp (CPU build)
+        if: steps.need.outputs.go == 'true'
         run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
       - name: Check earlier predictions against what happened since
         run: |
           M="${{ inputs.minutes || '240' }}"; [ "$M" -le 300 ] || M=300
           cd electo
-          [ -f tools/predict/ledger.py ] || { echo "no ledger tool in Electo yet"; echo '{"entries":[]}' > ../part.json; : > ../log.jsonl; exit 0; }
+          if [ ! -f tools/predict/ledger.py ] || [ "${{ steps.need.outputs.go }}" != "true" ]; then
+            echo "nothing for this runner"; echo '{"entries":[]}' > ../part.json; : > ../log.jsonl; exit 0
+          fi
           timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/ledger.py --run --shard ${{ matrix.shard }} --of 4 --minutes "$M" --out ../part.json || echo "stopped"
           [ -f ../part.json ] || echo '{"entries":[]}' > ../part.json
           cp research/train/predict_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
