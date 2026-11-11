@@ -2,8 +2,10 @@
 # One pass of the News loop (.github/workflows/news.yml runs gacrawl news --every 10 --then "bash scripts/news_pass.sh"):
 # Electo's import of the digest (ga/crawl_import.py news_from: stories written by hand stay, and an outlet that did not
 # answer this time keeps its stories), summaries by the open model for the new stories only (tools/ai/news_ai.py), then
-# the commit and the public site (tools/site_data.sh), both only when the stories changed. Electo is cloned on the first
-# pass and pulled after. A pass that fails says why and leaves the next pass to try again.
+# the commit and the public site, both only when the stories changed: the news file alone on the current build
+# (tools/news_publish.py, about 30 seconds; the page reads pipeline/news.json when it opens), or the full publish
+# (tools/site_data.sh: the page rebuilt and checked in a browser, about four minutes) when that cannot be done.
+# Electo is cloned on the first pass and pulled after. A pass that fails says why and leaves the next pass to try again.
 #   env: ELECTO_TOKEN ELECTO_REPO SITE_TOKEN SITE_DATA_REPO (NEWS_PASS: the pass's number, from gacrawl)
 set -uo pipefail
 BUNDLE="$PWD/dist/news"
@@ -29,5 +31,9 @@ git commit -qm "News from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
 pushed=
 for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && { pushed=1; break; }; sleep $((i * 5)); done
 [ -n "$pushed" ] || { echo "$P: the commit could not be pushed; the next pass tries again"; git reset -q --hard "@{u}"; exit 0; }
-# the public site and data feed; the ordinances (their own workflow) are not checked on every pass
-[ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" SKIP_ORDINANCES=1 timeout 15m bash tools/site_data.sh || echo "$P: site data not refreshed"
+# the public site and data feed (the ordinances, their own workflow, are not checked on every pass)
+if [ -f tools/news_publish.py ] && GH_TOKEN="$SITE_TOKEN" timeout 3m python3 -I tools/news_publish.py; then
+  :
+elif [ -f tools/site_data.sh ]; then
+  GH_TOKEN="$SITE_TOKEN" SKIP_ORDINANCES=1 timeout 15m bash tools/site_data.sh || echo "$P: site data not refreshed"
+fi
