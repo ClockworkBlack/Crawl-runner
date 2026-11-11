@@ -3,16 +3,15 @@ name: news
 # job runs), then Electo's import of the digest (ga/crawl_import.py news_from: stories written by hand stay; one event's
 # stories grouped), then summaries by the open model (Electo tools/ai/news_ai.py: Qwen3-8B on this runner's CPU, each
 # checked against the outlets' text), then the public site and data feed (Electo tools/site_data.sh). Runs every 20 minutes
-# so breaking news reaches the page within about half an hour: the full run every three hours (and on demand), a quick
-# one between (the feeds, summaries for only the new stories, no research step, the site published only when stories
-# changed). The fetcher's conditional requests (ETag / Last-Modified) and rate limits keep the outlets' load small.
+# so breaking news reaches the page within about half an hour. Every run is short (the feeds, summaries for the new
+# stories only, the site published only when stories changed), so no run holds up the next; the slower research step
+# from the same stories runs on its own every three hours (news-research.yml, its own concurrency group) and never
+# blocks this one. The fetcher's conditional requests (ETag / Last-Modified) and rate limits keep the outlets' load small.
 # Beside the crawl (its own
 # concurrency group, so it never waits for a long crawl run), and touches nothing else: no crawl state, no database.
 on:
   schedule:
-    - cron: "23 */3 * * *"                                        # full
-    - cron: "3,43 * * * *"                                        # quick
-    - cron: "23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *"  # quick
+    - cron: "3,23,43 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -28,14 +27,14 @@ env:
   DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
   IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
   HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
-  QUICK: ${{ github.event_name == 'schedule' && github.event.schedule != '23 */3 * * *' }}
+  QUICK: ${{ github.event_name == 'schedule' }}
 
 jobs:
   news:
     # the public runner only (the private repository holds the data and would run it twice)
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'schedule' && github.event.schedule != '23 */3 * * *' && 30 || 90 }}
+    timeout-minutes: ${{ github.event_name == 'schedule' && 30 || 60 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,16 +76,13 @@ jobs:
           cd /tmp/electo-news
           python3 -I -c "import sys; sys.path.insert(0, 'ga'); import crawl_import as ci; ci.news_from(sys.argv[1])" "$BUNDLE"
           # summaries by the open model for the stories that have none yet (a failure keeps the outlets' excerpts)
-          if [ "$QUICK" = true ]; then SM=8; else SM=30; fi
+          if [ "$QUICK" = true ]; then SM=10; else SM=30; fi
           [ -f tools/ai/news_ai.py ] && timeout $((SM + 10))m python3 -I tools/ai/news_ai.py --text "$BUNDLE/news_text.json" --minutes $SM || echo "no model summaries this run"
-          # what used to be researched by hand, from the same stories: upcoming races (the model, each quoting its
-          # story), Georgia bills in the news (from the legislature's own record, no model) and committee backgrounds
-          [ "$QUICK" != true ] && [ -f tools/ai/research_ai.py ] && timeout 20m python3 -I tools/ai/research_ai.py --text "$BUNDLE/news_text.json" --minutes 15 || echo "no research updates this run"
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-          for f in ga/news.json research/train/news_ai_log.jsonl ga/upcoming.json ga/bills.json ga/recipient_notes.json research/train/research_ai_log.jsonl; do
+          for f in ga/news.json research/train/news_ai_log.jsonl; do
             [ -e "$f" ] && git add "$f"
           done
-          if git diff --cached --quiet; then echo "News tab already up to date"; [ "$QUICK" = true ] && exit 0; else
+          if git diff --cached --quiet; then echo "News tab already up to date"; exit 0; else
             git commit -qm "News from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
             for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
           fi

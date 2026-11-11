@@ -1,0 +1,80 @@
+name: news-research
+# What used to be researched by hand, from the News tab's stories: upcoming races (the open model, each quoting its
+# story), Georgia bills in the news (from the legislature's own record, no model) and committee backgrounds (Electo
+# tools/ai/research_ai.py). Split from news.yml so its slower step never holds up the 20-minute News runs: its own
+# concurrency group, every three hours and on demand. It writes only the research files, never ga/news.json.
+on:
+  schedule:
+    - cron: "53 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-research-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+  HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
+
+jobs:
+  research:
+    # the public runner only (the private repository holds the data and would run it twice)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state (the outlets' news APIs found by earlier runs)
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The open model (Qwen3-8B, 4-bit; kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: llama.cpp for the model (CPU build)
+        run: |
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || echo "llama.cpp did not install; the stories keep the outlets' excerpts"
+      - name: Political news (outlets' news APIs and feeds, the last ten days)
+        run: |
+          M=5
+          timeout -s INT -k 1m $((M + 2))m gacrawl news --max-minutes $M --export dist/news/news.json || echo "news stopped after $((M + 2)) minutes"
+      - name: Electo's research files and the public site
+        if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+        run: |
+          set -e
+          BUNDLE="$PWD/dist/news"
+          python3 -c "import json,sys; d=json.load(open('$BUNDLE/news.json')); sys.exit(0 if d.get('items') else 1)" \
+            || { echo "no stories this time; the News tab keeps what it has"; exit 0; }
+          git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-news
+          cd /tmp/electo-news
+          [ -f tools/ai/research_ai.py ] || { echo "no research step in this Electo"; exit 0; }
+          timeout 20m python3 -I tools/ai/research_ai.py --text "$BUNDLE/news_text.json" --minutes 15 || echo "no research updates this run"
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          for f in ga/upcoming.json ga/bills.json ga/recipient_notes.json research/train/research_ai_log.jsonl; do
+            [ -e "$f" ] && git add "$f"
+          done
+          if git diff --cached --quiet; then echo "research already up to date"; exit 0; else
+            git commit -qm "News research from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
+            for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          fi
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
