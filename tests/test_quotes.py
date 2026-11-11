@@ -90,3 +90,13 @@ def test_a_letter_about_them_on_their_site_is_not_their_stance():
     assert ex.someone_elses("Amelia Inman is an excellent community leader and I really appreciate her board for recognizing me.")
     assert not ex.someone_elses("I'm Amelia Inman and I will fight for affordable housing in Lithonia.")
     assert not ex.someone_elses("I will fight for affordable housing in Lithonia.")
+
+
+def test_another_named_persons_words_are_not_the_candidates():
+    """Nov 11: 'Au cited gun safety ...' landed in Kay Kirkpatrick's positions."""
+    from gacrawl.stances import Extractor
+    x = Extractor({"name": "Kay Kirkpatrick", "office": "State Senate"})
+    assert x.someone_elses("Legislative pragmatism:Au cited gun safety and tobacco tax legislation as two long-term priorities.")
+    assert x.someone_elses("Sen. Jones said the bill goes too far.")
+    assert not x.someone_elses("Kirkpatrick said the bill protects patients.")
+    assert not x.someone_elses("We support expanding rural broadband.")

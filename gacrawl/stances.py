@@ -240,6 +240,10 @@ def sentences(text: str) -> tuple[str, ...]:
     return tuple(p for p in split_sentences(text) if 25 <= len(p) <= 420)
 
 
+OTHER_SAID = re.compile(r"(?:^|[:.;]\s*)(?:Rep\.|Sen\.|Gov\.|Dr\.)?\s*(?!(?:He|She|They|It|We|The|This|That)\b)([A-Z][a-z]+)\s+"
+                        r"(?:cited|said|says|told|argued|argues|noted|wrote|warned|listed|named|described|praised|criticized|added|explained|stated)\b")
+
+
 class TranscriptSpeakers:
     """Speaker-labeled lines with a stance cue in each jurisdiction's transcripts, indexed by speaker surname,
     built once per jurisdiction per run (instead of re-reading every transcript for every candidate)."""
@@ -393,6 +397,11 @@ class Extractor:
         """A sentence on their own channel that is not their stance: a report of what others did, with no I/we and no
         mention of them; or someone speaking about them in the first person (a testimonial or a letter posted on their
         site: "Amelia Inman is an excellent community leader and I really appreciate her board ...")."""
+        # another named person's words reported ("Au cited gun safety and tobacco tax legislation as two long-term
+        # priorities." on a page that names this candidate too: Nov 11, in Kay Kirkpatrick's positions)
+        for m in OTHER_SAID.finditer(s):
+            if m.group(1).lower() not in (self.last.lower(), self.first.lower()):
+                return True
         if FIRST_PERSON.search(s):
             L = re.escape(self.last)
             return bool(re.search(r"\b" + L + r"(?:['’]s\b|\s+(?:is|was|has|had|will|would|can|could|helped|gave|made|serves|served|"
