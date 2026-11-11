@@ -69,8 +69,9 @@ jobs:
           n=0; done_ids=""; rows=$(mktemp)
           for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at),\(.conclusion),\(.updated_at)"'); do
             IFS=, read -r id name created concl updated <<< "$row"
-            # every crawl and police run's logs, and any other job's when it failed (else nothing would say why)
-            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ]; then
+            # every crawl, police and ai-predict run's logs (ai-predict: Nov 11 a whole run succeeded with no answers and
+            # left nothing to say why), and any other job's when it failed or was cancelled (else nothing would say why)
+            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$name" = "ai-predict" ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ] || [ "$concl" = "cancelled" ]; then
               d="logs-repo/logs/runner/${created:0:7}"; mkdir -p "$d"
               f="$d/${created:0:10}_${name}_${id}.zip"
               gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null || { rm -f "$f"; echo "logs for $id not ready yet"; continue; }
