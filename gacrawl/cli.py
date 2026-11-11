@@ -905,22 +905,59 @@ def cmd_codeacts(cfg, args):
 
 
 def cmd_news(cfg, args):
-    """Georgia political news for Electo's News tab: outlets' news APIs and feeds, the last ten days."""
-    from .newsdigest import Digest
+    """Georgia political news for Electo's News tab: outlets' news APIs and feeds, the last ten days.
 
+    With --every N, a loop in this one process: a pass every N minutes for --for minutes, each pass exporting the digest
+    and then running --then (the import into Electo, summaries, the site). One process keeps what makes a pass after the
+    first cheap: robots.txt read once, feeds asked with ETag / Last-Modified, a WordPress outlet's posts read with their
+    text only once, and each host's spacing remembered."""
+    import subprocess
+
+    from .newsdigest import Digest, export_news
+
+    every, total = float(getattr(args, "every", 0) or 0), float(getattr(args, "for_minutes", 0) or 0)
     store = config.make_store(cfg)
     try:
-        deadline = time.monotonic() + float(args.max_minutes or 6) * 60
-        stats = Digest(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"]).run(deadline)
-        if getattr(args, "export", None):
-            from .newsdigest import export_news
+        f = _fetcher(cfg, None)
+        dg = Digest(f, store, config.ROOT, cfg["state_dir"])
+        dg.conditional = every > 0
+        start, n = time.monotonic(), 0
+        while True:
+            n += 1
+            t0 = time.monotonic()
+            deadline = t0 + float(args.max_minutes or 6) * 60
+            f.stop_at = deadline
+            try:
+                stats = dg.run(deadline, workers=int(getattr(args, "workers", 8) or 1))
+                if getattr(args, "export", None):
+                    out = Path(args.export)
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    stats["export"] = export_news(store, out, out.with_name("news_text.json"), read=sorted(dg.read))
+                stats["seconds"] = round(time.monotonic() - t0)
+            except Exception as exc:  # noqa: BLE001
+                if not every:
+                    raise
+                stats = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}      # one bad pass; the next one tries again
+            print(json.dumps({"news": stats, **({"pass": n} if every else {})}), flush=True)
+            if not every:
+                break
+            if getattr(args, "then", None) and "error" not in stats:
+                env = dict(os.environ, NEWS_PASS=str(n), NEWS_NEW=str(stats.get("new", 0)))
+                p = subprocess.Popen(args.then, shell=True, env=env, start_new_session=True)
+                try:
+                    p.wait(timeout=max(every, 30) * 60)
+                except subprocess.TimeoutExpired:      # the whole group (git, the model, the site), not just the shell
+                    import signal
 
-            out = Path(args.export)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            stats["export"] = export_news(store, out, out.with_name("news_text.json"))
+                    os.killpg(p.pid, signal.SIGTERM)
+                    p.wait()
+                    print(f"news: pass {n}'s import ran out of time", flush=True)
+            nxt = t0 + every * 60
+            if nxt - start > total * 60:
+                break
+            time.sleep(max(0.0, nxt - time.monotonic()))
     finally:
         store.close()
-    print(json.dumps({"news": stats}))
 
 
 def cmd_donors_ai(cfg, args):
@@ -1275,6 +1312,10 @@ def build_parser() -> argparse.ArgumentParser:
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
     nw.add_argument("--export", help="also write the digest (Electo's news.json format) to this path")
+    nw.add_argument("--workers", type=int, default=8, help="outlets read at once (each its own site)")
+    nw.add_argument("--every", type=float, default=0, help="minutes between passes: a loop in this process")
+    nw.add_argument("--for", dest="for_minutes", type=float, default=0, help="with --every: minutes the loop runs")
+    nw.add_argument("--then", help="with --every: a shell command run after each pass's export")
     sub.add_parser("coverage", help="what the data holds per Electo feature, against the last run (data/coverage.md)")
     pg = sub.add_parser("purge", help="delete the records of the sources listed in config/purge.yaml")
     pg.add_argument("--dry-run", action="store_true")

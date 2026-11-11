@@ -131,3 +131,82 @@ def test_news_audit_nov10():
     assert not nd.federal("Cobb certifies 2026 midterm results after record turnout", "")
     assert not nd.keep("Augusta Half Marathon seeks 300 volunteers for 2027 race", "The Augusta Sports Council needs help.")
     assert not nd.keep("Conyers filmmakers to screen Southern Gothic film", "The city council approved.")
+
+
+def test_news_loop_passes_read_only_what_changed(tmp_path):
+    """Outlets read several at a time give the same digest as one at a time; a second pass in the same process asks a
+    WordPress outlet for its list without the posts' text and then for the text of the new post only, an unchanged feed
+    (304) adds nothing, and the export names the outlets that answered, in the same order every run."""
+    import datetime as _dt
+    import json as _json
+    import threading
+    today = _dt.date.today().isoformat() + "T09:00:00"
+    rfc = __import__("email.utils").utils.format_datetime(_dt.datetime.now(_dt.timezone.utc))
+    posts = {"a.example": [{"id": 1, "link": "https://a.example/1", "date": today, "title": {"rendered": "Georgia Senate passes budget"},
+                            "excerpt": {"rendered": "Lawmakers in Atlanta voted."}, "content": {"rendered": "<p>Lawmakers in Atlanta voted on the budget.</p>"}}],
+             "b.example": [{"id": 7, "link": "https://b.example/7", "date": today, "title": {"rendered": "Cobb County commission approves millage"},
+                            "excerpt": {"rendered": "The Cobb County commission voted."}, "content": {"rendered": "<p>The Cobb County commission voted.</p>"}}]}
+    feed = ('<rss version="2.0"><channel><item><title>Macon City Council adopts budget</title><link>https://c.example/9</link>'
+            f'<description>The Macon council voted.</description><pubDate>{rfc}</pubDate></item></channel></rss>')
+
+    class R:
+        def __init__(self, body, url, nm=False):
+            self.status, self.url, self.not_modified = 200, url, nm
+            self.content = body.encode() if isinstance(body, str) else body
+            self.text, self.content_type = self.content.decode(), "application/json" if self.content[:1] == b"[" else "application/rss+xml"
+
+        def json(self):
+            return _json.loads(self.content)
+
+    class F:
+        def __init__(self):
+            self.calls, self.lock, self.etag = [], threading.Lock(), False
+
+        def get(self, url, params=None, use_cache=True, **k):
+            with self.lock:
+                self.calls.append((url, dict(params or {}), use_cache))
+            dom = url.split("/")[2]
+            if dom in posts:
+                ps = posts[dom]
+                if (params or {}).get("include"):
+                    ids = {int(i) for i in params["include"].split(",")}
+                    ps = [p for p in ps if p["id"] in ids]
+                fields = (params or {}).get("_fields", "").split(",")
+                return R(_json.dumps([{k2: v for k2, v in p.items() if k2 in fields} for p in ps]), url)
+            nm = use_cache and self.etag
+            self.etag = self.etag or use_cache
+            return R(feed, url, nm)
+
+    def make(root):
+        (root / "config").mkdir(parents=True)
+        (root / "config" / "outlets.yaml").write_text("outlets: [a.example, b.example, c.example]\nnames: {c.example: The C}\n")
+        (root / "wp_outlets.json").write_text(_json.dumps({"a.example": {"api": "https://a.example/wp-json"},
+                                                            "b.example": {"api": "https://b.example/wp-json"}}))
+        (root / "news_feeds.json").write_text(_json.dumps({"c.example": {"feed": "https://c.example/feed", "checked": _dt.date.today().isoformat()}}))
+        return root
+
+    one, many = make(tmp_path / "one"), make(tmp_path / "many")
+    s1, s2 = Store(one / "t.db"), Store(many / "t.db")
+    nd.Digest(F(), s1, one, one, log=lambda *a: None).run(workers=1)
+    f = F()
+    dg = nd.Digest(f, s2, many, many, log=lambda *a: None)
+    dg.conditional = True
+    st = dg.run(workers=4)
+    rows = lambda s: sorted(r["url"] for r in s.iter_query("kind='news_item'"))
+    assert st["new"] == 3 and rows(s1) == rows(s2)
+    assert dg.read == {"a.example", "b.example", "The C"}
+    # pass 2: a new post at b.example
+    posts["b.example"].append({"id": 8, "link": "https://b.example/8", "date": today, "title": {"rendered": "Georgia governor signs order"},
+                               "excerpt": {"rendered": "Gov. Kemp signed it in Atlanta."}, "content": {"rendered": "<p>Kemp signed it.</p>"}})
+    f.calls.clear()
+    st2 = dg.run(workers=4)
+    wp = sorted((u.split("/")[2], p.get("_fields"), p.get("include")) for u, p, _ in f.calls if "wp-json" in u)
+    assert wp == [("a.example", "id,link,date,title", None), ("b.example", "id,link,date,title", None),
+                  ("b.example", "id,link,date,title,excerpt,content", "8")]
+    assert st2["new"] == 1 and len(rows(s2)) == 4
+    # export: the outlets that answered, newest first and then by link, the same however the stories came in
+    out = tmp_path / "news.json"
+    nd.export_news(s2, out, read=sorted(dg.read))
+    d = _json.loads(out.read_text())
+    assert d["read"] == ["The C", "a.example", "b.example"]
+    assert [x["u"] for x in d["items"]] == sorted([x["u"] for x in d["items"]], reverse=True)

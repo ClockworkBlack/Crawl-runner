@@ -333,6 +333,13 @@ class Digest:
         except (OSError, ValueError):
             self.feeds = {}
         self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0, "federal": 0}
+        # a loop of passes in one process (gacrawl news --every): feeds are asked with ETag / Last-Modified (an unchanged
+        # feed answers 304 with no body), a WordPress outlet is asked for its list without the posts' text and only the
+        # posts not read before come with theirs, and a story already read this process is not read again
+        self.conditional = False
+        self.read: set[str] = set()            # outlets that answered (their names, as the page shows them)
+        self._wp_known: dict[str, set] = {}    # WordPress outlet -> post ids read with their text
+        self._links: set[str] = set()          # story links read this process
 
     def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str, body: str = "", fed_only: bool = False) -> None:
         self.stats["seen"] += 1
@@ -356,16 +363,29 @@ class Digest:
                            "body": (body or text)[:3000]})
         self.stats["new"] += self.store.add(rec)
 
-    def from_wp(self, dom: str, api: str) -> None:
+    def from_wp(self, dom: str, api: str) -> list[tuple]:
         after = (dt.date.today() - dt.timedelta(days=NEWS_DAYS)).isoformat() + "T00:00:00"
-        r = self.f.get(api.rstrip("/") + "/wp/v2/posts", params={"after": after, "per_page": PER_OUTLET,
-                                                                 "_fields": "link,date,title,excerpt,content"}, use_cache=False)
+        url = api.rstrip("/") + "/wp/v2/posts"
+        known = self._wp_known.get(dom)
+        full = "id,link,date,title,excerpt,content"
+        r = self.f.get(url, params={"after": after, "per_page": PER_OUTLET, "_fields": full if known is None else "id,link,date,title"},
+                       use_cache=False)
         if r.status != 200 or not r.content.strip().startswith(b"["):
-            return
-        for p in r.json():
-            self.add(p.get("link") or "", (p.get("title") or {}).get("rendered") or "",
-                     _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json",
-                     body=_text((p.get("content") or {}).get("rendered") or ""))
+            return []
+        self.read.add(self.names.get(dom, dom))
+        posts = [p for p in r.json() if isinstance(p, dict)]
+        if known is not None:
+            new = [p.get("id") for p in posts if p.get("id") not in known]
+            posts = []
+            if new:     # the text of the posts not read before (one request, the posts by id)
+                r = self.f.get(url, params={"include": ",".join(str(i) for i in new), "per_page": len(new), "_fields": full},
+                               use_cache=False)
+                if r.status == 200 and r.content.strip().startswith(b"["):
+                    posts = [p for p in r.json() if isinstance(p, dict)]
+        self._wp_known[dom] = (known or set()) | {p.get("id") for p in posts}
+        return [(p.get("link") or "", (p.get("title") or {}).get("rendered") or "",
+                 _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json",
+                 _text((p.get("content") or {}).get("rendered") or ""), False) for p in posts]
 
     def feed_of(self, dom: str, page: str | None = None) -> str | None:
         """The feed a page itself links to: the outlet's home page, or (page) its federal section, kept under "fed:dom"
@@ -386,55 +406,76 @@ class Digest:
         self.feeds[key] = {"feed": feed, "checked": dt.date.today().isoformat()}
         return feed
 
-    def from_feed(self, dom: str, feed: str, fed_only: bool = False) -> None:
+    def from_feed(self, dom: str, feed: str, fed_only: bool = False) -> list[tuple]:
         from .feeds import parse_feed
 
-        r = self.f.get(feed, use_cache=False)
+        r = self.f.get(feed, use_cache=self.conditional)
         if r.status != 200:
-            return
+            return []
+        self.read.add(self.names.get(dom, dom))
+        if getattr(r, "not_modified", False) and self._links:
+            return []      # unchanged since this process last read it
         from .channels import _date10
 
         floor = (dt.date.today() - dt.timedelta(days=NEWS_DAYS)).isoformat()
+        out = []
         for item in parse_feed(r.content)[:PER_OUTLET]:
             d = _date10(item.get("published")) or ""
             if d and d < floor:
                 continue
-            self.add(item.get("link") or "", item.get("title") or "", _text(item.get("summary") or ""),
-                     d, dom, "feed", fed_only=fed_only)
+            out.append((item.get("link") or "", item.get("title") or "", _text(item.get("summary") or ""),
+                        d, dom, "feed", "", fed_only))
+        return out
 
-    def run(self, deadline: float | None = None) -> dict:
+    def _outlet(self, dom: str, fed: bool) -> list[tuple]:
+        """One outlet's stories (a worker thread: it only fetches; the fetcher spaces the requests to each host)."""
+        if fed:
+            feed = self.feed_of(dom, self.fed_pages.get(dom) or f"https://{dom}/")
+            return self.from_feed(dom, feed, fed_only=True) if feed else []
+        if dom in self.wp:
+            return self.from_wp(dom, self.wp[dom])
+        feed = self.feed_of(dom)
+        return self.from_feed(dom, feed) if feed else []
+
+    def run(self, deadline: float | None = None, workers: int = 8) -> dict:
+        """Every outlet once: `workers` outlets at a time (each its own site, so the per-host spacing is unchanged; 180
+        outlets one after another took longer than a run's five minutes, and the last ones were never read). The
+        stories are added in the outlets' order, whatever order the answers come in, so a run's digest is the same."""
+        from concurrent.futures import ThreadPoolExecutor
+
         from .fetch import OutOfTime
 
+        self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0, "federal": 0}
         order = [d for d in self.outlets if d in self.wp] + [d for d in self.outlets if d not in self.wp]
-        # the federal sections and outlets first (ten feeds, under a minute; the Georgia outlets can use up the run's time):
-        # each one's own feed, federal stories only
-        for dom in sorted(self.fed_only | set(self.fed_pages)):
+        # the federal sections and outlets first (each one's own feed, federal stories only), then Georgia's outlets
+        jobs = [(d, True) for d in sorted(self.fed_only | set(self.fed_pages))] + [(d, False) for d in order]
+
+        def one(job):
+            dom, fed = job
             if deadline and time.monotonic() > deadline:
-                break
+                return None
             try:
-                feed = self.feed_of(dom, self.fed_pages.get(dom) or f"https://{dom}/")
-                if feed:
-                    self.from_feed(dom, feed, fed_only=True)
-                self.stats["outlets"] += 1
+                return self._outlet(dom, fed)
             except OutOfTime:
-                break
+                return None
             except Exception as exc:  # noqa: BLE001
-                self.log(f"  news: federal {dom}: {type(exc).__name__}: {str(exc)[:100]}")
-        for dom in order:
-            if deadline and time.monotonic() > deadline:
-                break
-            try:
-                if dom in self.wp:
-                    self.from_wp(dom, self.wp[dom])
-                else:
-                    feed = self.feed_of(dom)
-                    if feed:
-                        self.from_feed(dom, feed)
-                self.stats["outlets"] += 1
-            except OutOfTime:
-                break
-            except Exception as exc:  # noqa: BLE001
-                self.log(f"  news: {dom}: {type(exc).__name__}: {str(exc)[:100]}")
+                self.log(f"  news: {'federal ' if fed else ''}{dom}: {type(exc).__name__}: {str(exc)[:100]}")
+                return []
+
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                results = list(ex.map(one, jobs))
+        else:
+            results = [one(j) for j in jobs]
+        for res in results:
+            if res is None:
+                continue
+            self.stats["outlets"] += 1
+            for url, title, text, date, outlet, via, body, fed_only in res:
+                if url in self._links:
+                    continue
+                self._links.add(url)
+                self.add(url, title, text, date, outlet, via, body=body, fed_only=fed_only)
         try:
             self.feeds_p.write_text(json.dumps(self.feeds, indent=1, sort_keys=True))
         except OSError:
@@ -443,7 +484,7 @@ class Digest:
         return self.stats
 
 
-def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
+def export_news(store, out_path: Path, text_path: Path | None = None, read: list[str] | None = None) -> dict:
     """The digest in the page's format; with text_path, also {url: the outlet's own text} for the summary model (that
     file is the model's input only and is never published)."""
     floor = (dt.date.today() - dt.timedelta(days=21)).isoformat()
@@ -487,13 +528,15 @@ def export_news(store, out_path: Path, text_path: Path | None = None) -> dict:
                 it["sw"] = 1
         items.append(it)
         texts[r["url"]] = m.get("body") or r.get("text") or ""
-    items.sort(key=lambda x: x["d"], reverse=True)
+    items.sort(key=lambda x: (x["d"], x["u"]), reverse=True)     # the same order whatever order the stories were read in
     items = sorted([x for x in items if x.get("lv") != "federal"][:NEWS_KEEP] + [x for x in items if x.get("lv") == "federal"][:FED_KEEP],
-                   key=lambda x: x["d"], reverse=True)
+                   key=lambda x: (x["d"], x["u"]), reverse=True)
     window = f"{items[-1]['d']} to {items[0]['d']}" if items else ""
     out_path.write_text(json.dumps({"updated": _now(), "window": window, "note": "Headlines and the outlets' own excerpts, "
                                     "collected by the crawler from Georgia outlets' news feeds (federal stories, lv federal, also from national "
                                     "outlets' politics feeds); every line links to the story.",
+                                    # the outlets that answered: Electo's import keeps the earlier stories of the others
+                                    **({"read": sorted(read)} if read else {}),
                                     "items": items}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     if text_path:
         keep_u = {x["u"] for x in items}
