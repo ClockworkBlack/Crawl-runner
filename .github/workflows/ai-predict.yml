@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       bench:
-        description: "run the hidden-vote test (questions per model and variant; 0 = skip)"
+        description: "run the hidden-vote test (questions per model, split over 4 runners; 400 is the standard set; 0 = skip)"
         default: "0"
       minutes:
         description: "minutes of model time per runner"
@@ -50,9 +50,8 @@ jobs:
       fail-fast: false
       matrix:
         model: ${{ fromJSON(inputs.tuned != '' && '["phi4","qwen3","tuned"]' || '["phi4","qwen3"]') }}
-        facts: ["facts", "nofacts"]
-        exclude:
-          - {model: tuned, facts: nofacts}      # trained with the facts; scored the way it was trained
+        # with the counted facts only (Nov 11: they helped both models in both runs); 400 questions in 4 parts
+        shard: [0, 1, 2, 3]
     env:
       ELECTO_LLM_REPO: ${{ matrix.model == 'tuned' && inputs.tuned || matrix.model == 'phi4' && 'microsoft/phi-4-gguf' || 'Qwen/Qwen3-8B-GGUF' }}
       ELECTO_LLM_QUANT: ${{ matrix.model == 'tuned' && inputs.tuned_quant || matrix.model == 'phi4' && 'Q4_K_S' || 'Q4_K_M' }}
@@ -80,12 +79,12 @@ jobs:
         run: |
           M="${{ inputs.minutes || '240' }}"; N="${{ inputs.bench || '120' }}"
           cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/vote_bench.py --n "$N" --minutes "$M" \
-            ${{ matrix.facts == 'nofacts' && '--no-facts' || '' }} --out ../run.json || echo "stopped"
+            --shard ${{ matrix.shard }} --of 4 --out ../run.json || echo "stopped"
           [ -f ../run.json ] || echo '{"rows":[]}' > ../run.json
           cp research/train/vote_bench_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
       - uses: actions/upload-artifact@v4
         with:
-          name: predict-bench-${{ matrix.model }}-${{ matrix.facts }}
+          name: predict-bench-${{ matrix.model }}-${{ matrix.shard }}
           path: |
             run.json
             log.jsonl
