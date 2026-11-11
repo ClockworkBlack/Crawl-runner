@@ -919,8 +919,13 @@ def cmd_news(cfg, args):
     store = config.make_store(cfg)
     try:
         f = _fetcher(cfg, None)
+        # a feed answers in a second or two: shorter waits than the crawl's documents get, and a host whose next turn is
+        # more than 20 seconds off (a strained shared host) is left for a later pass
+        f.timeout, f.connect_timeout, f.max_wait = min(f.timeout, 15.0), min(f.connect_timeout, 8.0), 20.0
         dg = Digest(f, store, config.ROOT, cfg["state_dir"])
         dg.conditional = every > 0
+        dg.outlet_cap = 40.0
+        dg.rest = 2 if every else 0
         start, n = time.monotonic(), 0
         while True:
             n += 1

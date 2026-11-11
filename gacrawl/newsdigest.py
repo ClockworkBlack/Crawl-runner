@@ -340,6 +340,13 @@ class Digest:
         self.read: set[str] = set()            # outlets that answered (their names, as the page shows them)
         self._wp_known: dict[str, set] = {}    # WordPress outlet -> post ids read with their text
         self._links: set[str] = set()          # story links read this process
+        # a slow outlet does not hold up the pass: each outlet gets outlet_cap seconds (its host's turn included), and in
+        # a loop one that ran out rests for `rest` passes (a Nov 11 test: seven of 190 outlets, timing out or queued
+        # behind one strained shared host, kept every pass at its five-minute limit; the other 183 took 20 seconds)
+        self.outlet_cap: float | None = None
+        self.rest = 0
+        self._pass = 0
+        self._slow: dict[str, int] = {}        # outlet -> the pass it ran out of time in
 
     def add(self, url: str, title: str, text: str, date: str, outlet: str, via: str, body: str = "", fed_only: bool = False) -> None:
         self.stats["seen"] += 1
@@ -445,22 +452,40 @@ class Digest:
 
         from .fetch import OutOfTime
 
+        import requests
+
         self.stats = {"outlets": 0, "seen": 0, "kept": 0, "new": 0, "federal": 0}
+        self._pass += 1
         order = [d for d in self.outlets if d in self.wp] + [d for d in self.outlets if d not in self.wp]
         # the federal sections and outlets first (each one's own feed, federal stories only), then Georgia's outlets
         jobs = [(d, True) for d in sorted(self.fed_only | set(self.fed_pages))] + [(d, False) for d in order]
+        resting = [j for j in jobs if self.rest and self._pass - self._slow.get(j[0], -10 ** 6) <= self.rest]
+        jobs = [j for j in jobs if j not in resting]
+        if resting:
+            self.stats["resting"] = len(resting)
 
         def one(job):
             dom, fed = job
             if deadline and time.monotonic() > deadline:
                 return None
+            t0 = time.monotonic()
+            if self.outlet_cap:
+                self.f.thread_stop_at = t0 + self.outlet_cap
             try:
                 return self._outlet(dom, fed)
             except OutOfTime:
+                self._slow[dom] = self._pass
                 return None
             except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+                    self._slow[dom] = self._pass
                 self.log(f"  news: {'federal ' if fed else ''}{dom}: {type(exc).__name__}: {str(exc)[:100]}")
                 return []
+            finally:
+                if self.outlet_cap:
+                    self.f.thread_stop_at = None
+                    if time.monotonic() - t0 > self.outlet_cap:
+                        self._slow[dom] = self._pass
 
         if workers > 1:
             with ThreadPoolExecutor(max_workers=workers) as ex:
