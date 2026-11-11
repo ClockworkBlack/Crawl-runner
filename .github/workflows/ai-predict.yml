@@ -98,7 +98,14 @@ jobs:
             --shard ${{ matrix.shard }} --of 4 --out ../run.json || echo "stopped"
           [ -f ../run.json ] || echo '{"rows":[]}' > ../run.json
           cp research/train/vote_bench_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
+      - name: Did it answer?
+        # a part with no answers fails the job, so the run's log is kept (a finished run that succeeds is deleted with its
+        # log; Nov 11 a whole three-model run came back empty and left nothing to say why)
+        run: |
+          python3 -c "import json,sys; r=json.load(open('run.json')).get('rows') or []; print(len(r), 'answers,', sum(1 for x in r if x.get('p') is not None), 'readable,', sum(1 for x in r if x.get('pn') is not None), 'with a probability'); sys.exit(0 if r else 1)" \
+            || { echo "::error::no answers from ${{ matrix.model }} (part ${{ matrix.shard }}): see the step above"; exit 1; }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: predict-bench-${{ matrix.model }}-${{ matrix.shard }}
           path: |
