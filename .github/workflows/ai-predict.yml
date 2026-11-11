@@ -21,8 +21,11 @@ on:
       minutes:
         description: "minutes of model time per runner"
         default: "240"
+      models:
+        description: 'models for the hidden-vote test, a JSON list: phi4, qwen3, gemma4 (Gemma 4 12B), qwen35 (Qwen3.5-9B), tuned (the repo below)'
+        default: '["phi4","gemma4","qwen35"]'
       tuned:
-        description: "a fine-tuned model's Hugging Face repo (e.g. name/electo-predict-qwen3-8b), scored in the hidden-vote test next to the stock models"
+        description: "a fine-tuned model's Hugging Face repo (e.g. name/electo-predict-gemma4-12b); add \"tuned\" to models to score it"
         default: ""
       tuned_quant:
         description: "its 4-bit kind (the part of the .gguf file name)"
@@ -49,17 +52,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: ${{ fromJSON(inputs.tuned != '' && '["phi4","qwen3","tuned"]' || '["phi4","qwen3"]') }}
+        model: ${{ fromJSON(inputs.models || '["phi4","gemma4","qwen35"]') }}
         # with the counted facts only (Nov 11: they helped both models in both runs); 400 questions in 4 parts
         shard: [0, 1, 2, 3]
     env:
-      ELECTO_LLM_REPO: ${{ matrix.model == 'tuned' && inputs.tuned || matrix.model == 'phi4' && 'microsoft/phi-4-gguf' || 'Qwen/Qwen3-8B-GGUF' }}
-      ELECTO_LLM_QUANT: ${{ matrix.model == 'tuned' && inputs.tuned_quant || matrix.model == 'phi4' && 'Q4_K_S' || 'Q4_K_M' }}
-      ELECTO_LLM_NAME: ${{ matrix.model == 'tuned' && format('tuned {0}', inputs.tuned) || matrix.model == 'phi4' && 'Phi-4' || 'Qwen3-8B' }}
       HF_TOKEN: ${{ secrets.HF_TOKEN }}         # only needed for a private repo
     steps:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
+      - name: Which model
+        id: which
+        run: |
+          # every candidate fits the runner's 16 GB as a 4-bit file (Nov 11, 2026: Gemma 4 12B 7.1 GB, Qwen3.5-9B 5.7 GB,
+          # Phi-4 8.4 GB); all Apache-2.0 or MIT. Phi-4 and Qwen3-8B keep the cache keys the other workflows use.
+          case "${{ matrix.model }}" in
+            phi4)   R=microsoft/phi-4-gguf;          Q=Q4_K_S; N="Phi-4";       K=hf-phi4-q4ks-v1 ;;
+            qwen3)  R=Qwen/Qwen3-8B-GGUF;            Q=Q4_K_M; N="Qwen3-8B";    K=hf-qwen3-8b-q4km-v1 ;;
+            gemma4) R=unsloth/gemma-4-12b-it-GGUF;   Q=Q4_K_M; N="Gemma 4 12B"; K=hf-gemma4-12b-q4km-v1 ;;
+            qwen35) R=unsloth/Qwen3.5-9B-GGUF;       Q=Q4_K_M; N="Qwen3.5-9B";  K=hf-qwen35-9b-q4km-v1 ;;
+            tuned)  R="${{ inputs.tuned }}"; Q="${{ inputs.tuned_quant }}"; N="tuned ${{ inputs.tuned }}"; K="hf-tuned-$R-$Q"
+                    [ -n "$R" ] || { echo "::error::models has \"tuned\" but no tuned repo was given"; exit 1; } ;;
+            *)      echo "::error::unknown model ${{ matrix.model }}"; exit 1 ;;
+          esac
+          { echo "ELECTO_LLM_REPO=$R"; echo "ELECTO_LLM_QUANT=$Q"; echo "ELECTO_LLM_NAME=$N"; } >> "$GITHUB_ENV"
+          echo "key=$K" >> "$GITHUB_OUTPUT"
       - name: Electo (the roll calls and the test)
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -72,9 +88,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: ${{ matrix.model == 'tuned' && format('hf-tuned-{0}-{1}', inputs.tuned, inputs.tuned_quant) || matrix.model == 'phi4' && 'hf-phi4-q4ks-v1' || 'hf-qwen3-8b-q4km-v1' }}
-      - name: llama.cpp (CPU build)
-        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          key: ${{ steps.which.outputs.key }}
+      - name: llama.cpp (CPU build; 0.3.36 or later knows Gemma 4 and Qwen3.5)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.36" numpy huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
       - name: Predict the hidden votes
         run: |
           M="${{ inputs.minutes || '240' }}"; N="${{ inputs.bench || '120' }}"
