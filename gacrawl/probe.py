@@ -62,6 +62,11 @@ def probe(fetcher: Fetcher, urls: list[str], out: Path, browser: bool = False, l
                 if grep:
                     rx = re.compile(grep, re.I)
                     row["matches"] = [l[:400] for l in text.splitlines() if rx.search(l)][:25]
+            if grep and ("javascript" in r.content_type or r.url.lower().split("?")[0].endswith(".js")):
+                # a script bundle is one long line: each match with the code around it (an app's API paths and calls)
+                text = r.content.decode("utf-8", "replace")
+                rx = re.compile(grep, re.I)
+                row["matches"] = [text[max(0, m.start() - 160):m.end() + 240] for m in rx.finditer(text)][:60]
             if "spreadsheetml" in r.content_type or "ms-excel" in r.content_type or r.url.lower().endswith((".xlsx", ".xls")):
                 try:                                 # a spreadsheet: its sheets and first rows
                     import io

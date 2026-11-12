@@ -13,8 +13,10 @@ Records (source ga:legis, jurisdiction ga)
   legislator   one per member (every session they served; committees per session)
   bill         one per piece of legislation (sponsors with sequence: lead sponsor / co-sponsor / cross-chamber sponsor)
   vote         one per roll call fetched (meta.votes [{person, person_id, vote}], like council roll calls)
-Roll calls are fetched for the landmark bills in config/legislature.yaml and, in the current sessions,
-for legislation that passed, within a per-run budget; the rest is picked up on later runs.
+Roll calls are fetched for the landmark bills in config/legislature.yaml, in the current sessions for
+legislation that passed, and then (votes.all_floor_votes) for every bill of every followed session whose record
+shows it reached a floor vote, newest session first, within a per-run budget; the rest is picked up on later runs.
+Every member's vote on every roll call is what the vote model (gacrawl/vote_model.py) learns from.
 Incremental: current sessions are re-listed every run (status changes); past sessions once; member
 details re-read after recheck_days.
 
@@ -51,6 +53,26 @@ def sponsor_role(sp: dict, x: dict) -> str:
     if sp.get("sponsorType") == 3:
         return "Senate sponsor" if x.get("chamberType") == 1 else "House sponsor"
     return "co-sponsor"
+
+
+# the last step on a bill's record that only a floor vote leads to; a step in the other chamber counts too (reached_floor)
+FLOOR_RX = re.compile(r"passed|adopted|agree|lost|third read|conference|transmitted|insist|recede|signed by governor|vetoed|"
+                      r"effective date|act \d|enrolled|reconsider|tabled", re.I)
+
+
+def reached_floor(meta: dict) -> bool:
+    """Whether a bill's record shows it got as far as a floor vote: an act or veto number, a last step taken on the
+    floor, or a last step in the other chamber (it had to pass its own to get there). A resolution read and adopted
+    the day it was offered is taken by voice, with no roll call to read, so it is left out."""
+    status = (meta.get("status") or "").strip()
+    if meta.get("enacted") or meta.get("vetoed"):
+        return True
+    if re.search(r"read and adopted", status, re.I):
+        return False
+    origin = (meta.get("chamber") or "")[:1].upper() or (meta.get("number") or " ")[:1].upper()
+    if status[:1].upper() in ("H", "S") and origin in ("H", "S") and status[:1].upper() != origin:
+        return True
+    return bool(FLOOR_RX.search(status))
 
 
 class TokenRefused(RuntimeError):
@@ -319,31 +341,40 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
             if not timed_out():
                 store.kv_set(done_key, dt.date.today().isoformat())
             store.flush()
-        # 3. roll calls: landmark bills first, then what passed in the current sessions (budgeted)
+        # 3. roll calls: landmark bills first, then what passed in the current sessions, then every other bill that
+        #    reached a floor vote, newest session first (budgeted; a closed session's bill is read once)
         votes_cfg = cfg.get("votes") or {}
         budget = max_bills if max_bills is not None else int(votes_cfg.get("max_bills_per_run", 40))
         todo: list[tuple[int, dict]] = []
         # one pass over the stored bills (instead of a filtered scan per landmark bill)
         wanted = {(int(kb["session"]), kb["bill"]) for kb in votes_cfg.get("key_bills") or []}
         passed_current = votes_cfg.get("all_passed_in_current", True)
+        every_floor = votes_cfg.get("all_floor_votes", True)
+        followed = set(current) | set(history)
         for b in store.iter_query("source_id=? AND kind='bill'", (SOURCE,)):
             m = b["meta"]
             sid = m.get("session")
             if (sid, m.get("number")) in wanted:
-                todo.append((1, b))
+                todo.append((1, 0, b))
             elif passed_current and sid in current and (PASSED_RX.search(m.get("status") or "") or m.get("enacted")):
-                todo.append((2, b))
+                todo.append((2, 0, b))
+            elif every_floor and sid in followed and reached_floor(m):
+                todo.append((3, -int(sid or 0), b))
         seen_ids = set()
         fetched = 0
-        for _, b in sorted(todo, key=lambda t: t[0]):
+        waiting = 0
+        for _, _, b in sorted(todo, key=lambda t: t[:2]):
             lid = b["meta"]["legislation_id"]
-            if lid in seen_ids or timed_out() or fetched >= budget:
+            if lid in seen_ids:
                 continue
             seen_ids.add(lid)
             mark = f"legis:votes:{lid}"
             prev = store.kv_get(mark)
             if prev and (prev >= (b["meta"].get("status_date") or "") or b["meta"]["session"] not in current):
                 continue  # fetched since the bill last moved
+            if timed_out() or fetched >= budget:
+                waiting += 1   # counted, so each run says how many bills' roll calls are still to read
+                continue
             try:
                 recs = api.roll_calls(lid, b["meta"]["number"], int(b["meta"]["session"]), b["meta"].get("session_name", ""), b["meta"].get("caption", ""))
             except (Blocked, Disallowed, TokenRefused):
@@ -356,6 +387,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                 if store.add(r):
                     out["votes"] += 1
             store.kv_set(mark, dt.date.today().isoformat())
+        out["vote_bills"], out["vote_bills_waiting"] = fetched, waiting
         store.flush()
     except (Blocked, Disallowed) as exc:
         out["error"] = str(exc)

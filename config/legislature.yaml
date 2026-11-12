@@ -287,6 +287,7 @@ votes:
     bill: SB 3EX
     title: '2026 special session: Election Equipment Specifications and Standards Committee'
   all_passed_in_current: true
+  all_floor_votes: true
   max_bills_per_run: 40
 members:
   recheck_days: 30

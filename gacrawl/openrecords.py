@@ -861,3 +861,31 @@ def _gh_api(method: str, path: str, body: dict | None = None):
     if r.returncode != 0:
         raise RuntimeError(f"gh api {method} {path}: {r.stderr.strip()[:200]}")
     return json.loads(r.stdout) if r.stdout.strip() else None
+
+
+def send_letter(path: Path, mailbox: "Mailbox | None" = None, env: dict | None = None, smtp_factory=None) -> dict:
+    """One letter from config/private/outbox/ (headers To: and Subject:, a blank line, then the body), sent from the project mailbox;
+    a <letter>.sent file beside it records the sending, and a letter with one is never sent again. {FEC_KEY_LINE} in
+    the body becomes the project's FEC key (FEC_API_KEY) or, without one here, an offer to send it."""
+    e = env if env is not None else os.environ
+    sent = path.with_name(path.name + ".sent")
+    if sent.exists():
+        return {"sent": False, "why": f"already sent ({sent.read_text().strip()})"}
+    head, _, body = path.read_text(encoding="utf-8").partition("\n\n")
+    h = {k.strip().lower(): v.strip() for k, _, v in (ln.partition(":") for ln in head.splitlines()) if v.strip()}
+    if not h.get("to") or not h.get("subject") or not body.strip():
+        return {"sent": False, "why": "a letter needs To:, Subject:, a blank line and a body"}
+    key = (e.get("FEC_API_KEY") or "").strip()
+    body = body.replace("{FEC_KEY_LINE}", f"The key we would like upgraded: {key}" if key else
+                        "If you need our key to find the account, reply to this message and we will send it.")
+    mb = mailbox or Mailbox(e)
+    if not mb.can_send:
+        return {"sent": False, "why": "mailbox secrets missing (ORR_SMTP_HOST, ORR_USER, ORR_PASSWORD, ORR_FROM)"}
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = mb.sender, h["to"], h["subject"]
+    msg["Reply-To"] = mb.sender
+    msg.set_content(body.strip() + "\n")
+    mb.send(msg, smtp_factory=smtp_factory)
+    at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    sent.write_text(f"{at} to {h['to']}\n")
+    return {"sent": True, "to": h["to"], "subject": h["subject"], "at": at, "with_key": bool(key)}

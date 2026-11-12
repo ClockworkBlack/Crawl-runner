@@ -1,0 +1,49 @@
+name: mail-send
+# One letter from config/private/outbox/ (kept out of the public copy) sent from the project mailbox (the open-records mailbox's secrets, which live only in this
+# private repository): Actions -> mail-send -> Run workflow, with the letter's path. A letter is a text file with
+# To: and Subject: lines, a blank line, then the body. The run commits <letter>.sent beside it, so a letter is never
+# sent twice. Replies arrive in the project mailbox.
+on:
+  workflow_dispatch:
+    inputs:
+      letter:
+        description: "the letter to send (config/private/outbox/<name>.txt)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mail-send
+  cancel-in-progress: false
+
+jobs:
+  send:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: Send the letter
+        env:
+          ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}
+          ORR_SMTP_PORT: ${{ secrets.ORR_SMTP_PORT }}
+          ORR_USER: ${{ secrets.ORR_USER }}
+          ORR_PASSWORD: ${{ secrets.ORR_PASSWORD }}
+          ORR_FROM: ${{ secrets.ORR_FROM }}
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          LETTER: ${{ inputs.letter }}
+        run: |
+          case "$LETTER" in config/private/outbox/*.txt) ;; *) echo "::error::a letter is a file config/private/outbox/<name>.txt"; exit 1;; esac
+          gacrawl records letter --letter "$LETTER"
+      - name: Record it as sent
+        run: |
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add config/private/outbox/*.sent 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -qm "Outbox: letter sent $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q origin main && git push -q origin HEAD:main && exit 0; sleep $((i*5)); done
+          exit 1

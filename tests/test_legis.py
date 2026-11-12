@@ -149,3 +149,67 @@ def test_legislature_update_and_people(server, fetcher, tmp_path, monkeypatch):
     assert {a["org"] for a in prof["affiliations"]} == {"House Governmental Affairs Committee", "Georgia House leadership"}
     assert prof["sources"][prof["votes"][0]["src"][0]]["u"].endswith("/legislation/69281")
     store.close()
+
+
+def test_roll_calls_of_every_bill_that_reached_the_floor(server, fetcher, tmp_path, monkeypatch):
+    """A closed session's bill that crossed to the other chamber has a floor vote to read; one that never left
+    committee is not asked about; the budget still holds, and what is left is counted."""
+    import yaml
+    from gacrawl.store import Record
+
+    monkeypatch.setattr(legis, "API", server + "/api/")
+    root = tmp_path / "proj"
+    (root / "config").mkdir(parents=True)
+    cfg = {"sessions": {"current": [1033], "history": [1031, 1033], "names": {1031: "2023-2024", 1033: "2025-2026"},
+                        "years": {1031: [2023, 2024], 1033: [2025, 2026]}},
+           "votes": {"key_bills": [], "all_passed_in_current": False, "all_floor_votes": True, "max_bills_per_run": 1},
+           "members": {"recheck_days": 30}}
+    (root / "config" / "legislature.yaml").write_text(yaml.safe_dump(cfg))
+    store = Store(root / "data")
+    store.kv_set("legis:legislation:1031", "2026-01-01")        # the closed session's bill list was read before
+    for lid, number, status in ((555, "HB 20", "Senate Read and Referred"), (556, "HB 21", "House Second Readers"),
+                                (557, "SB 30", "Senate Passed/Adopted")):
+        store.add(Record(legis.SOURCE, "bill", f"https://www.legis.ga.gov/legislation/{lid}", title=number, key=f"{legis.SOURCE}|bill|{lid}",
+                         meta={"legislation_id": lid, "number": number, "session": 1031, "session_name": "2023-2024", "caption": "x",
+                               "status": status, "status_date": "2024-03-01", "chamber": "House" if number.startswith("H") else "Senate", "sponsors": []}))
+    store.flush()
+    roll = {"detail": {"id": 555, "votes": [{"id": 900, "caption": "PASSAGE", "date": "2024-02-20T10:00:00", "name": "House Vote #5", "yea": 1, "nay": 1}]},
+            "rolls": {900: [{"member": {"id": 5025, "name": "LOCAL, 43RD"}, "memberVoted": 0}, {"member": {"id": 77, "name": "POST, 7TH"}, "memberVoted": 1}]}}
+    monkeypatch.setitem(VOTES, 555, roll)
+    monkeypatch.setitem(VOTES, 557, {"detail": {"id": 557, "votes": []}, "rolls": {}})
+    before = len(CALLS)
+    out = legis.update(fetcher, store, root, log=lambda *_: None)
+    asked = [c for c in CALLS[before:] if "/legislation/detail/" in c]
+    # three bills reached the floor (the current session's signed HB 1 and the closed session's two); newest session first
+    assert out["vote_bills"] == 1 and out["vote_bills_waiting"] == 2 and [c.rsplit("/", 1)[1] for c in asked] == ["69281"]
+    out2 = legis.update(fetcher, store, root, log=lambda *_: None)         # later runs read the ones left
+    out3 = legis.update(fetcher, store, root, log=lambda *_: None)
+    assert (out2["vote_bills"], out2["vote_bills_waiting"], out3["vote_bills"], out3["vote_bills_waiting"]) == (1, 1, 1, 0)
+    assert {r["meta"]["VoteId"] for r in store.query("kind='vote'")} == {12265, 12266, 900}
+    assert not any(c.endswith("/556") or c.endswith("/70000") for c in CALLS[before:] if "/legislation/detail/" in c)
+    before = len(CALLS)
+    out4 = legis.update(fetcher, store, root, log=lambda *_: None)         # a closed session's bill is read once
+    assert out4["vote_bills"] == 0 and not any("/legislation/detail/" in c for c in CALLS[before:])
+
+
+def test_an_unreachable_site_gets_the_second_try_too(tmp_path, monkeypatch):
+    """Nov 12: a connection timeout stopped the legislature step and, not being a refusal, left no marker, so the run's
+    later second try never came. Unreachable now leaves the marker; a clean try clears it."""
+    import argparse
+
+    from gacrawl import cli, config
+
+    cfg = {"state_dir": tmp_path / "state"}
+    monkeypatch.setattr(config, "make_store", lambda c: Store(tmp_path / "data"))
+    monkeypatch.setattr(cli, "_fetcher", lambda c, d=None: None)
+    args = argparse.Namespace(action="update", max_minutes=1, max_bills=1, if_refused=False)
+    marker = cfg["state_dir"] / "legis_refused.json"
+    monkeypatch.setattr(legis, "update", lambda *a, **k: {"votes": 0, "error": "https://www.legis.ga.gov/api/authentication/token (unreachable (ConnectTimeout))"})
+    cli.cmd_legis(cfg, args)
+    assert marker.exists() and "unreachable" in json.loads(marker.read_text())["why"]
+    monkeypatch.setattr(legis, "update", lambda *a, **k: {"votes": 3})
+    cli.cmd_legis(cfg, args)
+    assert not marker.exists()
+    monkeypatch.setattr(legis, "update", lambda *a, **k: {"votes": 0, "error": "robots.txt disallows /api/"})   # not a passing fault
+    cli.cmd_legis(cfg, args)
+    assert not marker.exists()

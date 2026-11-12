@@ -107,6 +107,19 @@ members[], votes_counted, pairs[{{a,b,shared,agree,pct}}] over non-unanimous rol
 | donors[] | donors with money to more than one recipient: `id`, `name`, `kind`, `city`, `state`, `county`, `employer`, `total`, `n`, `r[]` |
 | by | totals by `donor_state`, `donor_county`, `donor_city`, `party`, `office`, `level`, `kind`, `source`: [{{k, t}}] |
 
+## How legislators vote, added up (vote_model.json)
+
+Built from every member's Yea/Nay on the stored roll calls (gacrawl/vote_model.py); present once numpy, scipy and
+scikit-learn are installed where the export runs.
+
+| field | what |
+|---|---|
+| built_from | `roll_calls`, `divided_roll_calls` (at least 2.5% voted with the losing side), `votes`, `members`, `bills`, `years` |
+| status | `tested`, or why there is no test yet (too few divided roll calls) |
+| members[] | left to right: `id` (legis.ga.gov member id), `name`, `party`, `chamber`, `position` (fitted to votes cast; higher = votes more with Republicans), `votes_counted`, `against_party` (share of divided roll calls where they voted against most of their party) |
+| test | each year's votes predicted from the years before it. `all`, `first_vote_on_the_bill`, `later_vote_on_the_bill`: `questions`, `roll_calls`, `no_votes`, `model` and each plain rule ({{n, right, range95, right_on_yes_votes, right_on_no_votes, brier}}), `best_rule`, `verdict`. `by_year`, `against_party_votes`, `bands` (said / happened) |
+| macro | each roll call's expected Yea count (the sum of its members' chances) against the count recorded: `roll_calls`, `carried`, `outcome_called_right`, `failed`, `failed_called_right`, `mean_miss_share`, `mean_miss_share_divided`, `largest_misses[]`, `newest[]` ({{bill, session, date, vote, u, voting, yea, expected_yea, carried, called, first, divided, R: [yea, expected], D: [...]}}) |
+
 ## Why bills passed or died (bill_reasons.json)
 
 | field | what |
@@ -322,6 +335,13 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     from .bill_reasons import export_reasons
 
     reasons_counts = export_reasons(store, root, out / "bill_reasons.json")
+    from .vote_model import export_vote_model
+
+    try:
+        vote_model_counts = export_vote_model(store, out / "vote_model.json", log=log)
+    except Exception as exc:  # noqa: BLE001  the rest of the bundle does not wait on the model
+        vote_model_counts = {"built": False, "why": f"{type(exc).__name__}: {exc}"[:200]}
+    log(f"  vote model: {vote_model_counts}")
     from .newsdigest import export_news
 
     news_counts = export_news(store, out / "news.json")
@@ -382,6 +402,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         "schools": schools_counts, "open_records": n_orr,
         "policing": policing_counts,
         "bill_reasons": reasons_counts,
+        "vote_model": vote_model_counts,
         "donors": donors_counts,
         "federal_bills": federal_counts,
         "records_by_kind": dict(total_records), "records_total": store.total(),

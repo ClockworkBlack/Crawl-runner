@@ -41,6 +41,7 @@
   gacrawl codeacts [--max-minutes M] [--limit N] [--only ID,ID]
                                          enacted 2023-2026 acts parsed into exact Code changes (as-passed text,
                                          struck/underlined words) for Electo's current Code text
+  gacrawl legis votemodel                How each legislator votes, added up, tested on later votes (no requests)
   gacrawl legis [update|people|all] [--max-minutes M] [--max-bills N]
                                          General Assembly members, bills, roll calls; per-candidate legislature records
   gacrawl schools seed|stats|sites|people|all [--max-minutes M] [--refresh]
@@ -573,6 +574,15 @@ def cmd_records(cfg, args):
     if args.action == "deadlines":
         print(json.dumps(reqs.deadlines(), indent=1))
         return
+    if args.action == "letter":
+        # one letter from config/private/outbox/ (the mail-send workflow): not a records request, so not in the tracker
+        from .openrecords import send_letter
+
+        r = send_letter(config.ROOT / (args.letter or ""))
+        print(json.dumps(r, indent=1))
+        if not r["sent"] and not str(r.get("why", "")).startswith("already sent"):
+            raise SystemExit(1)
+        return
     if args.action == "status":
         print(json.dumps({"sending_enabled": reqs.enabled, "why_not": reqs.why_not() or None, **reqs.summary()}, indent=1))
         return
@@ -847,12 +857,13 @@ def cmd_legis(cfg, args):
             return
         if args.action in ("update", "all"):
             out["update"] = update(_fetcher(cfg, deadline), store, config.ROOT, deadline=deadline, max_bills=args.max_bills)
-            # a refusal leaves a marker, so the merge job's second try later in the run knows to ask again; a try
-            # that is not refused clears it
-            if out["update"].get("refused"):
+            # a refusal leaves a marker, so the merge job's second try later in the run knows to ask again; so does a
+            # site that could not be reached at all (Nov 12, 02:50 UTC: a connection timeout stopped the step and, not
+            # being a refusal, got no second try that run); a try that is neither clears it
+            why = out["update"].get("refused") or (out["update"].get("error") if "unreachable" in (out["update"].get("error") or "") else None)
+            if why:
                 marker.parent.mkdir(parents=True, exist_ok=True)
-                marker.write_text(json.dumps({"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                                              "why": out["update"]["refused"]}))
+                marker.write_text(json.dumps({"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "why": why}))
             elif marker.exists():
                 marker.unlink()
         if args.action in ("reasons", "vetoes"):
@@ -890,6 +901,14 @@ def cmd_legis(cfg, args):
                     from .legis_video import hearings
 
                     out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline, log=log)
+        if args.action == "votemodel":
+            # every member's recorded votes -> positions, a tested vote model, expected counts (no requests)
+            from .vote_model import export_vote_model
+
+            p = cfg["state_dir"] / "vote_model.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            out["vote_model"] = export_vote_model(store, p)
+            out["vote_model"]["file"] = str(p)
         if args.action == "reasons":
             # why decided bills passed, were vetoed or died: what trusted outlets reported, through their own news APIs
             from .bill_reasons import research
@@ -924,6 +943,10 @@ def cmd_schools(cfg, args):
             out["stats"] = schools.stats(f, config.ROOT, store, deadline=deadline, refresh=args.refresh)
         if args.action in ("sites", "all"):
             out["sites"] = schools.sites(f, config.ROOT, store, deadline=deadline)
+        if args.action == "qbe-discover":
+            from .qbe import discover
+
+            out["qbe"] = discover(f)
         if args.action in ("people", "all"):
             out["people"] = schools.people(config.ROOT, store)
         print(json.dumps(out, indent=1))
@@ -1426,13 +1449,13 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
-    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "all"])
+    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "votemodel", "all"])
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
     lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
     lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
     lg.add_argument("--if-refused", action="store_true",
                     help="update: only when legis.ga.gov refused this run's earlier try (a second try later in the run)")
-    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all"])
+    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")
     pb = sub.add_parser("probe"); pb.add_argument("urls", nargs="+"); pb.add_argument("--out", default="probe")
@@ -1445,7 +1468,8 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--repo", help="owner/name: count the month's Actions minutes of every run in it (needs GH_TOKEN)")
     cx = sub.add_parser("codeacts"); cx.add_argument("--max-minutes", type=float); cx.add_argument("--limit", type=int)
     cx.add_argument("--only", help="comma list of legislation ids")
-    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines"])
+    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines", "letter"])
+    rq.add_argument("--letter", help="letter: the file to send (config/private/outbox/<name>.txt)")
     rq.add_argument("--to", help="test: send the sample here instead of the project mailbox")
     rq.add_argument("--limit", type=int); rq.add_argument("--dry-run", action="store_true")
     rq.add_argument("--max-minutes", type=float); rq.add_argument("--show", action="store_true", help="plan: print the first draft")
