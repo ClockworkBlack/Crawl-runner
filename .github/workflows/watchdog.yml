@@ -57,7 +57,7 @@ jobs:
           [ -n "$T" ] || { echo "no token for Electo"; exit 0; }
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/${ELECTO_REPO}.git" /tmp/electo-health
           cd /tmp/electo-health
-          git sparse-checkout set --no-cone /tools/ai/ /research/train/health.json /research/train/news_ai_log.jsonl \
+          git sparse-checkout set --no-cone /tools/ai/ /research/train/health.json /research/predict/rule_watch.json /research/train/news_ai_log.jsonl \
             /research/train/profile_write_log.jsonl /research/train/profile_ai_log.jsonl /research/train/infer_ai_log.jsonl
           [ -f tools/ai/health.py ] || { echo "no pass-rate watch in this Electo"; exit 0; }
           git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
