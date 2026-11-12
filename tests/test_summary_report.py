@@ -50,3 +50,13 @@ def test_summary_report_takes_the_elections_date_not_the_meetings():
     assert len(res) == 3 and {r.meta["date"] for r in res} == {"2023-11-07"}
     q = [r for r in recs if r.kind == "ballot_question"]
     assert len(q) == 1 and q[0].meta["result"] == "failed" and q[0].meta["no"] == 4824
+
+
+def test_summary_report_kept_as_one_long_line():
+    """The store keeps a PDF's text without its line breaks; the report is read all the same, page stamps aside."""
+    flat = " ".join(PACKET.splitlines()).replace("Dunwoody City Council, District 2", "Page 3 of 9 11/14/2023 7:44:25 AM Dunwoody City Council, District 2")
+    c = {x["office"]: x for x in parse_results(flat)}
+    assert set(c) == {"Mayor - Dunwoody", "Dunwoody City Council, District 2 Post 5 At Large", "Pine Lake City Council",
+                      "Dunwoody General Obligation Bond Referendum"}
+    assert {x["name"]: x["outcome"] for x in c["Dunwoody City Council, District 2 Post 5 At Large"]["candidates"]} == \
+        {"Marianella Lopez": "", "Joe Seconder": "won"}

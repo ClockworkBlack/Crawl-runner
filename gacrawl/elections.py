@@ -62,10 +62,32 @@ def is_summary_report(text: str) -> bool:
     return len(re.findall(r"\(Vote\s+for\s+\d+\)", text[:SUMMARY_MAX], re.I)) >= 2 and "Total Votes" in text[:SUMMARY_MAX]
 
 
+_MONTHS = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+_PAGE_STAMP = re.compile(r"^(?:Page\s+\d+\s+of\s+\d+\s*)?(?:\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)\s*)?", re.I)
+
+
+def _unflatten(text: str) -> str:
+    """The report's lines back, when its text was kept as one long line (the store keeps PDF text that way): a line
+    ends after each share (12.34%), after "(Vote for N)", after a "Total Votes" row's numbers, and around the report's
+    own headings."""
+    t = re.sub(r"\s+", " ", text)
+    t = re.sub(r"\s*(Total Votes|Times Cast|Precincts Reported:|Election Summary Report|Summary for:)", r"\n\1", t)
+    t = re.sub(r"(Candidate\s+Party\b.*?\bTotal)\s+", r"\n\1\n", t)
+    t = re.sub(r"(\(Vote\s+for\s+\d+\))\s*", r"\1\n", t, flags=re.I)
+    t = re.sub(r"(\d{1,3}\.\d+\s*%\)?)\s+", r"\1\n", t)
+    t = re.sub(r"(\nTotal Votes(?:\s+\d[\d,]*)+)\s+", r"\1\n", t)
+    t = re.sub(r"(" + _MONTHS + r"\s+\d{1,2},\s+\d{4})\s+", r"\1\n", t)
+    t = re.sub(r"(All Counting Groups|Unofficial and Incomplete|Official and Complete|Official Results)\s+", r"\1\n", t, flags=re.I)
+    return t
+
+
 def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
     """Contests from a county's Election Summary Report (also inside a longer document: a board's meeting packet)."""
+    text = text[:SUMMARY_MAX]
+    if text.count("\n") < text.count("(Vote for") * 3:
+        text = _unflatten(text)
     contests, cur = [], None
-    for raw in text[:SUMMARY_MAX].splitlines():
+    for raw in text.splitlines():
         line = re.sub(r"\s+", " ", raw.replace("|", " ")).strip()
         if not line:
             continue
@@ -73,7 +95,7 @@ def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
         if h:
             if cur and cur["candidates"]:
                 contests.append(cur)
-            office = h.group(1).strip(" :-")
+            office = _PAGE_STAMP.sub("", h.group(1)).strip(" :-")
             cur = {"office": office, "candidates": [], "runoff": runoff or "runoff" in office.lower(), "vote_for": int(h.group(2))}
             continue
         if cur is None or re.match(r"^(times cast|precincts reported|candidate\b|election day\b|page\b)", line, re.I):

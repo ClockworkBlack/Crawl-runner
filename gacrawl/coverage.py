@@ -207,6 +207,24 @@ def report(rows: list[dict], when: str, before_when: str | None) -> str:
     return "\n".join(lines)
 
 
+def election_reports(store) -> str:
+    """Per city election: how many counties' own summary reports are on file (gacrawl elections reports), and which
+    counties were searched without one being found (their city seats stay off the council lists until it is)."""
+    try:
+        from .config import ROOT
+        from .election_reports import TARGETS, status
+
+        st = status(store, ROOT)
+    except Exception as exc:  # noqa: BLE001
+        return f"\n## County election reports\n\n- not counted: {type(exc).__name__}\n"
+    L = ["", "## County election reports (city seats last filled in 2021 or 2023)", ""]
+    for iso, label, kind in TARGETS:
+        x = st[iso]
+        L.append(f"- {label} ({kind}): **{x['found']}** of 159 counties on file, {x['not_found']} searched without one, "
+                 f"{x['not_searched']} not searched yet" + (f"; not found: {', '.join(x['missing'][:30])}" if x["missing"] else ""))
+    return "\n".join(L) + "\n"
+
+
 def money_checks(store) -> str:
     """Campaign money that cannot be trusted yet: federal candidates the FEC lookup could not match (their money is
     missing), FEC lines read before the FEC's own fields were kept (not counted until re-read), committees whose
@@ -339,7 +357,7 @@ def run(root: Path, store, state_path: Path | None = None, out_path: Path | None
         checks = pipeline_checks(root, store)
     except Exception as e:  # noqa: BLE001 — the report is written whatever one check does
         checks = f"\n## Pipeline checks\n\n- could not be measured: {type(e).__name__}: {str(e)[:200]}\n"
-    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + checks, encoding="utf-8")
+    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + election_reports(store) + checks, encoding="utf-8")
     hist = (prev.get("history") or [])[-47:] + [{"as_of": when, **{k: now[k] for k in ("roll_calls", "board_members", "incidents",
                                                                                           "milestones", "budget_docs", "district_sites_read")}}]
     write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist}, indent=1)

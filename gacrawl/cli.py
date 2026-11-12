@@ -548,6 +548,26 @@ def cmd_rumor(cfg, args):
         print(json.dumps(row, indent=2) if row else f"no rumor {args.id}")
 
 
+def cmd_elections(cfg, args):
+    """County election reports for the city seats the state's results system does not hold (gacrawl/election_reports.py)."""
+    import sys
+
+    from .election_reports import run, status
+
+    store = config.make_store(cfg)
+    try:
+        if args.status:
+            print(json.dumps(status(store, config.ROOT), indent=1))
+            return
+        deadline = time.monotonic() + float(args.max_minutes or 15) * 60
+        out = run(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], deadline,
+                  counties=[x for x in (args.counties or "").split(",") if x] or None, cap=args.cap, dry_run=args.dry_run,
+                  log=lambda *a: print(*a, file=sys.stderr, flush=True))
+        print(json.dumps(out, indent=1))
+    finally:
+        store.close()
+
+
 def cmd_records(cfg, args):
     from .openrecords import Requests, discover_contacts, draft, plan, write_review
 
@@ -1475,6 +1495,11 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--repo", help="owner/name: count the month's Actions minutes of every run in it (needs GH_TOKEN)")
     cx = sub.add_parser("codeacts"); cx.add_argument("--max-minutes", type=float); cx.add_argument("--limit", type=int)
     cx.add_argument("--only", help="comma list of legislation ids")
+    el = sub.add_parser("elections"); el.add_argument("action", choices=["reports"])
+    el.add_argument("--counties", help="reports: these county ids only (comma-separated)")
+    el.add_argument("--cap", type=int, default=100, help="reports: web searches this run")
+    el.add_argument("--max-minutes", type=float); el.add_argument("--dry-run", action="store_true")
+    el.add_argument("--status", action="store_true", help="reports: only what is on file, per election")
     rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines", "letter"])
     rq.add_argument("--letter", help="letter: the file to send (config/private/outbox/<name>.txt)")
     rq.add_argument("--to", help="test: send the sample here instead of the project mailbox")
@@ -1496,7 +1521,7 @@ def main(argv=None):
     {"window": cmd_window, "seed": cmd_seed, "status": cmd_status, "discover": cmd_discover, "run": cmd_run,
      "delta": cmd_delta, "merge": cmd_merge, "search": cmd_search, "tasks": cmd_tasks, "blocked": cmd_blocked,
      "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "ordinances": cmd_ordinances, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
-     "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records,
+     "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records, "elections": cmd_elections,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
      "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)

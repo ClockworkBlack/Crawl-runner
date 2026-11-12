@@ -29,7 +29,7 @@ REGION = "us-en"
 
 
 class Search:
-    def __init__(self, state_dir: Path, exclude: set[str] | None = None, log=print):
+    def __init__(self, state_dir: Path, exclude: set[str] | None = None, log=print, cap: int | None = None):
         try:
             from ddgs import DDGS
             self._DDGS = DDGS
@@ -44,6 +44,7 @@ class Search:
         self.exclude = {d.lower() for d in (exclude or set())}
         self.log = log
         self.run_n = 0
+        self.cap = int(cap or RUN_CAP)      # this run's queries (a step can ask for its own)
         self._said = False
         self._last = 0.0
         self._fails = 0
@@ -58,7 +59,7 @@ class Search:
     def left(self) -> int:
         if self._DDGS is None or self._fails >= GIVE_UP_AFTER:
             return 0
-        return max(0, RUN_CAP - self.run_n)
+        return max(0, self.cap - self.run_n)
 
     def _excluded(self, url: str) -> bool:
         from .candidates import domain_of
@@ -78,7 +79,7 @@ class Search:
                 elif self._fails >= GIVE_UP_AFTER:
                     self.log("web search: DuckDuckGo kept failing; no more searches this run")
                 else:
-                    self.log(f"web search: this run's cap reached ({self.run_n}/{RUN_CAP})")
+                    self.log(f"web search: this run's cap reached ({self.run_n}/{self.cap})")
                 self._said = True
             return []
         raw = None
