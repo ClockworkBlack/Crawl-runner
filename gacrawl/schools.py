@@ -1238,8 +1238,17 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
             continue
         budget_by_d[r["source_id"].split(":", 1)[0]].append({"t": (r.get("title") or "")[:160], "u": r["url"], "k": r["kind"],
                                                              "d": r.get("published") or "", "at": (r.get("fetched_at") or "")[:10]})
-    funding = [{"t": (r.get("title") or "")[:160], "u": r["url"], "on": _meta(r).get("found_on") or "",
-                "at": (r.get("fetched_at") or "")[:10]} for r in store.iter_query("kind='budget_doc'")]
+    funding = []
+    for r in store.iter_query("kind='budget_doc'"):
+        m = _meta(r)
+        d = {"t": (r.get("title") or "")[:160], "u": r["url"], "on": m.get("found_on") or "", "at": (r.get("fetched_at") or "")[:10],
+             **({"how": m["qbe"]["how"]} if (m.get("qbe") or {}).get("how") else {})}
+        if (r.get("jurisdiction") or "").startswith("sd-"):
+            # a school system's own allotment sheet (GaDOE's QBE reports): listed with that district
+            budget_by_d[r["jurisdiction"]].append({"t": d["t"], "u": d["u"], "k": "budget_doc", "d": "", "at": d["at"],
+                                                   **({"how": d["how"]} if d.get("how") else {})})
+        else:
+            funding.append(d)
     people_by_d: dict[str, list] = defaultdict(list)
     for p in ppl:
         people_by_d[p["district_id"]].append(p)

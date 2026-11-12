@@ -914,8 +914,6 @@ def cmd_legis(cfg, args):
             from .bill_reasons import research
 
             out["reasons"] = research(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], deadline, limit=getattr(args, "max_bills", None))
-        if args.action in ("budgets", "all"):
-            out["budgets"] = schools.budgets(f, config.ROOT, store, deadline=deadline)
         if args.action in ("people", "all"):
             people = legis_people(store, load_candidates(config.ROOT, cfg), config.ROOT)
             p = cfg["state_dir"] / "legis_people.json"
@@ -946,7 +944,16 @@ def cmd_schools(cfg, args):
         if args.action == "qbe-discover":
             from .qbe import discover
 
-            out["qbe"] = discover(f)
+            import sys
+
+            out["qbe"] = discover(f, log=lambda *a: print(*a, file=sys.stderr, flush=True))   # stdout: the JSON only
+        if args.action in ("budgets", "all"):
+            # state funding: GaDOE's QBE reports (its report app: statewide tables, each school system's allotment
+            # sheet), then any files its finance pages link. This step had landed in `legis`, where nothing ran it
+            from .qbe import run as qbe_run
+
+            out["qbe"] = qbe_run(f, store, config.ROOT, deadline=deadline)
+            out["budgets"] = schools.budgets(f, config.ROOT, store, deadline=deadline)
         if args.action in ("people", "all"):
             out["people"] = schools.people(config.ROOT, store)
         print(json.dumps(out, indent=1))

@@ -4,7 +4,7 @@ version = "0.3.0"
 description = "Polite crawler for Georgia ordinances, council records and verified social posts"
 requires-python = ">=3.10"
 dependencies = ["requests>=2.31", "beautifulsoup4>=4.12", "lxml>=5.0", "PyYAML>=6.0", "Pillow>=10.0",
-                "pytesseract>=0.3.10", "pdfplumber>=0.11", "playwright>=1.44", "openpyxl>=3.1", "ddgs>=9.0"]
+                "pytesseract>=0.3.10", "pdfplumber>=0.11", "playwright>=1.44", "openpyxl>=3.1", "xlrd>=2.0", "ddgs>=9.0"]
 
 [project.scripts]
 gacrawl = "gacrawl.cli:main"
