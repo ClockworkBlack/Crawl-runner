@@ -7,6 +7,8 @@
 #   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, candidate-news, the ai-* jobs)
 #     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
 #     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
+#   - each open-model job still passes its own checker as often as before (Electo tools/ai/health.py): a job that got
+#     worse after it was moved to another model goes back to the earlier one; any other fall is reported
 #   - the tokens the chain depends on are not about to expire (it cannot renew them; it warns two weeks ahead)
 # Anything it can't fix, or that stays broken after a restart, goes into one "Watchdog" issue in the private Crawl
 # repository (GitHub emails you); the issue closes itself once everything is healthy again. No Claude needed.
@@ -45,6 +47,28 @@ jobs:
       MAX_SITE_H: ${{ vars.WATCH_SITE_HOURS || '8' }}
       MAX_STEP_H: ${{ vars.WATCH_STEP_HOURS || '4' }}    # longest any one step may run (candidate research on the runner is 200 min)
     steps:
+      - name: The open models' pass rates (a job that got worse after a move to another model goes back)
+        # Electo tools/ai/health.py: each model job's checker pass rate from its log. It changes tools/ai/models.json
+        # itself when a switch went badly; a fall with no switch behind it is reported in the issue below.
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          T="${ELECTO_TOKEN:-$DATA_TOKEN}"; : > /tmp/health.txt
+          [ -n "$T" ] || { echo "no token for Electo"; exit 0; }
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/${ELECTO_REPO}.git" /tmp/electo-health
+          cd /tmp/electo-health
+          git sparse-checkout set --no-cone /tools/ai/ /research/train/health.json /research/train/news_ai_log.jsonl \
+            /research/train/profile_write_log.jsonl /research/train/profile_ai_log.jsonl /research/train/infer_ai_log.jsonl
+          [ -f tools/ai/health.py ] || { echo "no pass-rate watch in this Electo"; exit 0; }
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          for i in 1 2 3; do
+            python3 -I tools/ai/health.py --act | tee /tmp/health.txt
+            git add tools/ai/models.json research/train/health.json 2>/dev/null || true
+            if git diff --cached --quiet; then break; fi
+            git commit -qm "Open models' pass rates: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push -q origin HEAD:main && break
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD; sleep $((i * 5))
+          done
       - name: Check the chain and repair what can be repaired
         run: |
           python3 - <<'PY'
@@ -232,7 +256,7 @@ jobs:
           jobs = {"news": ("news.yml", 8), "publish-site": ("publish-site.yml", 2), "results": ("results.yml", 2),
                   "sync-code": ("sync-code.yml", 2), "fec-reread": ("fec-reread.yml", 20), "ga-money": ("ga-money.yml", 20),
                   "model-work": ("model-work.yml", 20), "candidate-news": ("candidate-news.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
-                  "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40), "ai-predict": ("ai-predict.yml", 52),
+                  "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40), "ai-predict": ("ai-predict.yml", 52), "ai-law-questions": ("ai-law-questions.yml", 52),
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)
@@ -255,6 +279,17 @@ jobs:
                       problems.append(f"**{wf}** hasn't succeeded in {age:.0f} hours, even after restarts.")
           if r.returncode != 0 and "release asset" not in (r.stderr or "") and "no assets" not in (r.stderr or "").lower():
               repairs.append(f"run status not read ({(r.stderr or '').strip()[:120]})")
+
+          # 3d. the open models (the step above): a fall in a job's pass rate needs a reader; a job that went back to
+          #     its earlier model is done, and said once so the owner knows
+          try:
+              for line in open("/tmp/health.txt", encoding="utf-8"):
+                  if line.startswith("ALERT="):
+                      problems.append("Open model: " + line[6:].strip())
+                  elif line.startswith("RETURN="):
+                      problems.append("Open model (already put right, nothing to do): " + line[7:].strip())
+          except OSError:
+              pass
 
           # 4. report: one issue in the private repo, opened/updated on problems, closed when healthy
           print("\n".join(["repairs:"] + repairs + ["problems:"] + problems))

@@ -1,0 +1,154 @@
+name: ai-law-questions
+# Everyday questions for newly downloaded ordinances, kept up by the open model on the runner (Electo
+# tools/ai/law_questions.py), so law search finds a new or replaced code by a resident's plain words without anyone
+# running the GPU job again. Once a day:
+#   plan     which downloads the runner has not gone through, and how many of their sections have no questions
+#   write    the open model Electo's tools/ai/models.json gives the job "law_questions" writes them (the same prompt
+#            and cleaning as the GPU job), one to four runners by how much there is
+#   combine  -> Electo data/ord_lay.runner.json.gz, which Electo's ordinances workflow builds into the page's files
+# Nothing new: the run ends after the plan (a minute). The first big run (hundreds of thousands of sections) is the GPU
+# job's (Electo tools/train/electo_lawsearch_colab.ipynb): above 30,000 sections without questions this job waits.
+on:
+  schedule:
+    - cron: "29 9 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of model time per runner"
+        default: "200"
+
+permissions:
+  contents: read
+  actions: write        # remove this run's attachments at the end
+
+concurrency:
+  group: ai-law-questions-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+  ELECTO_LLM_JOB: law_questions
+  ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+  # the partial checkout every job starts from; the downloads still to go through are added by `--need`
+  SPARSE: /tools/ai/ /tools/train/ord_sections_export.py /tools/train/law_lay_gen.py /ga/ordinances_build.py /data/ordinances/index.json /data/ord_lay*.json.gz
+
+jobs:
+  plan:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      go: ${{ steps.plan.outputs.go }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the downloads not yet gone through)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone $SPARSE
+          [ -f tools/ai/law_questions.py ] || { echo "no law-questions job in this Electo"; exit 0; }
+          python3 -I tools/ai/law_questions.py --need > ../need.txt
+          echo "$(wc -l < ../need.txt) downloads to go through"
+          [ -s ../need.txt ] && git sparse-checkout add --stdin < ../need.txt || true
+      - name: How much there is to write
+        id: plan
+        run: |
+          [ -s need.txt ] || { echo "go=false" >> "$GITHUB_OUTPUT"; echo "shards=[]" >> "$GITHUB_OUTPUT"; echo "::notice::no new downloads"; exit 0; }
+          cd electo && python3 -I tools/ai/law_questions.py --list | tee ../list.txt
+          N=$(sed -n 's/^SHARDS=//p' ../list.txt); W=$(sed -n 's/^WAITING=//p' ../list.txt)
+          [ -z "$W" ] || echo "::notice::$W sections have no questions yet: waiting for the first big run on a GPU (Electo tools/train/electo_lawsearch_colab.ipynb)"
+          echo "shards=$(python3 -c "print(list(range(int('${N:-0}'))))")" | tee -a "$GITHUB_OUTPUT"
+          # the combine also notes the downloads that need nothing, so they are not fetched again
+          [ -n "$W" ] && echo "go=false" >> "$GITHUB_OUTPUT" || echo "go=true" >> "$GITHUB_OUTPUT"
+
+  write:
+    needs: [plan]
+    if: github.event.repository.private == false && needs.plan.outputs.go == 'true' && needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      OF: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the downloads not yet gone through)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone $SPARSE
+          python3 -I tools/ai/law_questions.py --need > ../need.txt
+          [ -s ../need.txt ] && git sparse-checkout add --stdin < ../need.txt || true
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+      - name: Which open model does this job (Electo tools/ai/models.json)
+        id: which
+        run: cd electo && python3 -I tools/ai/llm.py --which law_questions | tee -a "$GITHUB_OUTPUT"
+      - name: The open model (4-bit; kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ steps.which.outputs.key || 'hf-qwen3-8b-q4km-v1' }}
+      - name: llama.cpp (CPU build)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.36" numpy huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Write this runner's share
+        run: |
+          M="${{ inputs.minutes || '200' }}"
+          cd electo && timeout -s INT -k 2m "$((M + 20))m" python3 -I tools/ai/law_questions.py --shard ${{ matrix.shard }} --of "$OF" \
+            --minutes "$M" --out ../part.json || echo "stopped"
+          [ -f ../part.json ] || echo '{"q":{},"none":[]}' > ../part.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: law-questions-${{ matrix.shard }}
+          path: part.json
+          retention-days: 2
+
+  combine:
+    needs: [plan, write]
+    if: always() && github.event.repository.private == false && needs.plan.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "law-questions-*", path: parts}
+        continue-on-error: true
+      - name: Combine into Electo (data/ord_lay.runner.json.gz)
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+        run: |
+          set -e
+          S="$PWD/parts"; mkdir -p "$S"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-law
+          cd /tmp/electo-law && git sparse-checkout set --no-cone $SPARSE
+          python3 -I tools/ai/law_questions.py --need > /tmp/need.txt
+          [ -s /tmp/need.txt ] && git sparse-checkout add --stdin < /tmp/need.txt || true
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            python3 -I tools/ai/law_questions.py --combine "$S"/*/part.json
+            git add data/ord_lay.runner.json.gz 2>/dev/null || true
+            if git diff --cached --quiet; then echo "nothing new"; break; fi
+            git commit -qm "Everyday questions for new ordinance sections: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push -q origin HEAD:main && break
+            [ "$i" -lt 5 ] || { echo "::error::the questions could not be pushed to Electo"; exit 1; }
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD; sleep $((i * 10))
+          done
+      - name: Remove this run's attachments
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done

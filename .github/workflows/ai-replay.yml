@@ -1,23 +1,34 @@
 name: ai-replay
-# Logged calls of the open-model jobs replayed through other models, each scored by its job's own checker, so a job is
-# switched to another model only after it has done that job's work better on the same inputs (Electo tools/ai/replay.py;
-# results in research/train/replay.json):
+# The monthly trials: logged calls of the open-model jobs replayed through other models, each scored by its job's own
+# checker, so a job moves to another model only after that model has done the job's work better on the same inputs
+# (Electo tools/ai/replay.py; results in research/train/replay.json):
 #   profile_write  topic sentences for profiles (with the job's second try when the first fails its checker)
 #   news_summary   two-sentence news summaries (the checker and the numbers rule)
 #   profile_sort   sorting a candidate's sentences into positions (answers given; agreement with the logged ones)
-# On demand only (Actions -> ai-replay -> Run workflow).
+# On its schedule (the 3rd of each month) it replays what Electo's tools/ai/models.json asks for: every job with models
+# in its "try" list, through its own model and through each of those; then `replay.py --decide` moves a job to a tried
+# model only on a clear win (passes more often on the same items, beyond chance, and not slower) and writes that into
+# models.json, which the jobs read. Nothing to try: the run ends in seconds. The pass-rate watch (watchdog.yml) undoes
+# a move that does worse on live work. Started by hand (Actions -> ai-replay -> Run workflow) with models and tasks,
+# it replays just those and decides nothing unless "decide" is ticked.
 on:
+  schedule:
+    - cron: "17 5 3 * *"
   workflow_dispatch:
     inputs:
       models:
-        description: 'models, a JSON list: qwen3 (Qwen3-8B, the jobs today), qwen35 (Qwen3.5-9B), phi4, gemma4'
-        default: '["qwen3","qwen35"]'
+        description: 'models, a JSON list of keys in Electo tools/ai/models.json (qwen3, qwen35, phi4, gemma4); empty: what models.json asks for'
+        default: ''
       tasks:
         description: 'tasks, a JSON list: profile_write, news_summary, profile_sort'
         default: '["profile_write","news_summary","profile_sort"]'
       minutes:
         description: "minutes of model time per runner"
         default: "230"
+      decide:
+        description: "move a job to a model that clearly won (always on when models is empty)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,36 +43,46 @@ env:
   IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
 
 jobs:
-  replay:
+  plan:
     if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: What to replay
+        id: plan
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          MODELS: ${{ inputs.models }}
+          TASKS: ${{ inputs.tasks || '["profile_write","news_summary","profile_sort"]' }}
+        run: |
+          if [ -n "$MODELS" ]; then
+            M=$(python3 -c "import json,os; print(json.dumps([{'model': m, 'task': t} for t in json.loads(os.environ['TASKS']) for m in json.loads(os.environ['MODELS'])]))")
+          else
+            git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+            (cd electo && git sparse-checkout set --no-cone /tools/ai/)
+            M=$(cd electo && python3 -I tools/ai/replay.py --plan)
+          fi
+          echo "matrix=$M" | tee -a "$GITHUB_OUTPUT"
+          [ "$M" != "[]" ] || echo "::notice::no job has a model to try (Electo tools/ai/models.json): nothing to replay"
+
+  replay:
+    needs: [plan]
+    if: github.event.repository.private == false && needs.plan.outputs.matrix != '[]' && needs.plan.outputs.matrix != ''
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        model: ${{ fromJSON(inputs.models || '["qwen3","qwen35"]') }}
-        task: ${{ fromJSON(inputs.tasks || '["profile_write","news_summary","profile_sort"]') }}
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      ELECTO_LLM_MODEL: ${{ matrix.model }}
     steps:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Which model, how many items
-        id: which
-        run: |
-          case "${{ matrix.model }}" in
-            phi4)   R=microsoft/phi-4-gguf;          Q=Q4_K_S; N="Phi-4";       K=hf-phi4-q4ks-v1 ;;
-            qwen3)  R=Qwen/Qwen3-8B-GGUF;            Q=Q4_K_M; N="Qwen3-8B";    K=hf-qwen3-8b-q4km-v1 ;;
-            gemma4) R=unsloth/gemma-4-12b-it-GGUF;   Q=Q4_K_M; N="Gemma 4 12B"; K=hf-gemma4-12b-q4km-v1 ;;
-            qwen35) R=unsloth/Qwen3.5-9B-GGUF;       Q=Q4_K_M; N="Qwen3.5-9B";  K=hf-qwen35-9b-q4km-v1 ;;
-            *)      echo "::error::unknown model ${{ matrix.model }}"; exit 1 ;;
-          esac
-          # sized to one runner's time on Qwen3-8B (median 32 s a topic sentence, 44 s a news summary, 113 s a sorting call)
-          case "${{ matrix.task }}" in
-            profile_write) n=150 ;; news_summary) n=120 ;; profile_sort) n=80 ;; *) n=60 ;;
-          esac
-          { echo "ELECTO_LLM_REPO=$R"; echo "ELECTO_LLM_QUANT=$Q"; echo "ELECTO_LLM_NAME=$N"; echo "N=$n"; } >> "$GITHUB_ENV"
-          echo "key=$K" >> "$GITHUB_OUTPUT"
       - name: Electo (the job logs and the jobs' code)
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -71,6 +92,9 @@ jobs:
           cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /ga/written.py \
             /research/train/profile_write_log.jsonl /research/train/news_ai_log.jsonl /research/train/profile_ai_log.jsonl
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
+      - name: Which model (a key in tools/ai/models.json)
+        id: which
+        run: cd electo && python3 -I tools/ai/llm.py --model "${{ matrix.model }}" | tee -a "$GITHUB_OUTPUT"
       - name: The open model (kept between runs when the cache has room)
         uses: actions/cache@v4
         with:
@@ -81,7 +105,7 @@ jobs:
       - name: Replay
         run: |
           M="${{ inputs.minutes || '230' }}"
-          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/replay.py --task ${{ matrix.task }} --n "$N" \
+          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/replay.py --task ${{ matrix.task }} \
             --minutes "$M" --out ../part.json || echo "stopped"
           [ -f ../part.json ] || echo '{"rows":[]}' > ../part.json
       - name: Did it answer?
@@ -96,8 +120,8 @@ jobs:
           retention-days: 2
 
   combine:
-    needs: [replay]
-    if: always() && github.event.repository.private == false
+    needs: [plan, replay]
+    if: always() && github.event.repository.private == false && needs.replay.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -111,6 +135,7 @@ jobs:
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          DECIDE: ${{ github.event_name == 'schedule' || inputs.decide == true || inputs.models == '' }}
         run: |
           set -e
           S="$PWD/parts"; mkdir -p "$S"
@@ -121,7 +146,8 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD
             python3 -I tools/ai/replay.py --combine "$S"/*/part.json
-            git add research/train/replay.json
+            if [ "$DECIDE" = "true" ]; then python3 -I tools/ai/replay.py --decide; fi
+            git add research/train/replay.json tools/ai/models.json
             if git diff --cached --quiet; then echo "nothing new"; break; fi
             git commit -qm "Open-model jobs replayed through other models: $(date -u +%Y-%m-%dT%H:%MZ)"
             git push -q origin HEAD:main && break
