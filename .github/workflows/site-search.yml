@@ -1,0 +1,44 @@
+name: site-search
+# Every search box on the public site, typed into the way a reader would, once a day (Electo qa/search_qa.js: the
+# site-wide box, profiles, bills and bill numbers, local ordinances, the law library and its cites, donors, news, rumors,
+# citations, places and ZIP codes, schools, past elections, city races, Grand Cross, the profile comparison). A check
+# that fails fails this run; the watchdog restarts it and, still failing, reports it in its issue. No Claude needed.
+# By hand: Actions -> site-search -> Run workflow.
+on:
+  schedule:
+    - cron: "37 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-search
+  cancel-in-progress: false
+
+jobs:
+  search:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Electo's search check
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /qa/search_qa.js
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+          [ -f qa/search_qa.js ] || { echo "no search check in this Electo"; exit 1; }
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - name: A browser (the version the site's own page check uses)
+        run: |
+          cd electo/qa && npm i -s --no-save --no-audit --no-fund playwright@1.48.2 > /dev/null
+          npx -y playwright@1.48.2 install --with-deps chromium > /dev/null
+      - name: Type into every search box on the public site
+        env:
+          SITE: ${{ vars.SITE_URL || 'https://clockworkblack.github.io/electo-data/' }}
+        run: |
+          cd electo && NODE_PATH="$PWD/qa/node_modules" timeout 20m node qa/search_qa.js | tee -a "$GITHUB_STEP_SUMMARY"
