@@ -61,8 +61,10 @@ gosa:
               where: {SUBGROUP_NAME: "All Students", ACDMC_LVL: "ALL GRADES"}, avg: true}
   max_file_bytes: 150000000
 
+# CCRPI: each school's and district's single score comes from GOSA's FESR workbooks (gosa series fesr_*, read with
+# the statistics). GaDOE's CCRPI page, whose score files were followed from here, is gone (gadoe.org/CCRPI: a 404 on
+# its new site, Nov 2026; its new data-download index is a Power BI report). A page set here is still followed.
 ccrpi:
-  page: https://gadoe.org/CCRPI       # links on this page to the CCRPI score files (xlsx/csv) are followed
   link_words: ["ccrpi", "single score", "score"]
 
 # district websites' board pages, superintendent pages and school lists are read by the `:site` source

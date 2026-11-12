@@ -380,7 +380,7 @@ def _col(headers: list[str], *frags: str) -> int | None:
     return None
 
 
-GOSA_PARSER = "2"    # stored with each file read; a newer parser reads the files again
+GOSA_PARSER = "3"    # stored with each file read; a newer parser reads the files again (3: the CCRPI single score)
 
 # the place columns, by their exact names in GOSA's files (which spell them several ways: the HOPE file has
 # SCHOOL_DISTRCT_CD, the retention file School_District_Code)
@@ -518,7 +518,8 @@ def parse_fesr(rows: list[list[str]], series_id: str) -> list[dict]:
     """GOSA's Financial Efficiency Star Rating workbooks (District_/School_FESR_FY25_for_Display.xlsx): a header row
     with system_id (and school_id), per-year per-pupil expenditure columns (District_PPE_25, Sch_PPE_25...), the
     three-year average (PPE_Avg) and the star rating (FESR). The value is the rating; the newest year's per-pupil
-    expenditure and the three-year average come with it."""
+    expenditure and the three-year average come with it, and the newest CCRPI single score (Sch_SingleScore_25:
+    GaDOE's 0-100 score, which GOSA lists beside the spending) when the workbook has it."""
     out, H = [], None
     for r in rows:
         cells = [str(c or "").strip() for c in r]
@@ -532,6 +533,9 @@ def parse_fesr(rows: list[list[str]], series_id: str) -> list[dict]:
                 years = sorted(((int(m.group(2)), i) for i, h in enumerate(H)
                                 if (m := re.fullmatch(r"(DISTRICT|SCH)_PPE_(\d\d)", h))), reverse=True)
                 c_ppe, yy = (years[0][1], years[0][0]) if years else (None, None)
+                ss = sorted(((int(m.group(2)), i) for i, h in enumerate(H)
+                             if (m := re.fullmatch(r"(DISTRICT|DIST|SYSTEM|SYS|SCH|SCHOOL)_SINGLE_?SCORE_(\d\d)", h))), reverse=True)
+                c_ss, ssyy = (ss[0][1], ss[0][0]) if ss else (None, None)
             continue
         star = _num(cells[c_star]) if c_star is not None and c_star < len(cells) else None
         ppe = _num(cells[c_ppe]) if c_ppe is not None and c_ppe < len(cells) else None
@@ -547,6 +551,9 @@ def parse_fesr(rows: list[list[str]], series_id: str) -> list[dict]:
                     "school_code": sc, "school_name": sn, "value": star, "per_pupil": ppe,
                     "per_pupil_3yr_avg": _num(cells[c_avg]) if c_avg is not None and c_avg < len(cells) else None,
                     "level": "school" if sc and sn else "district"})
+        single = _num(cells[c_ss]) if c_ss is not None and c_ss < len(cells) else None
+        if single is not None:
+            out[-1].update({"single_score": single, "single_score_year": f"FY{ssyy}"})
     return out
 
 
@@ -631,6 +638,13 @@ def stats(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
             ppe_rows = [{**r, "series": sid.replace("fesr", "ppe"), "value": r["per_pupil"]} for r in fesr_rows if r.get("per_pupil") is not None]
             parts = [(sid, s.get("label", sid), fesr_rows),
                      (sid.replace("fesr", "ppe"), "Spending per student ($, " + ("district" if "district" in sid else "school") + ")", ppe_rows)]
+            # and the CCRPI single score each place got (GaDOE's own score, as GOSA lists it in this workbook). GaDOE's
+            # CCRPI page, where the score files were linked, is gone (Nov 2026: a 404 on its new site)
+            cc_rows = [{**{k: v for k, v in r.items() if k not in ("per_pupil", "per_pupil_3yr_avg", "single_score", "single_score_year")},
+                        "series": "ccrpi", "value": r["single_score"], "year": r.get("single_score_year") or r["year"]}
+                       for r in fesr_rows if r.get("single_score") is not None]
+            if cc_rows:
+                parts.append(("ccrpi", "CCRPI single score", cc_rows))
         else:
             text = fr.content.decode("utf-8", "replace")
             parts = [(o["id"], o.get("label", o["id"]), parse_gosa_csv(text, o["id"], {**s, **o}))
@@ -701,6 +715,13 @@ def stats(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
 # ----------------------------------------------------------------------------- school websites
 SCHOOLS_PAGE_RX = re.compile(r"\b(our schools|schools|find a school|school directory|school list|elementary schools|"
                              r"middle schools|high schools|campuses)\b", re.I)
+# a district page that lists its schools, by its address or a title that says so ("Brantley County Schools" in every
+# title of a district's site says nothing)
+SCHOOL_LIST_PATH_RX = re.compile(r"(?i)/(?:our[-_]?schools|schools|find[-_]a[-_]school|school[-_](?:directory|list|locator|finder)|"
+                                 r"campuses|elementary[-_]schools|middle[-_]schools|high[-_]schools)(?:/|\.|$)")
+SCHOOL_LIST_TITLE_RX = re.compile(r"(?i)\b(our schools|find a school|school directory|school list|school locator|school finder|campuses)\b")
+LEVEL_RX = re.compile(r"(?i)\b(elementary|middle|high|primary|intermediate|junior|senior)\b")
+KIND_RX = re.compile(r"(?i)\b(academy|center|centre|magnet|charter)\b")
 PRINCIPAL_LINK_RX = re.compile(r"\b(principal|administration|administrators|about(?: us| our school)?|our school|staff|"
                                r"leadership|welcome|faculty|office)\b", re.I)
 
@@ -711,7 +732,23 @@ MD_LINK_RX = re.compile(r"\[([^\]]{2,120})\]\((https?://[^)\s]+)\)")
 def school_site_links(doc: str, base_url: str, schools: list[dict]) -> dict[str, str]:
     """school id -> website, for links on a district page (HTML, or the stored Markdown of it) whose text names one
     of the district's schools."""
-    want = {school_key(s["name"]): s["id"] for s in schools if school_key(s["name"])}
+    # a name without its level words is shared ("Brantley County Middle School" and "... High School" are both
+    # "brantley"): matched with its level first, and without it only when one school has it
+    by_level: dict[str, set] = defaultdict(set)
+    by_name: dict[str, set] = defaultdict(set)
+    for s in schools:
+        if school_key(s["name"]):
+            by_level[_level_key(s["name"])].add(s["id"])
+            by_name[school_key(s["name"])].add(s["id"])
+
+    def which(text: str) -> str | None:
+        if not school_key(text):
+            return None
+        for ids in (by_level.get(_level_key(text)) or set(), by_name.get(school_key(text)) or set()):
+            if len(ids) == 1:
+                return next(iter(ids))
+        return None
+
     host = urlsplit(base_url).netloc.lower().removeprefix("www.")
     found: dict[str, str] = {}
     if "<a " in doc or "<A " in doc:
@@ -719,8 +756,8 @@ def school_site_links(doc: str, base_url: str, schools: list[dict]) -> dict[str,
     else:
         pairs = [(m.group(1), m.group(2)) for m in MD_LINK_RX.finditer(doc)]
     for text, href in pairs:
-        k = school_key(text)
-        if not k or k not in want:
+        sid = which(text)
+        if not sid:
             continue
         u = urljoin(base_url, href).split("#")[0]
         if not u.startswith("http"):
@@ -729,8 +766,16 @@ def school_site_links(doc: str, base_url: str, schools: list[dict]) -> dict[str,
         # a school's own site (another host or a sub-site path), not a document or a listing on the same page
         if lh == host and (u.rstrip("/") == base_url.rstrip("/") or re.search(r"\.(pdf|docx?)$", u, re.I)):
             continue
-        found.setdefault(want[k], u)
+        found.setdefault(sid, u)
     return found
+
+
+def _level_key(name: str) -> str:
+    """The name with its level: 'Brantley County High School' -> 'brantley|high'; 'Impact Academy' -> 'impact|academy'
+    and 'Impact Academy Middle School' -> 'impact|middle' (the grade level counts first; academy, charter... only
+    when a name has none)."""
+    lv = {x.lower() for x in LEVEL_RX.findall(name or "")} or {x.lower() for x in KIND_RX.findall(name or "")}
+    return school_key(name) + "|" + "-".join(sorted(lv))
 
 
 MODIFIER_RX = re.compile(r"(assistant|asst\.?|vice|associate|deputy|former|interim|co-|retired)\s*$", re.I)
@@ -782,22 +827,64 @@ def sites(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
     def timed_out():
         return deadline is not None and time.monotonic() > deadline
 
-    # 1. the districts' "schools" pages already crawled (source <sd>:site) -> school websites
+    # 1. school websites, from the district's own pages that list its schools: its home page (the menu names them) and
+    #    the pages crawled from its site (source <sd>:site) whose address or title says they list them. The stored
+    #    copies mostly keep no links (Nov 12: 480 of 3,416 district pages had any, and no school site was ever found),
+    #    so a page whose copy has none is read again, live: a few a district, each district once a month until every
+    #    one of its schools is found
+    from .registry import load_json
+
+    disc = load_json(root / "state" / "discovered.json") or {}
+    checked = json.loads(store.kv_get("schools:sites:checked") or "{}")
+    month_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)).isoformat(timespec="seconds")
+    sch_dist = {s["id"]: s["district_id"] for s in reg["schools"]}
+    have: dict[str, int] = defaultdict(int)
+    for sid in sites_known:
+        have[sch_dist.get(sid, "")] += 1
+    live_max = int(pc.get("district_pages_live") or 3)
     for did, schools in by_dist.items():
         if timed_out():
             break
-        rows = store.query("source_id=? AND kind='page'", (f"{did}:site",), limit=400)
-        pages = [r for r in rows if SCHOOLS_PAGE_RX.search(f"{r.get('title') or ''} {urlsplit(r.get('url') or '').path}")]
-        if not pages:
+        if have[did] >= len(schools) or (checked.get(did) or "") > month_ago:
+            continue
+        cands: list[tuple[str, str]] = []
+        home = str((disc.get(did) or {}).get("website") or "").strip()
+        if home:
+            cands.append((home, ""))
+        for r in store.query("source_id=? AND kind='page'", (f"{did}:site",), limit=400):
+            u = r.get("url") or ""
+            if u and (SCHOOL_LIST_PATH_RX.search(urlsplit(u).path) or SCHOOL_LIST_TITLE_RX.search(r.get("title") or "")):
+                cands.append((u, r.get("markdown") or r.get("text") or ""))
+        if not cands:
+            checked[did] = _now()
             continue
         out["districts_scanned"] += 1
-        for r in pages[:6]:
-            doc = r.get("markdown") or r.get("text") or ""   # the stored Markdown keeps the page's links
-            if not doc:
+        live, stopped, tried = 0, False, set()
+        for u, doc in cands:
+            if u in tried or len(tried) >= 8:
                 continue
-            for sid, u in school_site_links(doc, r["url"], schools).items():
+            tried.add(u)
+            found = school_site_links(doc, u, schools) if doc and ("](http" in doc or "<a " in doc) else {}
+            if not found and fetcher is not None and live < live_max:
+                if timed_out():
+                    stopped = True
+                    break
+                live += 1
+                try:
+                    fr = fetcher.get(u)
+                    if fr.status == 200 and "html" in (fr.content_type or ""):
+                        found = school_site_links(fr.text, fr.url, schools)
+                except OutOfTime:
+                    stopped = True
+                    break
+                except Exception:  # noqa: BLE001 — a district page that won't load waits for next month
+                    pass
+            for sid, su in found.items():
                 if sid not in sites_known:
-                    sites_known[sid] = {"url": u, "found_on": r["url"], "found_at": _now()}
+                    sites_known[sid] = {"url": su, "found_on": u, "found_at": _now()}
+        if not stopped:
+            checked[did] = _now()
+    store.kv_set("schools:sites:checked", json.dumps(checked))
     store.kv_set("schools:sites", json.dumps(sites_known))
     out["school_sites"] = len(sites_known)
     # 2. each school's home page and its principal/administration page(s), a bounded number per run
@@ -1082,7 +1169,10 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
     (out / "schools").mkdir(parents=True, exist_ok=True)
     # statistics by place
     st_d: dict[str, dict] = defaultdict(lambda: defaultdict(dict))     # district code -> series -> year -> value
-    st_s: dict[tuple, dict] = defaultdict(lambda: defaultdict(dict))   # (district code, school key) -> series -> year
+    # (district code, the school's name with its level) -> series -> year. By the name alone, "Brantley County High
+    # School" and "Brantley County Middle School" were one school ("brantley"), and each showed the other's numbers
+    st_s: dict[tuple, dict] = defaultdict(lambda: defaultdict(dict))
+    st_names: dict[tuple, set] = defaultdict(set)      # (district code, name without level) -> the level keys under it
     st_state: dict[str, dict] = defaultdict(dict)
     labels, stat_urls = {}, {}
     for r in store.iter_query("kind='school_stat'"):
@@ -1096,9 +1186,19 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
         if m.get("level") == "state" or m.get("district_code") == "ALL":
             st_state[m["series"]][m["year"]] = entry
         elif m.get("school_code"):
-            st_s[(m["district_code"], school_key(m["school_name"]))][m["series"]][m["year"]] = entry
+            st_s[(m["district_code"], _level_key(m["school_name"]))][m["series"]][m["year"]] = entry
+            st_names[(m["district_code"], school_key(m["school_name"]))].add(_level_key(m["school_name"]))
         else:
             st_d[m["district_code"]][m["series"]][m["year"]] = entry
+    def stats_of(dc: str, name: str) -> dict:
+        """A school's statistics: by its name and level; by the name alone only when one school of the district has it
+        (GOSA and NCES spell a level differently now and then: "Academy", or none)."""
+        got = st_s.get((dc, _level_key(name)))
+        if got:
+            return got
+        under = st_names.get((dc, school_key(name))) or set()
+        return st_s.get((dc, next(iter(under))), {}) if len(under) == 1 else {}
+
     # policies, meetings and votes per district
     policies: dict[str, list] = defaultdict(list)
     meetings: dict[str, list] = defaultdict(list)
@@ -1178,13 +1278,13 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
                   "video_list": sorted(videos.get(did, []), key=lambda m: m["d"], reverse=True)[:200],
                   "member_votes": bm["members"],
                   "budget_list": sorted(budget_by_d.get(did, []), key=lambda x: (x["d"] or x["at"]), reverse=True)[:40],
-                  "school_list": [{**s, "stats": st_s.get((dc, school_key(s["name"])), {}), "website": (sites_known.get(s["id"]) or {}).get("url", ""),
+                  "school_list": [{**s, "stats": stats_of(dc, s["name"]), "website": (sites_known.get(s["id"]) or {}).get("url", ""),
                                    "principal": next((p["id"] for p in peo if p.get("school_id") == s["id"] and p["role"] == "Principal"), "")}
                                   for s in sorted(schools_here, key=lambda s: (s["kind"], s["name"]))]}
         (out / "schools" / f"{did}.json").write_text(json.dumps(detail, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     for s in reg["schools"]:
         dc = dcode(reg["districts"].get(s["district_id"], {})) if s.get("district_id") else ""
-        stt = st_s.get((dc, school_key(s["name"])), {}) if dc else {}
+        stt = stats_of(dc, s["name"]) if dc else {}
         index["schools"].append({"id": s["id"], "n": s["name"], "k": s["kind"], "d": s.get("district_id", ""), "lv": s.get("level", ""),
                                  "g": s.get("grades", ""), "a": s.get("address", ""), "c": s.get("city", ""), "z": s.get("zip", ""),
                                  "co": s.get("county", ""), "lat": s.get("lat"), "lon": s.get("lon"), "e": s.get("enrollment"),

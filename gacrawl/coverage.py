@@ -169,7 +169,7 @@ NOTES = {
     "principals": "found on school sites listed on district pages (needs district sites read first)",
     "budget_docs": "gacrawl schools budgets: GaDOE finance pages (rendered) and the files they link",
     "milestones": "GOSA EOG/EOC files (gacrawl schools stats)",
-    "ccrpi": "GaDOE's CCRPI page (rendered); its score files",
+    "ccrpi": "the CCRPI single score in GOSA's FESR workbooks (gacrawl schools stats)",
     "incidents": "police news: GDELT finds, trusted outlets confirm; Georgia stories that name the department",
     "contributions_local": "local candidates file with county or city offices; few publish data the crawler can read",
     "official_places": "officials come from Legistar and similar portals; most towns list theirs only on web pages",

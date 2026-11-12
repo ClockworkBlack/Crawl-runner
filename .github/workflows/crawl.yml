@@ -565,8 +565,10 @@ jobs:
           # each part fits what is left of the job (scripts/budget.sh); a part with no time left waits for the next run
           if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
             B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools seed --max-minutes "$B" || true; }
-            B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools stats --max-minutes "$B" || true; }
           fi
+          # the statistics every night: a file already read is skipped (one request for GOSA's index), so a series
+          # added to config/schools.yaml (the Milestones scores) or a parser change is read the next night, not on Sunday
+          B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools stats --max-minutes "$B" || true; }
           B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools sites --max-minutes "$B" || true; }
           if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$PUBLIC_RUNNER" = "true" ]; then
             B=$(bash scripts/budget.sh 15); [ "$B" -gt 0 ] && { gacrawl schools budgets --max-minutes "$B" || true; }

@@ -189,6 +189,10 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._send(CCRPI_PAGE.encode())
         if u.path == "/files/2025_CCRPI_Single_Scores.xlsx":
             return self._send(CCRPI_XLSX, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        if u.path == "/district/our-schools-live/":
+            port = urlsplit(self.headers.get("Host") and f"http://{self.headers['Host']}").port
+            return self._send(f'<html><body><h1>Our Schools</h1><a href="http://127.0.0.1:{port}/achs/">Appling County High School</a>'
+                              f'<a href="http://127.0.0.1:{port}/altamaha/">Altamaha Elementary School</a></body></html>'.encode())
         if u.path == "/achs/":
             return self._send(SCHOOL_HOME.encode())
         if u.path == "/achs/about/":
@@ -299,6 +303,10 @@ def test_stats(root, fetcher, server):
     fesr = [r for r in rows if r["meta"]["series"] == "fesr_district"]
     assert {(r["meta"]["district_code"], r["meta"]["value"], r["meta"]["per_pupil"]) for r in fesr} == {("601", 3.5, 11250.5), ("7730", 2.0, 15890.0)}
     assert {r["meta"]["year"] for r in fesr} == {"FY25"} and fesr[0]["meta"]["per_pupil_3yr_avg"] in (11537.1, 15400.0)
+    # the CCRPI single score each district got, from the same workbook (GaDOE's own CCRPI page is gone)
+    ccw = [r for r in rows if r["meta"]["series"] == "ccrpi"]
+    assert {(r["meta"]["district_code"], r["meta"]["value"], r["meta"]["year"]) for r in ccw} == {("601", 72.9, "FY25"), ("7730", 91.0, "FY25")}
+    assert all("per_pupil" not in r["meta"] for r in ccw) and ccw[0]["meta"]["label"] == "CCRPI single score"
     cc = store.read(schools.SRC_CCRPI, "school_stat")
     assert {(r["meta"]["level"], r["meta"]["value"]) for r in cc} == {("district", 78.4), ("school", 80.1), ("district", 92.3)}
     assert cc[1]["meta"]["components"]["content mastery"] == 73.0 and cc[0]["meta"]["year"] == "2025"
@@ -410,4 +418,32 @@ def test_fesr_school_workbook_layout():
     out = schools.parse_fesr(rows, "fesr_school")
     assert out == [{"series": "fesr_school", "year": "FY25", "district_code": "601", "district_name": "Appling County",
                     "school_code": "103", "school_name": "Appling County High School", "value": 3.5, "per_pupil": 13236.02,
-                    "per_pupil_3yr_avg": 12385.78, "level": "school"}]
+                    "per_pupil_3yr_avg": 12385.78, "level": "school", "single_score": 75.9, "single_score_year": "FY25"}]
+
+
+def test_school_links_with_shared_names():
+    """Two schools of one district whose names differ only in their level ("Brantley County Middle School", "...
+    High School") each get their own link; a name two schools could carry is left unmatched, not guessed."""
+    sch = [{"id": "m", "name": "Brantley County Middle School"}, {"id": "h", "name": "Brantley County High School"},
+           {"id": "n", "name": "Nahunta Elementary School"}]
+    html = ('<a href="https://bcms.example.test/">Brantley County Middle</a> <a href="https://bchs.example.test/">Brantley '
+            'County High School</a> <a href="/o/nes">Nahunta Elementary</a> <a href="https://x.example.test/">Brantley County</a>')
+    assert schools.school_site_links(html, "https://www.brantley.example.test/", sch) == {
+        "m": "https://bcms.example.test/", "h": "https://bchs.example.test/", "n": "https://www.brantley.example.test/o/nes"}
+
+
+def test_school_sites_read_a_district_page_again_when_its_copy_kept_no_links(root, fetcher, server):
+    """The stored copy of a district's schools page kept its text but not its links (most do): the page is read again,
+    live, and each school's site is found; the district is not read again for a month."""
+    store = Store(root / "data")
+    schools.seed(fetcher, root, store, log=lambda *a: None)
+    md = "Our Schools\n\nAppling County High School\n\nAltamaha Elementary School\n"        # no links kept
+    store.add(Record("sd-appling:site", "page", f"{server}/district/our-schools-live/", title="Our Schools", text=md, markdown=md,
+                     channel="html", jurisdiction="sd-appling", evidence="primary"))
+    store.flush()
+    out = schools.sites(fetcher, root, store, log=lambda *a: None)
+    assert out["districts_scanned"] == 1 and out["school_sites"] == 2, out
+    known = json.loads(store.kv_get("schools:sites"))
+    assert known["sch-130012000001"]["url"].endswith("/achs/") and known["sch-130012000001"]["found_on"].endswith("/our-schools-live/")
+    assert json.loads(store.kv_get("schools:sites:checked"))["sd-appling"]
+    store.close()
