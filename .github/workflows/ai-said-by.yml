@@ -1,0 +1,141 @@
+name: ai-said-by
+# A second check on who is speaking (Electo tools/ai/said_by.py): the open model Electo's tools/ai/models.json gives
+# the job "said_by" (Phi-4) reads every sentence shown as a candidate's position and says whether it is the candidate's
+# own or someone else's words or acts (a report of what another person said, a testimonial about the candidate, a
+# headline about others). Sentences it is sure are someone else's are left out of the profiles. Each runner first sits
+# an exam; a model that would hold back a candidate's own sentence there writes nothing.
+# Twice a day; a sentence is read once, so after the first runs only new sentences are read (a runner with nothing to
+# read ends in a minute). By hand (Actions -> ai-said-by -> Run workflow): "limit" reads a spread of that many per
+# runner, "trial" writes the readings without holding anything back.
+on:
+  schedule:
+    - cron: "7 5,17 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of model time per runner"
+        default: "240"
+      limit:
+        description: "a spread of this many sentences per runner (0: all)"
+        default: "0"
+      trial:
+        description: "write the readings but hold nothing back"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write        # remove this run's attachments at the end
+
+concurrency:
+  group: ai-said-by-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+  ELECTO_LLM_JOB: said_by
+
+jobs:
+  read:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (the profiles' sentences and the sorter's labels)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /ga/held_lines.py /ga/crawl/people.json /ga/crawl/profile_ai.json /ga/crawl/said_by.json
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+      - name: Anything to read? (with nothing for this runner, the model is neither fetched nor installed)
+        id: need
+        run: |
+          cd electo
+          [ -f tools/ai/said_by.py ] || { echo "no said-by check in this Electo"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          N=$(python3 -I tools/ai/said_by.py --list --shard ${{ matrix.shard }} --of 4 | sed -n 's/^TODO=//p')
+          echo "to read: $N"
+          if [ "${N:-0}" = "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Which open model does this job (Electo tools/ai/models.json)
+        id: which
+        if: steps.need.outputs.go == 'true'
+        run: cd electo && python3 -I tools/ai/llm.py --which said_by | tee -a "$GITHUB_OUTPUT"
+      - name: The open model (4-bit; kept between runs)
+        if: steps.need.outputs.go == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ steps.which.outputs.key || 'hf-phi4-q4ks-v1' }}
+      - name: llama.cpp (CPU build)
+        if: steps.need.outputs.go == 'true'
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.36" numpy huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Read this runner's share
+        if: steps.need.outputs.go == 'true'
+        run: |
+          M="${{ inputs.minutes || '240' }}"
+          cd electo && timeout -s INT -k 2m "$((M + 15))m" python3 -I tools/ai/said_by.py --shard ${{ matrix.shard }} --of 4 --minutes "$M" \
+            --limit "${{ inputs.limit || '0' }}" --out ../part.json || echo "stopped"
+      - name: Nothing read
+        run: '[ -f part.json ] || echo ''{"rows":[]}'' > part.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: said-by-${{ matrix.shard }}
+          path: part.json
+          retention-days: 2
+
+  combine:
+    needs: read
+    if: always() && github.event.repository.private == false && needs.read.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        with: {pattern: "said-by-*", path: parts}
+        continue-on-error: true
+      - name: Combine into Electo and refresh the written profiles
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+          SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+          TRIAL: ${{ inputs.trial == true && '--no-apply' || '' }}
+        run: |
+          set -e
+          S="$PWD/parts"; mkdir -p "$S"
+          python3 -c "import glob,json,sys; n=sum(len(json.load(open(p)).get('rows') or []) for p in glob.glob(sys.argv[1]+'/*/part.json')); print(n, 'new readings'); sys.exit(0 if n else 3)" "$S" \
+            || { echo "nothing new"; exit 0; }
+          git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
+          cd /tmp/electo-ai
+          pip install -q huggingface_hub >/dev/null 2>&1 || true
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          python3 -I tools/ai/said_by.py --combine "$S"/*/part.json $TRIAL
+          git add ga/crawl/said_by.json research/train/said_by_held.json
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -qm "Who is speaking, read by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; git rebase --abort 2>/dev/null || true; sleep $((i*5)); done
+          [ -z "$TRIAL" ] || exit 0
+          # the written profiles leave the held sentences out: folded in on Electo's newest main (ga/written.py)
+          [ -f tools/written_publish.sh ] && bash tools/written_publish.sh || echo "written profiles not refreshed"
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+      - name: Remove this run's attachments
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done

@@ -47,7 +47,7 @@ jobs:
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: |
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
-          cd electo && git sparse-checkout set --no-cone /tools/ai/ /ga/written.py /ga/names.py /ga/crawl/people.json \
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /ga/written.py /ga/held_lines.py /ga/crawl/said_by.json /ga/names.py /ga/crawl/people.json \
             /ga/crawl/profile_ai.json /ga/crawl/write_ai.json /ga/pipeline_archive/people.json /ga/pipeline_archive/aliases.json \
             /ga/pipeline_archive/splits.json /ga/pipeline_archive/extra.json /ga/pipeline_archive/crawl_elections.json
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
