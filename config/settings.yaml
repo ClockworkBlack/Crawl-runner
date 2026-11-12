@@ -118,6 +118,14 @@ candidates:
   news_cadence_days: 14        # news searched again for a candidate after this long (recent races: 3 days)
   leads_for: priority_or_recent # news-lead searches only for officeholders and recent candidates
   bluesky_search: true
+  web: true                    # the web lane (gacrawl/webresearch.py): the trusted outlets' own archives back to 2016
+                               # and one web search per candidate; people with nothing on file first
+  web_search: true             # DuckDuckGo through the free ddgs library (no key); only trusted sites are opened
+  web_search_cap: 300          # fresh web searches per run (3 s apart; answers are kept 30 days)
+  web_cadence_days: 30         # a candidate's archives and search are asked again after this long
+  web_workers: 3               # candidates looked up at once (their outlets are different hosts)
+  web_outlets_per_candidate: 4
+  web_pages_per_candidate: 4   # search hits opened per candidate (trusted sites only)
 
 # Local transcription of meeting recordings posted on official sites (audio/video files), with the open-source
 # faster-whisper model. Off by default: it needs `pip install faster-whisper` and real CPU time (a 2-hour meeting

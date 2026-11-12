@@ -483,8 +483,15 @@ def cmd_candidates(cfg, args):
         print(f"{len(cands)} candidates")
         return
     store = config.make_store(cfg)
-    r = Researcher(config.ROOT, cfg, config.make_fetcher(cfg), store)
     skip = set(args.skip.split(",")) if args.skip else set()
+    search = None
+    if cfg.get("candidates", {}).get("web", True) and cfg.get("candidates", {}).get("web_search", True) and "web" not in skip:
+        from .candidates import load_outlets
+        from .websearch import Search
+
+        # the web lane's search (gacrawl/webresearch.py): DuckDuckGo through ddgs, its own cap a run
+        search = Search(cfg["state_dir"], load_outlets(config.ROOT)[1], cap=int(cfg.get("candidates", {}).get("web_search_cap", 300)))
+    r = Researcher(config.ROOT, cfg, config.make_fetcher(cfg), store, search=search)
     try:
         if args.candidate:
             for c in cands:

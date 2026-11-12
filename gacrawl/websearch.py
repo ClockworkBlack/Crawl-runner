@@ -26,6 +26,10 @@ RETRIES = int(os.environ.get("WEBSEARCH_RETRIES", "3"))
 GIVE_UP_AFTER = 3                                                  # failed queries in a row before stopping for the run
 CACHE_DAYS = 30
 REGION = "us-en"
+# ddgs 9 asks several engines by default ("auto": Wikipedia, Bing, Brave, ...), and some of them ignore a quoted name
+# (Nov 8: '"adam cleveland" state house district 48' came back as Adam of Genesis and a film called Adam). DuckDuckGo
+# alone keeps the phrase; an older ddgs without the option is asked the old way.
+BACKEND = os.environ.get("WEBSEARCH_BACKEND", "duckduckgo")
 
 
 class Search:
@@ -90,7 +94,7 @@ class Search:
             self._last = time.monotonic()
             try:
                 with self._DDGS() as d:
-                    raw = list(d.text(q, region=REGION, safesearch="moderate", max_results=count) or [])
+                    raw = self._ask(d, q, count)
                 break
             except Exception as e:   # rate limit, timeout, no results, a change on DuckDuckGo's side
                 if "no results" in str(e).lower():
@@ -108,6 +112,19 @@ class Search:
                for w in raw if (w.get("href") or w.get("url") or "").startswith("http")]
         self.st["cache"][q.lower()] = {"at": dt.date.today().isoformat(), "results": res}
         return [x for x in res if not self._excluded(x["url"])]
+
+    def _ask(self, d, q: str, count: int) -> list:
+        kw = {"region": REGION, "safesearch": "moderate", "max_results": count}
+        if BACKEND and not getattr(self, "_no_backend", False):
+            try:
+                return list(d.text(q, backend=BACKEND, **kw) or [])
+            except TypeError:            # this ddgs has no backend option
+                self._no_backend = True
+            except Exception as e:       # it has, but not this engine by that name
+                if "backend" not in str(e).lower() and "engine" not in str(e).lower():
+                    raise
+                self._no_backend = True
+        return list(d.text(q, **kw) or [])
 
     def save(self) -> None:
         cut = (dt.date.today() - dt.timedelta(days=CACHE_DAYS)).isoformat()

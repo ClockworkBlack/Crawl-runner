@@ -279,8 +279,9 @@ class RumorMill:
 
 # ----------------------------------------------------------------------------- researcher
 class Researcher:
-    def __init__(self, root: Path, cfg: dict, fetcher: Fetcher, store: Store, log=print):
+    def __init__(self, root: Path, cfg: dict, fetcher: Fetcher, store: Store, log=print, search=None):
         self.root, self.cfg, self.f, self.store, self.log = root, cfg, fetcher, store, log
+        self.search = search           # gacrawl.websearch.Search for the web lane (None: outlet archives only)
         self._notes: dict = {}         # one-a-run observations (e.g. GDELT answering with text instead of JSON)
         self.registry = Registry(root / "data" / "verified", autoflush=False)   # flushed at the end of research
         self.rumors = RumorMill(root)
@@ -603,6 +604,59 @@ class Researcher:
                 for c in g:
                     progress.update(f"news:{c['id']}", last_ok=utcnow(), counts=counts[c["id"]])
 
+        # ---- the web: its own lane too (gacrawl/webresearch.py): the trusted outlets' own archives back to `since`
+        # and one web search per candidate, people with nothing on file first, with its own progress ("web:<id>")
+        web_on = "web" not in skip and bool(self.opts.get("web", True)) and not news_only
+        web_state = {"due": 0, "done": 0, "added": 0}
+
+        def web_lane() -> None:
+            from concurrent.futures import ThreadPoolExecutor as Pool
+
+            from .webresearch import WebLane
+
+            lane = WebLane(self, Path((self.cfg or {}).get("state_dir") or self.root / "state"), self.search)
+            items = lane.due(cands, progress, now)
+            web_state["due"] = len(items)
+            if not lane.wp and self.search is None:
+                return                      # no outlet has a news API on file and there is no search: nothing to ask
+
+            def web_one(item) -> None:
+                c, search_only = item
+                if out_of_time():
+                    return
+                loc = getattr(self.f, "_local", None)
+                if loc is not None:
+                    loc.max_wait = float(self.opts.get("web_max_host_wait_s", 120))
+                counts: dict[str, int] = {}
+                c.setdefault("variants", name_variants(c["name"], c.get("aliases", [])))
+                try:
+                    cls = self._classifier(c)
+                    res = lane.one(c, cls, self._adder(c, cls, counts), since, search_only)
+                except OutOfTime as exc:
+                    if "next turn" not in str(exc):
+                        return              # the run's time is up: the candidate stays due
+                    res = {"search": "skipped"}     # a busy outlet: what was found is kept, the rest tomorrow
+                except Exception as exc:  # noqa: BLE001
+                    with lock:
+                        self._notes["web_errors"] = self._notes.get("web_errors", 0) + 1
+                    if self._notes["web_errors"] <= 2:
+                        self.log(f"  web: {c['id']}: {type(exc).__name__}: {exc}"[:300])
+                    return
+                with lock:
+                    for k, v in counts.items():
+                        totals[k] += v
+                    web_state["done"] += 1
+                    web_state["added"] += sum(v for k, v in counts.items() if k != "rumor_mill")
+                prev = progress.get(f"web:{c['id']}").get("counts") or {}
+                progress.update(f"web:{c['id']}", last_ok=utcnow(), search=res.get("search", "ok"),
+                                counts={k: prev.get(k, 0) + counts.get(k, 0) for k in set(prev) | set(counts)})
+
+            with Pool(max_workers=max(1, int(self.opts.get("web_workers", 3))), thread_name_prefix="web-lane") as ex:
+                list(ex.map(web_one, items))        # each one returns at once when the run's time is up
+            web_state["stats"] = dict(lane.stats)
+            if self.search is not None:
+                self.search.save()
+
         import signal
         from concurrent.futures import ThreadPoolExecutor
 
@@ -622,6 +676,10 @@ class Researcher:
         if articles_on:
             news = threading.Thread(target=news_lane, name="news-lane", daemon=True)
             news.start()
+        web = None
+        if web_on:
+            web = threading.Thread(target=web_lane, name="web-lane", daemon=True)
+            web.start()
         try:
             futures = [pool.submit(chunk, cs) for cs in chunks]
             for fut in futures:
@@ -639,6 +697,8 @@ class Researcher:
             # (joined in short waits, so an interrupt still reaches this thread)
             while news is not None and news.is_alive():
                 news.join(timeout=1.0)
+            while web is not None and web.is_alive():
+                web.join(timeout=1.0)
             self.f.stop_at = None
             self.f.max_wait = None
             if prev_handler is not None:
@@ -659,6 +719,8 @@ class Researcher:
         return {"researched": state["done"], "due": len(order), "chunks": len(chunks), "workers": workers, "added": dict(totals),
                 "cut_short": state["partial"], "steps_skipped": state["steps_skipped"], "late_hosts": dict(late), "pacing": pacing,
                 "news": {"queries": state["news_queries"], "candidates": state["news_done"], "due": state["news_due"]},
+                "web": {"candidates": web_state["done"], "due": web_state["due"], "added": web_state["added"],
+                        **web_state.get("stats", {})},
                 **self._notes}
 
     # ------------------------------------------------------------------ official records (no network)

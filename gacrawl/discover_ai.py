@@ -290,6 +290,7 @@ class Discovery:
 
     def gaps(self, limit: int = 60) -> list[dict]:
         from .registry import jurisdictions
+        from .webresearch import search_query
 
         out = []
         cs = [c for c in self.cands if not c.get("websites") and c.get("name") and not self._tried("c:" + c["id"])]
@@ -298,7 +299,8 @@ class Discovery:
         for c in cs[:limit]:
             place = ", ".join((c.get("counties") or [])[:1]) or "Georgia"
             out.append({"type": "candidate", "key": "c:" + c["id"], "id": c["id"], "name": c["name"], "office": c.get("office") or "",
-                        "place": place, "q": f'"{c["name"]}" {c.get("office") or ""} {place if place != "Georgia" else ""} Georgia'})
+                        "place": place, "q": search_query(c["name"], c.get("office") or "",
+                                                           f"{place} County" if place != "Georgia" else "")})
         try:
             js = [j for j in jurisdictions(self.root) if j.get("kind") in ("county", "city", "town", "consolidated")
                   and not j.get("website") and not j.get("enabled") is False and not self._tried("j:" + j["id"])]
