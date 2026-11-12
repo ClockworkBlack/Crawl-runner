@@ -399,6 +399,10 @@ def due(rec: dict | None, j: dict, max_age_days: float | None, refresh: bool = F
     site error after RETRY_DAYS at most (hosts come back, listings get fixed, overrides get added)."""
     if refresh or not rec or rec.get("seed_version") != SEED_VERSION or override_pending(rec, j):
         return True
+    if j.get("kind") in ("city", "town", "consolidated") and gma_url(j) and rec.get("gma_parser") != GMA_PARSER:
+        # the city directory read with an older parser (first names only, every other official dropped): the
+        # council view lists these officials, so they are read again now rather than at the next monthly look
+        return True
     failed = not rec.get("website") or bool(rec.get("site_error"))
     if failed:
         return _stale(rec, RETRY_DAYS if max_age_days is None else min(max_age_days, RETRY_DAYS))

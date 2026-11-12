@@ -82,3 +82,27 @@ def test_only_official_or_archival_hosts():
     assert er._official("https://www.fultoncountyga.gov/x.pdf", "")
     assert er._official("https://election.lab.ufl.edu/data-downloads/localelections/GA/x.pdf", "")
     assert not er._official("https://some-blog.example.com/x.pdf", "dekalbcountyga.gov")
+
+
+def test_a_citys_copy_is_kept_but_the_county_report_is_still_sought(tmp_path, monkeypatch):
+    pages = {"https://www.clarkstonga.gov/files/esr.pdf": _pdf(REPORT)}
+
+    class F:
+        def get(self, url, **k):
+            b = pages.get(url, b"")
+            return SimpleNamespace(status=200 if b else 404, content=b, url=url)
+
+    def search(self, q, count=8):
+        self.run_n += 1
+        return [{"url": "https://www.clarkstonga.gov/files/esr.pdf", "title": "Election Summary Report pdf"}]
+
+    monkeypatch.setattr(websearch.Search, "search", search)
+    monkeypatch.setattr(websearch.Search, "save", lambda self: None)
+    monkeypatch.setattr(websearch.Search, "left", lambda self: 99)
+    store = Store(tmp_path / "data")
+    out = er.run(F(), store, er_root(tmp_path), tmp_path / "state", counties=["co-dekalb"], log=lambda *a: None)
+    assert out["found"] == 0 and {k["url"] for k in out["kept"]} == {"https://www.clarkstonga.gov/files/esr.pdf"}
+    st = json.loads(store.kv_get("elections:report:co-dekalb:2023-11-07"))
+    assert not st.get("url") and st["partial"] == ["https://www.clarkstonga.gov/files/esr.pdf"] and st["tries"] == 1
+    assert len(store.read("co-dekalb:elections", "document")) == 1
+    store.close()

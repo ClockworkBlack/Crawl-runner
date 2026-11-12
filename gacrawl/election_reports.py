@@ -45,6 +45,12 @@ def _official(url: str, county_host: str) -> bool:
                         h in ARCHIVES)
 
 
+def _county_copy(url: str, county_host: str) -> bool:
+    """The county's own copy (its site, or the archive of the counties' PDFs), not a city's."""
+    h = urlsplit(url).netloc.lower().removeprefix("www.")
+    return bool(county_host) and (h == county_host or h.endswith("." + county_host)) or h in ARCHIVES
+
+
 def _date_forms(iso: str) -> list[str]:
     d = dt.date.fromisoformat(iso)
     m = MONTHS[d.month - 1]
@@ -63,8 +69,11 @@ def is_report_of(text: str, iso: str) -> bool:
 
 
 def queries(county: str, iso: str, label: str, kind: str, host: str) -> list[str]:
+    """Most precise first: the tabulator's own file name (ElectionSummaryReportRPT) on the county's site."""
     name = county.removesuffix(" County")
-    q = [f'"{name} County" Georgia "Election Summary Report" "{label}" pdf',
+    q = [f'site:{host} ElectionSummaryReportRPT {iso[:4]}' if host else "",
+         f'"ElectionSummaryReportRPT" "{name} County" {iso[:4]}',
+         f'"{name} County" Georgia "Election Summary Report" "{label}" pdf',
          f'site:{host} election summary report {label}' if host else "",
          f'"{name} County" Georgia {label} municipal {"runoff " if kind == "runoff" else ""}election results summary report']
     return [x for x in q if x]
@@ -101,7 +110,7 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
                     out["skipped"] += 1
                     continue
                 host = urlsplit(j.get("website") or "").netloc.lower().removeprefix("www.")
-                seen, found = set(), None
+                seen, found, partial = set(), None, []
                 for q in queries(j["name"], iso, label, kind, host):
                     if found or s.left() <= 0 or late():
                         break
@@ -126,9 +135,22 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
                         text = (rec.text if rec else "") or ""
                         if not is_report_of(text, iso):
                             continue
-                        found = (fr.url, rec, text)
-                        break
-                st = {"at": today.isoformat(), "tries": st.get("tries", 0) + (0 if found else 1)}
+                        if _county_copy(fr.url, host):
+                            found = (fr.url, rec, text)
+                            break
+                        # a city's copy of the county's report (its own contests only): kept for that city, and the
+                        # county's full report is still looked for
+                        partial.append((fr.url, rec))
+                st = {"at": today.isoformat(), "tries": st.get("tries", 0) + (0 if found else 1),
+                      **({"partial": sorted({*(st.get("partial") or []), *(u for u, _ in partial)})} if partial or st.get("partial") else {})}
+                for u, prec in partial:
+                    out["kept"].append({"county": j["id"], "election": iso, "url": u, "copy": True})
+                    if not dry_run:
+                        prec.jurisdiction = j["id"]
+                        prec.evidence = "primary"
+                        prec.meta = {**(prec.meta or {}), "election_report": {"date": iso, "kind": kind, "county": j["name"], "copy": True},
+                                     "opened": True}
+                        out["stored"] += store.add(prec)
                 if found:
                     u, rec, text = found
                     st["url"] = u
