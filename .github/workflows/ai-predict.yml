@@ -10,6 +10,9 @@ name: ai-predict
 #   combine  the ledger, the track record the page shows, the notes the inference job reads back (how often each kind of
 #            inference held, examples that did and did not), and fine-tuning examples (research/train/predict/)
 # Runs daily (check and combine); the hidden-vote test only when asked for (bench = questions per model and variant).
+# A part whose runner GitHub lost sends nothing (Nov 11: bench (qwen35, 0) died 1h53m in, with no log and no answers);
+# the combine names it, and `parts` runs just that part again (sync-code deletes a finished run within 15 minutes, so
+# "Re-run failed jobs" is gone by then). The combine adds a re-run's answers to the ones on file, by question.
 on:
   schedule:
     - cron: "41 4 * * *"
@@ -24,6 +27,9 @@ on:
       models:
         description: 'models for the hidden-vote test, a JSON list: phi4, qwen3, gemma4 (Gemma 4 12B), qwen35 (Qwen3.5-9B), tuned (the repo below)'
         default: '["phi4","gemma4","qwen35"]'
+      parts:
+        description: 'which of the 4 parts to run, a JSON list: all four [0,1,2,3], or only the ones a lost runner left out (e.g. [0])'
+        default: '[0,1,2,3]'
       tuned:
         description: "a fine-tuned model's Hugging Face repo (e.g. name/electo-predict-gemma4-12b); add \"tuned\" to models to score it"
         default: ""
@@ -53,8 +59,9 @@ jobs:
       fail-fast: false
       matrix:
         model: ${{ fromJSON(inputs.models || '["phi4","gemma4","qwen35"]') }}
-        # with the counted facts only (Nov 11: they helped both models in both runs); 400 questions in 4 parts
-        shard: [0, 1, 2, 3]
+        # with the counted facts only (Nov 11: they helped both models in both runs); 400 questions in 4 parts (all four
+        # unless `parts` names some: the questions of each part are the same in every run)
+        shard: ${{ fromJSON(inputs.parts || '[0,1,2,3]') }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}         # only needed for a private repo
     steps:
@@ -183,6 +190,36 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {pattern: "predict-*", path: parts}
         continue-on-error: true
+      - name: Parts that sent nothing (named, with the inputs that run only them again)
+        if: inputs.bench != '' && inputs.bench != '0'
+        env:
+          MODELS: ${{ inputs.models || '["phi4","gemma4","qwen35"]' }}
+          PARTS: ${{ inputs.parts || '[0,1,2,3]' }}
+          BENCH: ${{ inputs.bench }}
+          MINUTES: ${{ inputs.minutes || '240' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          gone = {}
+          for m in json.loads(os.environ["MODELS"]):
+              for p in json.loads(os.environ["PARTS"]):
+                  f = f"parts/predict-bench-{m}-{p}/run.json"
+                  try:
+                      rows = (json.load(open(f)).get("rows") or []) if os.path.exists(f) else None
+                  except ValueError:
+                      rows = []
+                  if rows is None:      # the upload runs even after a failed step: only a lost runner skips it
+                      print(f"::warning::{m} part {p} sent nothing: GitHub lost its runner before the end (no log either)")
+                  elif not rows:
+                      print(f"::warning::{m} part {p} sent no answers (its job's log says why)")
+                  else:
+                      continue
+                  gone.setdefault(m, []).append(p)
+          for m, ps in gone.items():
+              print(f'::warning::to run only those again: ai-predict with bench={os.environ["BENCH"]}, minutes={os.environ["MINUTES"]}, '
+                    f'models=["{m}"], parts={json.dumps(ps)} (the combine adds them to the answers on file)')
+          print("every part sent its answers" if not gone else f"parts missing: {gone}")
+          PY
       - name: Combine into Electo and refresh the public site
         if: env.IS_MAIN == 'true'
         env:

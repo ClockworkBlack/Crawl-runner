@@ -5,8 +5,9 @@ name: sync-code
 #      (what the crawler gathered, contacts, the requester's signature, hand-downloaded ordinances) and the records-request
 #      mail and ordinances workflows never
 #      leave the private repository
-#   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/) and then deletes the run
-#      here, so the public repository keeps no logs once they are saved. Needs DATA_TOKEN.
+#   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/; a run that did not succeed
+#      also its jobs and GitHub's error notes, <run>.jobs.json) and then deletes the run here, so the public repository
+#      keeps no logs once they are saved. Needs DATA_TOKEN.
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -15,6 +16,7 @@ on:
 permissions:
   contents: read
   actions: write        # delete finished runs here once their logs are saved in the private repository
+  checks: read          # the error notes GitHub attaches to a failed job (kept with its logs)
 
 concurrency:
   group: sync-code
@@ -66,6 +68,35 @@ jobs:
           set -uo pipefail
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" logs-repo
           git -C logs-repo sparse-checkout set --no-cone /logs/runner/
+          # a run that did not succeed also keeps its jobs (each step's times) and the error notes GitHub attached to each
+          # failed job, next to its logs (<run>.jobs.json): a runner GitHub lost leaves no log of its own, and its note
+          # ("lost communication with the server", "received a shutdown signal") would go with the run (Nov 11: ai-predict
+          # bench (qwen35, 0) failed 1h53m in with neither, so nothing said why)
+          JOBS="$RUNNER_TEMP/jobs.py"
+          cat > "$JOBS" <<'PY'
+          import json, os, sys, urllib.request
+          rid, out = sys.argv[1], sys.argv[2]
+          api, repo = os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"]
+          def get(path):
+              q = urllib.request.Request(f"{api}/{path}", headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                                                                   "Accept": "application/vnd.github+json"})
+              with urllib.request.urlopen(q, timeout=60) as r:
+                  return json.load(r)
+          jobs = []
+          for j in get(f"repos/{repo}/actions/runs/{rid}/jobs?per_page=100").get("jobs") or []:
+              k = {x: j.get(x) for x in ("name", "conclusion", "started_at", "completed_at", "runner_name")}
+              k["steps"] = [{x: s.get(x) for x in ("name", "conclusion", "started_at", "completed_at")} for s in j.get("steps") or []]
+              if j.get("conclusion") not in ("success", "skipped", None):
+                  try:
+                      k["notes"] = [{"level": a.get("annotation_level"), "message": a.get("message")}
+                                    for a in get(f"repos/{repo}/check-runs/{j['id']}/annotations?per_page=50")]
+                  except Exception as e:  # noqa: BLE001  the jobs are still worth keeping
+                      k["notes"] = [{"level": "unread", "message": f"{type(e).__name__}: {e}"}]
+              jobs.append(k)
+          json.dump({"run": int(rid), "jobs": jobs}, open(out, "w", encoding="utf-8"), indent=1)
+          bad = [f"{k['name']} ({k['conclusion']})" for k in jobs if "notes" in k]
+          print(f"run {rid}: {len(jobs)} jobs kept" + (f"; error notes of {', '.join(bad)}" if bad else ""))
+          PY
           n=0; done_ids=""; rows=$(mktemp)
           for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at),\(.conclusion),\(.updated_at)"'); do
             IFS=, read -r id name created concl updated <<< "$row"
@@ -76,6 +107,7 @@ jobs:
               f="$d/${created:0:10}_${name}_${id}.zip"
               gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null || { rm -f "$f"; echo "logs for $id not ready yet"; continue; }
               n=$((n+1))
+              [ "$concl" = "success" ] || python3 "$JOBS" "$id" "${f%.zip}.jobs.json" || { rm -f "${f%.zip}.jobs.json"; echo "jobs of $id not kept"; }
             fi
             done_ids="$done_ids $id"
             echo "$row" >> "$rows"
@@ -113,7 +145,7 @@ jobs:
           PY
           # keep 30 days of runner logs in the private repository (by the date in the file name)
           CUT=$(date -u -d '30 days ago' +%Y-%m-%d)
-          for f in logs-repo/logs/runner/*/*.zip; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done
+          for f in logs-repo/logs/runner/*/*.zip logs-repo/logs/runner/*/*.jobs.json; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done
           cd logs-repo
           git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
           git add -A logs/runner 2>/dev/null || true
