@@ -868,21 +868,28 @@ def cmd_legis(cfg, args):
             # recordings of that committee on those days (channel pages: inside the off-peak window)
             from .legis_video import histories, link_videos
 
+            import sys
+
+            # progress to stderr: the workflow keeps stdout (this command's JSON) in a file, and the progress lines
+            # mixed into it hid the step's whole hour from the log and broke the summary read from that file
+            def log(*a):
+                print(*a, file=sys.stderr, flush=True)
+
             if args.action != "hearings":
                 # at most half the time on bill histories, so linking and the hearings get the rest
                 half = (time.monotonic() + (deadline - time.monotonic()) / 2) if (deadline and args.action == "video") else deadline
-                out["histories"] = histories(_fetcher(cfg, half), store, half)
+                out["histories"] = histories(_fetcher(cfg, half), store, half, log=log)
             if args.action == "hearings":
                 from .legis_video import hearings
 
-                out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline)
+                out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline, log=log)
             if args.action == "video":
-                out["video"] = link_videos(_fetcher(cfg, deadline), store, config.ROOT, deadline,
+                out["video"] = link_videos(_fetcher(cfg, deadline), store, config.ROOT, deadline, log=log,
                                            pages=not getattr(args, "no_pages", False))
                 if getattr(args, "with_hearings", False):
                     from .legis_video import hearings
 
-                    out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline)
+                    out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline, log=log)
         if args.action == "reasons":
             # why decided bills passed, were vetoed or died: what trusted outlets reported, through their own news APIs
             from .bill_reasons import research
