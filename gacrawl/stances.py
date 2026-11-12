@@ -74,6 +74,12 @@ STRONG_OF = (r"(?:indictment|charges?|lawsuit|suit|complaint|ethics (?:complaint
              r"allegations?|accusations?|censure|reprimand|recall (?:effort|petition)|impeachment|arrest|conviction|subpoena)"
              r"\s+(?:filed\s+)?(?:against|into|of|targeting|involving)")
 SPAM = re.compile(r"\b(slot|casino|togel|judi|thabet|dadu4d|bet88|poker online|sbobet|viagra|cialis|loan approval|crypto giveaway)\b", re.I)
+# a lapsed domain bought for a casino site (the usual fate of an expired campaign domain): words that a campaign page
+# would not use, unlike one word of SPAM ("a volunteer time slot")
+GAMBLING = re.compile(r"\b(casinos?|togel|judi|sbobet|gacor|bandar|situs|slots? (?:online|gacor|deposit|88)|online slots?|"
+                      r"bet88|dadu4d|thabet|poker online|sportsbook|betting sites?|jackpot)\b", re.I)
+PARKED = re.compile(r"\b(?:this )?domain (?:name )?(?:is |may be )?for sale|buy this domain|(?:this )?domain (?:has )?expired|"
+                    r"parked (?:free|domain|courtesy)|domain parking|hugedomains|afternic|\bsedo\b|dan\.com", re.I)
 PLACEHOLDER = re.compile(r"lorem ipsum|welcome to wordpress|this is your first post|hello world!?|sample page|coming soon|under construction|site is being built", re.I)
 EN_COMMON = set("the and to of a in for is on that with as at by from be this are we our will it you your i my have has an or not he she his her they their was were can more".split())
 LEGIS_DID = re.compile(r"\b(sponsor(?:ed|ing|s)?|co-?sponsor(?:ed|ing|s)?|filed|introduc(?:ed|ing|es)|authored|wrote the bill|"
@@ -323,6 +329,33 @@ class SourceList:
         self.items.append({"t": (title or r.get("title") or "").strip()[:200] or u, "u": u, "d": _d10(r),
                            "kind": r.get("kind"), "evidence": r.get("evidence") or "primary"})
         return self.index[k]
+
+
+def page_is_theirs(ex: "Extractor", text: str, host: str) -> bool:
+    """A page on a candidate's site is theirs when it names them, or sits on a domain with their surname and is not
+    spam or a page in another language (an expired domain bought by someone else, a parked page)."""
+    if ex.named(text):
+        return True
+    words = re.findall(r"[a-z]+", text.lower())
+    english = sum(w in EN_COMMON for w in words) / max(1, len(words))
+    return (len(ex.last) >= 3 and ex.last in host.replace("-", "") and not SPAM.search(text)
+            and not (len(words) > 30 and english < 0.12))
+
+
+def taken_over(ex: "Extractor", text: str) -> str:
+    """Why a campaign site's page is now someone else's, or '' when nothing says so: it leaves them out and is a
+    gambling or spam page, a parked or for-sale domain, or a page in another language. A page with no text (a
+    script-built site), or one that only leaves their name out, is not taken for someone else's."""
+    if ex.named(text):
+        return ""
+    if GAMBLING.search(text) or len({m.lower() for m in SPAM.findall(text)}) >= 2:
+        return "a gambling or spam page"
+    if PARKED.search(text):
+        return "a parked or for-sale domain"
+    words = re.findall(r"[a-z]+", text.lower())
+    if len(words) > 30 and sum(w in EN_COMMON for w in words) / len(words) < 0.12:
+        return "a page in another language"
+    return ""
 
 
 class Extractor:
@@ -686,7 +719,8 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
         basis = "campaign site" if r["kind"] == "statement" else f"verified {r.get('meta', {}).get('platform') or 'social'} post"
         txt = r.get("text") or ""
         if r["kind"] == "statement":
-            host = re.sub(r"^https?://(www\.)?", "", r["url"]).split("/")[0].lower()
+            # an archived copy (gacrawl/wayback.py) is read as the site it is a copy of
+            host = re.sub(r"^https?://(www\.)?", "", (r.get("meta") or {}).get("original") or r["url"]).split("/")[0].lower()
             if re.search(r"(?:^|\.)(?:wikipedia\.org|wikimedia\.org|wikidata\.org|ballotpedia\.org|ontheissues\.org|votesmart\.org|isidewith\.com)$", host):
                 # an encyclopedia's or an issues digest's page about them is not their own channel (Nov 9: OnTheIssues pages
                 # taken for Jim Barksdale's site gave him a congressman's floor votes and other candidates' endorsements)
@@ -695,9 +729,7 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
             # a page that neither names them nor sits on a domain with their name is not their site (an expired
             # domain bought by someone else, a parked page): read nothing from it
             words = re.findall(r"[a-z]+", txt.lower())
-            english = sum(w in EN_COMMON for w in words) / max(1, len(words))
-            if not (ex.named(txt) or (len(ex.last) >= 3 and ex.last in host.replace("-", ""))) \
-                    or (not ex.named(txt) and (SPAM.search(txt) or (len(words) > 30 and english < 0.12))):
+            if not page_is_theirs(ex, txt, host):
                 site["not_theirs"] = site.get("not_theirs", 0) + 1
                 continue
             if PLACEHOLDER.search(txt) and len(words) < 120:
@@ -709,6 +741,14 @@ def profile_supplement(cand: dict, store: Store, root: Path | None = None, outle
             site["pages"] += 1
             if len(site["urls"]) < 3:
                 site["urls"].append(r["url"])
+            m = r.get("meta") or {}
+            if m.get("archived"):
+                # read from the Wayback Machine: the site is gone or now someone else's (gacrawl/wayback.py); the page
+                # can say so and link the copy instead of the address
+                a = site.setdefault("archived", {"d": m["archived"], "why": m.get("archive_why", ""), "address": host,
+                                                 "copy": r["url"]})
+                if m["archived"] > a["d"]:
+                    a["d"] = m["archived"]
             if len(re.sub(r"[^A-Za-z]", "", txt)) < 40:
                 site["unreadable"] = site.get("unreadable", 0) + 1     # a script-built page with no text to read
         own = ex.own_sentences(txt)[:40]

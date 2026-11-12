@@ -17,6 +17,7 @@ http:
     www.gacities.com: 2
     en.wikipedia.org: 1
     query.wikidata.org: 2
+    web.archive.org: 4         # the Wayback Machine: its CDX search is held to about 24 a minute (gacrawl/wayback.py)
   # Public data APIs whose operators invite programmatic use with an identifying User-Agent (official websites,
   # campaign finance, nonprofits, companies, school records). robots.txt (written for crawlers indexing pages) isn't
   # applied to exactly these endpoints; spacing, back-off and the block list still are, and a refusal on the API
@@ -36,10 +37,16 @@ http:
     # owner on Nov 7, 2026 (gacrawl/ethics.py)
     - api-peachfile.ethics.ga.gov/api
     - api-recordsearch.ethics.ga.gov/api
+    # the Wayback Machine's capture index (CDX), a documented public API; the archived pages themselves are pages and
+    # are read only where web.archive.org's robots.txt allows (gacrawl/wayback.py)
+    - web.archive.org/cdx/search/cdx
   host_timeouts:               # read timeouts for services that are slow to answer but do answer
     api.gdeltproject.org: 120  # a news search can take a minute or more (30 s timed out every query)
   space_after_answer:          # hosts whose spacing counts from the end of the previous answer
     - api.gdeltproject.org     # a query sent the moment the last one answered gets HTTP 429
+    - web.archive.org
+  host_retries:                # retries after a 429/503 (default 3)
+    web.archive.org: 0         # it blocks an address for an hour that keeps asking after a 429; the archive stops instead
   contact: ""                  # optional project contact (e.g. the records mailbox); never a personal address
   timeout_seconds: 30
   max_bytes: 25000000        # pages
@@ -92,6 +99,11 @@ candidates:
   site_max_pages: 25           # pages read on a campaign site (issues, about and endorsement pages first)
   site_recheck_days: 14        # how a campaign site is read (feed, sitemap, pages, browser) is kept this long
   dead_site_days: 30           # a campaign site that is gone (404, no such host) is left alone this long
+  archive: true                # a campaign site that is gone or now someone else's (a casino, a parked domain): its last
+                               # copy in the Wayback Machine from before; an article that answers 404/410: its archived
+                               # copy. Never for a page that answers but is closed (paywall, login, refusal)
+  archive_sites_per_run: 15    # campaign sites looked up in the archive per run (each about 10-30 requests, 4 s apart)
+  archive_articles_per_run: 25 # gone articles looked up per run (2 requests each)
   account_recheck_days: 7      # a social account's proof page is re-checked this often
   cadence_days: 30             # re-research candidates with no recent race this often
   recent_cadence_days: 3       # candidates whose last race was this year or last

@@ -82,6 +82,7 @@ class Fetcher:
         api_endpoints: list[str] | None = None,
         host_timeouts: dict | None = None,
         after_answer: list | None = None,
+        host_retries: dict | None = None,
     ):
         self.user_agent = user_agent
         self.timeout = timeout
@@ -90,6 +91,9 @@ class Fetcher:
         self.max_bytes = max_bytes
         self.max_doc_bytes = max(max_bytes, max_doc_bytes)   # agenda packets and minutes books run large
         self.max_retries = max_retries
+        # per-host retries after a 429/503: the Internet Archive blocks an address for an hour when it keeps asking after
+        # a 429 for over a minute, so web.archive.org gets none (its 429 comes back to the caller, which stops asking)
+        self.host_retries = {k.lower(): int(v) for k, v in (host_retries or {}).items()}
         self._sleep = sleep
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"})
@@ -328,7 +332,7 @@ class Fetcher:
             if reason and self._host_refused(full, reason):
                 self.blocklist.add(full, reason, self.source_id)
                 raise Blocked(host_of(full), reason)
-            if r.status_code in (429, 503) and attempt < self.max_retries:
+            if r.status_code in (429, 503) and attempt < self.host_retries.get(urlsplit(full).netloc.lower(), self.max_retries):
                 self._sleep(min(600, retry_after or 2 ** attempt * 10))
                 continue
             if r.status_code == 304 and cached:
@@ -385,7 +389,7 @@ class Fetcher:
             if reason:
                 self.blocklist.add(full, reason, self.source_id)
                 raise Blocked(host_of(full), reason)
-            if r.status_code in (429, 503) and attempt < self.max_retries:
+            if r.status_code in (429, 503) and attempt < self.host_retries.get(urlsplit(full).netloc.lower(), self.max_retries):
                 self._sleep(min(600, retry_after or 2 ** attempt * 10))
                 continue
             return FetchResult(full, r.status_code, hdrs, body, elapsed)

@@ -52,6 +52,7 @@ def make_fetcher(cfg: dict):
         api_endpoints=http.get("api_endpoints") or [],
         host_timeouts=http.get("host_timeouts") or {},
         after_answer=http.get("space_after_answer") or [],
+        host_retries=http.get("host_retries") or {},
     )
 
 

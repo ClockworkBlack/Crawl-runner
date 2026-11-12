@@ -49,6 +49,7 @@ from .names import excerpts, name_regex, name_variants
 from .registry import by_id
 from .store import Record, Store, utcnow
 from .verified_posts import Registry, handle_of, platform_of
+from .wayback import SHOW, Wayback, day, host_of
 
 GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
 GNEWS = "https://news.google.com/rss/search"
@@ -160,6 +161,11 @@ def load_outlets(root: Path) -> tuple[set[str], set[str]]:
 
     d = load_yaml(p)
     return set(d.get("outlets") or []), set(d.get("exclude_domains") or [])
+
+
+def _archived(page: dict) -> dict:
+    """An article read from the Wayback Machine (it is gone): when it was captured and the copy's address."""
+    return {k: page[k] for k in ("archived", "archived_url") if page.get(k)}
 
 
 def domain_of(url: str) -> str:
@@ -284,6 +290,10 @@ class Researcher:
         self.outlets = load_outlets(root)
         self.opts = (cfg or {}).get("candidates", {})
         self._opened: dict[str, dict | None] = {}  # article url -> {"title","text","url","outlet"} or None (couldn't open)
+        # the Wayback Machine, for campaign sites that are gone or now someone else's and articles that are gone
+        self.wayback = (Wayback(fetcher, log, int(self.opts.get("archive_sites_per_run", 15)),
+                                int(self.opts.get("archive_articles_per_run", 25)))
+                        if self.opts.get("archive", True) else None)
         from collections import OrderedDict
 
         self._roll: OrderedDict = OrderedDict()     # jurisdiction -> {person key: [(row, vote)]}, a few at a time
@@ -759,6 +769,7 @@ class Researcher:
             sid = f"cand:{c['id']}:site{i}"
             dead = self.store.kv_get(f"dead_site:{sid}")
             if dead and (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(dead)).total_seconds() < dead_days * 86400:
+                self._archived_site(c, sid, site, add, "gone")
                 continue
             src = {"id": sid, "url": site, "kind": "statement", "depth": 3, "max_pages": max_pages, "hot": CAMPAIGN_HOT,
                    "exclude": ["/tag/", "/author/", "?share", "/feed", "/wp-json", "login", "/cart", "/donate", "/shop",
@@ -777,23 +788,103 @@ class Researcher:
                     if gone:
                         self.store.kv_set(f"dead_site:{sid}", utcnow())
                         self.log(f"  statements: {site} is gone ({gone[0].note[:60]}); noted, retried in {int(dead_days)} days")
+                        self._archived_site(c, sid, site, add, "gone")
                     else:
                         self.log(f"  statements: no channel for {site}")
                     continue
                 self.channel_cache.put(sid, chosen, probes, save=False)
                 chosen = {"channel": chosen.channel, "endpoint": chosen.endpoint}
+            # a lapsed domain bought for a casino, parked for sale or turned into a page in another language: its
+            # pages are not theirs (stances drops them), so its archived copy from before is read instead
+            why = self._taken_over(c, site)
+            if why:
+                self.log(f"  statements: {site} is now {why}, not {c['name']}'s; reading its archived copy instead")
+                self._archived_site(c, sid, site, add, f"now {why}")
+                continue
             ctx = channels.CrawlContext(frontier=self.store, page_revisit_days=7)
             for rec in channels.crawl(self.f, src, chosen, {}, ctx=ctx):
                 if isinstance(rec, channels.Checkpoint):
                     continue
                 rec.kind = "statement"
                 rec.evidence = "primary"
-                for m in re.finditer(r"endorse[ds]?\s+by\s+(?:the\s+)?([A-Z][^.\n!?\[\]]{3,80})", rec.text or "", re.I):
-                    add(Record("", "connection", rec.url, title=f"Endorsement: {m.group(1).strip()}",
-                               text=m.group(0), published=rec.published, channel=rec.channel, evidence="primary",
-                               meta={"type": "endorsement", "party": m.group(1).strip(), "self_reported": True,
-                                     "opened": True}))
-                add(rec)
+                self._statement(rec, add)
+
+    def _statement(self, rec: Record, add) -> None:
+        """A page of the candidate's own site, with the endorsements it claims."""
+        for m in re.finditer(r"endorse[ds]?\s+by\s+(?:the\s+)?([A-Z][^.\n!?\[\]]{3,80})", rec.text or "", re.I):
+            add(Record("", "connection", rec.url, title=f"Endorsement: {m.group(1).strip()}",
+                       text=m.group(0), published=rec.published, channel=rec.channel, evidence="primary",
+                       meta={"type": "endorsement", "party": m.group(1).strip(), "self_reported": True,
+                             "opened": True, **({k: rec.meta[k] for k in ("archived", "original") if k in rec.meta})}))
+        add(rec)
+
+    def _extractor(self, c: dict):
+        from .stances import Extractor
+
+        return Extractor(c, self.root)
+
+    def _taken_over(self, c: dict, site: str) -> str:
+        """Why the live home page is now someone else's (stances.taken_over), or ''. Only what the page says counts:
+        a page that cannot be read, has no text or merely leaves the name out is not taken for someone else's."""
+        from .stances import taken_over
+
+        try:
+            r = self.f.get(site)
+        except OutOfTime:
+            raise
+        except Exception:  # noqa: BLE001
+            return ""
+        if r.status != 200 or "html" not in r.content_type:
+            return ""
+        title, md = extract.html_to_markdown(r.text, r.url)
+        why = taken_over(self._extractor(c), f"{title}\n{md}")
+        if why and host_of(r.url) != host_of(site):
+            why += f" at {host_of(r.url)}"
+        return why
+
+    def _archived_site(self, c: dict, sid: str, site: str, add, why: str) -> int:
+        """Read a campaign site that is gone or now someone else's from its last capture in the Wayback Machine that
+        was still theirs (gacrawl/wayback.py): pages as records of the archived copy (the link people follow), dated
+        the day captured, meta original = the address it had. Once read (or found to have no capture of theirs), not
+        asked again: the copy does not change. Returns the pages read."""
+        wb = self.wayback
+        key = f"archived_site:{sid}"
+        if wb is None or self.store.kv_get(key) or not wb.take("site"):
+            return 0
+        from .stances import page_is_theirs, taken_over
+
+        ex = self._extractor(c)
+        host = host_of(site)
+
+        def good(title: str, md: str) -> bool:
+            text = f"{title}\n{md}"
+            return page_is_theirs(ex, text, host) and not taken_over(ex, text)
+        home = wb.last_good(site, good)
+        if wb.off:
+            return 0                     # stopped partway (a 429 or a refusal): asked again next run
+        if not home:
+            self.store.kv_set(key, json.dumps({"none": utcnow()[:10], "why": why}))
+            self.log(f"  statements: {site} ({why}): no archived copy of {c['name']}'s site")
+            return 0
+        exclude = ["/tag/", "/author/", "/feed", "login", "/cart", "/donate", "/shop", "/events", "/calendar",
+                   "/volunteer", "/signup", "/sign-up", "/privacy", "/terms"]
+        n = 0
+        for cap in wb.site_pages(home, max_pages=int(self.opts.get("site_max_pages", 25)), hot=CAMPAIGN_HOT, exclude=exclude):
+            got = (home["title"], home["md"]) if cap is home else wb.page(cap["timestamp"], cap["original"])
+            if not got:
+                if wb.off:
+                    return n             # partway: the pages read are kept, the rest next run
+                continue
+            title, md = got
+            ts = cap["timestamp"]
+            rec = Record("", "statement", SHOW.format(ts=ts, url=cap["original"]), title=title, text=md, markdown=md,
+                         published=day(ts), channel="archive", evidence="primary",
+                         meta={"opened": True, "archived": day(ts), "original": cap["original"], "archive_why": why})
+            self._statement(rec, add)
+            n += 1
+        self.store.kv_set(key, json.dumps({"ts": home["timestamp"], "pages": n, "why": why, "at": utcnow()[:10]}))
+        self.log(f"  statements: {site} ({why}): read {n} pages of its archived copy from {day(home['timestamp'])}")
+        return n
 
     # ------------------------------------------------------------------ the press
     def _open_article(self, url: str) -> dict | None:
@@ -806,6 +897,9 @@ class Researcher:
             if r.status == 200 and "html" in r.content_type:
                 title, md = extract.html_to_markdown(r.text, r.url)
                 out = {"url": r.url, "title": title, "text": md}
+            elif r.status in (404, 410) and self.wayback is not None:
+                # gone (not closed: a paywall or a refusal answers 401/402/403 and is never read from an archive)
+                out = self.wayback.article(url)
             self.store.mark_url(url, r.status, "articles", r.content_type)
         except (Disallowed, Blocked) as exc:
             out = None
@@ -884,7 +978,7 @@ class Researcher:
                 ex = excerpts(text, pats[c["id"]], n=3)
                 add(Record("", "article", page["url"], title=page["title"] or title, text="\n".join(ex)[:1800],
                            published=pub, channel="api",
-                           meta={"outlet": a.get("domain"), "via": "gdelt", "opened": True}))
+                           meta={"outlet": a.get("domain"), "via": "gdelt", "opened": True, **_archived(page)}))
                 n += 1
         return n
 
@@ -918,7 +1012,8 @@ class Researcher:
                     if page and pat.search(page["text"]):
                         add(Record("", "article", page["url"], title=page["title"] or it["title"],
                                    text="\n".join(excerpts(page["text"], pat, n=3))[:1800], published=it["published"],
-                                   channel="feed", meta={"outlet": domain_of(page["url"]), "via": "feed", "opened": True}))
+                                   channel="feed", meta={"outlet": domain_of(page["url"]), "via": "feed", "opened": True,
+                                                         **_archived(page)}))
 
     # ------------------------------------------------------------------ other people's social posts
     def _social_mentions(self, c, cls, add, since):

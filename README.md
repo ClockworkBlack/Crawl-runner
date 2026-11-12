@@ -57,6 +57,14 @@ packets and profile supplements in Electo's own shapes.
 - Unverified material never reaches a profile or packet's sources; it sits in the Rumor Mill with a status
   (unverified → corroborated / debunked / retracted) and a corroboration trail.
 - Packet `vote_topics` are counts of recorded votes, not stated positions.
+- The Wayback Machine is read only for what is gone or no longer theirs (`gacrawl/wayback.py`): a campaign site
+  that answers 404 / no such host, or whose domain lapsed and now shows a casino, a for-sale page or a page in
+  another language, is read from its last capture that still named the candidate (its pages as captured up to that
+  day; records link the archived copy, `meta.original` is the old address, the profile's `site.archived` says when
+  and why); an article that answers 404/410 is read from its newest capture (`meta.archived_url`). A page that
+  answers but is closed (a paywall, a login, 401/402/403, a challenge page) is never read through an archive. One
+  request every 4 s, no retry after a 429, and the first 429 or refusal switches it off for the run
+  (`candidates.archive`, `archive_sites_per_run`, `archive_articles_per_run`).
 
 ## Quick start
 
