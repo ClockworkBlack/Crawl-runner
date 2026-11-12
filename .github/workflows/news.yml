@@ -8,7 +8,7 @@ name: news
 # the first pass in full and later ones asking only for what changed (robots.txt read once; feeds with ETag /
 # Last-Modified, an unchanged one answers 304 with no body; a WordPress outlet's list without the posts' text, then the
 # text of the new posts only); then scripts/news_pass.sh: Electo's import (ga/crawl_import.py news_from), summaries by
-# the open model for the new stories only (Electo tools/ai/news_ai.py, Qwen3-8B on this runner's CPU, each checked
+# the open model for the new stories only (Electo tools/ai/news_ai.py, Qwen3.5-9B on this runner's CPU, each checked
 # against the outlets' text), and the commit and the public site (Electo tools/site_data.sh), only when stories changed.
 # The research step from the same stories runs on its own every three hours (news-research.yml). Beside the crawl (its
 # own runs), and touches nothing else: no crawl state, no database.
@@ -75,14 +75,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
-      - name: The open model (Qwen3-8B, 4-bit; kept between runs)
+      - name: The open model (Qwen3.5-9B, 4-bit; kept between runs)
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-qwen3-8b-q4km-v1
-      - name: llama.cpp for the model (CPU build)
+          key: hf-qwen35-9b-q4km-v1
+      - name: llama.cpp for the model (CPU build; 0.3.36 or later knows Qwen3.5)
         run: |
-          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.36" numpy huggingface_hub \
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || echo "llama.cpp did not install; the stories keep the outlets' excerpts"
       - name: Political news every 10 minutes, then Electo's News tab and the public site (about five and a half hours)
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
@@ -91,6 +91,13 @@ jobs:
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
           SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
           SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+          # the summaries' model since Nov 12: Qwen3.5-9B passed its checker on 84% of 120 logged stories against
+          # Qwen3-8B's 80%, faster (44 s vs 51 s) and as faithful read side by side (Electo research/train/replay.json);
+          # its own chat template with thinking off. To go back to Qwen3-8B: drop these four lines and the cache key above.
+          ELECTO_LLM_REPO: unsloth/Qwen3.5-9B-GGUF
+          ELECTO_LLM_QUANT: Q4_K_M
+          ELECTO_LLM_NAME: Qwen3.5-9B
+          ELECTO_LLM_TEMPLATE: own
         run: |
           gacrawl news --max-minutes 4 --export dist/news/news.json --every 10 --for 315 --then "bash scripts/news_pass.sh"
       - name: The next loop (this run hands over; cancelling a run stops the chain, and the hourly schedule restarts it)
