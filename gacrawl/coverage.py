@@ -32,6 +32,8 @@ FEATURES: list[tuple[str, str, str, str]] = [
     ("Local government", "agenda_places", "Places with agenda items", "need"),
     ("Local government", "local_roll_calls", "Council and commission roll calls", "need"),
     ("Local government", "documents", "Minutes, packets and other documents", "need"),
+    ("Local government", "city_contests", "City election contests from county and city reports (seats the state's results do not hold)", "need"),
+    ("Local government", "city_contest_places", "Places with such contests", "need"),
     ("Local government", "ordinances", "Ordinances", "need"),
     ("Local government", "ordinance_places", "Places with ordinances", "need"),
     ("Local government", "officials", "Officials", "need"),
@@ -86,6 +88,7 @@ def measure(root: Path, store) -> dict[str, int]:
     c["bill_reasons"] = k("bill_reason")
     c["code_acts"] = k("code_act")
     c["meetings"], c["meeting_places"] = k("meeting"), places("meeting")
+    c["city_contests"], c["city_contest_places"] = k("election_result"), places("election_result")
     c["agenda_items"], c["agenda_places"] = k("agenda_item"), places("agenda_item")
     c["local_roll_calls"] = _one(db, "SELECT count(*) FROM records WHERE kind='vote' AND source_id<>'ga:legis' "
                                      "AND source_id NOT LIKE 'cand:%'")
@@ -167,7 +170,8 @@ NOTES = {
     "board_members": "found on district sites' board pages (needs district sites read first)",
     "superintendents": "found on district sites (needs district sites read first)",
     "principals": "found on school sites listed on district pages (needs district sites read first)",
-    "budget_docs": "gacrawl schools budgets: GaDOE finance pages (rendered) and the files they link",
+    "budget_docs": "gacrawl schools budgets: GaDOE's QBE report app and the files its finance pages link",
+    "city_contests": "county election offices' summary reports and city results pages (2021 and 2023 city elections)",
     "milestones": "GOSA EOG/EOC files (gacrawl schools stats)",
     "ccrpi": "the CCRPI single score in GOSA's FESR workbooks (gacrawl schools stats)",
     "incidents": "police news: GDELT finds, trusted outlets confirm; Georgia stories that name the department",

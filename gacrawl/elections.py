@@ -50,7 +50,66 @@ OFFICE_NUMBER = re.compile(r"\b(post|ward|district|seat|place|position|precinct|
 LIST_MARK = re.compile(r"^(?:[-*•·]|\d{1,2}[.)])\s+")
 
 
+# the county election offices' own report (every Georgia county's tabulator prints this layout): a contest heading
+# ending "(Vote for 1)", then one line a candidate with the counting groups' columns, the total and the share
+SUMMARY_HEAD = re.compile(r"^(.*\S)\s*\(Vote\s+for\s+(\d+)\)\s*$", re.I)
+SUMMARY_ROW = re.compile(r"^(.+?)\s+((?:\d[\d,]*\s+)*)(\d[\d,]*)\s+(\d{1,3}\.\d+)\s*%$")
+SUMMARY_PARTY = re.compile(r"\s+(DEM|REP|LIB|IND|NP|GRN)$")
+SUMMARY_MAX = 1_500_000
+
+
+def is_summary_report(text: str) -> bool:
+    return len(re.findall(r"\(Vote\s+for\s+\d+\)", text[:SUMMARY_MAX], re.I)) >= 2 and "Total Votes" in text[:SUMMARY_MAX]
+
+
+def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
+    """Contests from a county's Election Summary Report (also inside a longer document: a board's meeting packet)."""
+    contests, cur = [], None
+    for raw in text[:SUMMARY_MAX].splitlines():
+        line = re.sub(r"\s+", " ", raw.replace("|", " ")).strip()
+        if not line:
+            continue
+        h = SUMMARY_HEAD.match(line)
+        if h:
+            if cur and cur["candidates"]:
+                contests.append(cur)
+            office = h.group(1).strip(" :-")
+            cur = {"office": office, "candidates": [], "runoff": runoff or "runoff" in office.lower(), "vote_for": int(h.group(2))}
+            continue
+        if cur is None or re.match(r"^(times cast|precincts reported|candidate\b|election day\b|page\b)", line, re.I):
+            continue
+        m = SUMMARY_ROW.match(line)
+        if not m:
+            t = re.match(r"^total votes\s+.*?(\d[\d,]*)$", line, re.I)
+            if t:
+                cur["total"] = int(t.group(1).replace(",", ""))
+            continue
+        label = m.group(1).strip()
+        if SKIP_ROW.match(label):
+            continue
+        pm = SUMMARY_PARTY.search(label)
+        name, party, inc = _clean_name(label[:pm.start()] if pm else label)
+        if pm and not party:
+            party = {"DEM": "D", "REP": "R", "LIB": "L", "IND": "I"}.get(pm.group(1), "")
+        if not name or not NAME_RX.match(name) or len(name) > 60:
+            continue
+        cur["candidates"].append({"name": name, "party": party, "votes": int(m.group(3).replace(",", "")), "pct": float(m.group(4)),
+                                  "incumbent": inc})
+    if cur and cur["candidates"]:
+        contests.append(cur)
+    for c in contests:
+        c["total"] = c.get("total") or sum(x["votes"] for x in c["candidates"])
+        _outcomes(c)
+        if c["vote_for"] > 1 and not c["runoff"]:       # several seats in one contest: the top N are seated
+            top = sorted(c["candidates"], key=lambda x: -x["votes"])[:c["vote_for"]]
+            for x in c["candidates"]:
+                x["outcome"] = "won" if x in top and x["votes"] else ""
+    return contests
+
+
 def looks_like_results(title: str, url: str, text: str) -> bool:
+    if is_summary_report(text):
+        return True
     head = f"{title}\n{url}\n{text[:1500]}"
     if not RESULTS_RX.search(head):
         return False
@@ -136,6 +195,8 @@ def _is_office(line: str) -> bool:
 
 def parse_results(text: str, runoff: bool = False) -> list[dict]:
     """Contests from results text (markdown tables or line-based PDF text). `runoff`: the page is a runoff's."""
+    if is_summary_report(text):
+        return parse_summary_report(text, runoff)
     contests, cur = [], None
     for raw in text.splitlines():
         line = raw.strip()
@@ -253,6 +314,10 @@ def _derive(src: dict, ctx: dict):
     jur = ctx.get("jurisdictions") or []
     if looks_like_results(title, url, text):
         date = find_date(text, title)
+        if is_summary_report(text):
+            # the election's own date is under the report's heading (a meeting packet opens with the meeting's date)
+            i = text.find("Election Summary Report")
+            date = (find_date(text[i:i + 600]) if i >= 0 else None) or date
         page_runoff = bool(re.search(r"\brunoff\b", f"{title}\n{text[:800]}", re.I))
         official = bool(re.search(r"\b(certified|official)\b", f"{title} {text[:800]}", re.I)) and \
             not re.search(r"\bunofficial\b", f"{title} {text[:800]}", re.I)
