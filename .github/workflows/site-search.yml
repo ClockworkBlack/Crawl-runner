@@ -41,4 +41,5 @@ jobs:
         env:
           SITE: ${{ vars.SITE_URL || 'https://clockworkblack.github.io/electo-data/' }}
         run: |
+          set -o pipefail     # a failed check fails the run (the default shell does not pass the exit code through tee)
           cd electo && NODE_PATH="$PWD/qa/node_modules" timeout 20m node qa/search_qa.js | tee -a "$GITHUB_STEP_SUMMARY"
