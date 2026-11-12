@@ -578,9 +578,26 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                 R["fec"] = {"receipts": chk.get("receipts"), "itemized": chk.get("itemized"), "check": chk["check"],
                             "cycles": chk.get("cycles") or []}
     legacy_by = mstats.get("legacy_by") or {}
+    # committees whose FEC read is part-way (finance.part_read): the itemized lines listed so far are the newest ones;
+    # the page says how far back they reach (the FEC's own totals stand for the whole campaign meanwhile)
+    from .finance import part_read
+
+    reading: dict[str, dict] = {}
+    for com, cid in part_read(store).items():
+        try:
+            rs = json.loads(store.kv_get(f"fec:a2r:{com}") or "{}")
+        except ValueError:
+            rs = {}
+        back = ((rs.get("last") or {}).get("last_contribution_receipt_date") or "")[:10]
+        if cid:
+            x = reading.setdefault(cid, {"committees": 0, "back_to": back, "newest": (rs.get("newest") or "")[:10]})
+            x["committees"] += 1
+            x["back_to"] = min(x["back_to"] or back, back or x["back_to"])
     for R in rec_list:
         if R.get("cid") and legacy_by.get(R["cid"]):
             R["held"] = legacy_by[R["cid"]]     # FEC lines waiting for the re-read: the page says this total is incomplete
+        if R.get("cid") in reading:
+            R["reading"] = reading[R["cid"]]
         if not R["party"] and R.get("cid") in link_party:
             R["party"] = link_party[R["cid"]]
         if R.get("_comm"):
@@ -668,19 +685,35 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
            "totals": {"raised": round(sum(R["raised"] for R in rec_list), 2), "gifts": sum(R["n"] for R in rec_list),
                       "named": round(sum(g["total"] for g in gifts.values()), 2), "pairs": len(gifts), "donors": len(donors),
                       "recipients": len(rec_list), "listed": len(gift_list), "self_inferred": sum(1 for g in gifts.values() if g.get("self_inferred"))},
-           "hold": ("Federal campaign money (FEC) is being read again with the FEC's own line codes: a check found FEC memo "
-                     "lines counted as gifts (one AIPAC PAC figure was counted 20 times). Federal candidates come back as each "
-                     "campaign is read again; until then their money is left out rather than shown wrong."
-                     if mstats.get("legacy") else ""),
+           "hold": _hold_note(mstats, reading, rec_list),
            "skipped": {"memo_lines": mstats.get("memo", 0), "duplicate_lines": mstats.get("repeat", 0),
                        "transfers_between_own_committees": mstats.get("transfer", 0) + mstats.get("own_transfer", 0),
-                       "fec_lines_awaiting_reread": mstats.get("legacy", 0)}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
+                       "fec_lines_awaiting_reread": mstats.get("legacy", 0),
+                       "fec_lines_filed_twice": mstats.get("refiled", 0),
+                       "ga_late_lines_listed_again": mstats.get("late_listed_again", 0),
+                       "fec_campaigns_part_read": len(reading)}, "caps": {"gifts": GIFT_CAP, "spend": SPEND_CAP, "donors": DONOR_CAP}}
     for g in gift_list:
         if g.get("via"):
             g["via"] = sorted(g["via"])[:3]
     out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log, candidates=candidates)
     return {"profiles": np, "rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}
+
+
+def _hold_note(mstats: dict, reading: dict, rec_list: list) -> str:
+    """What the Donors tab says while federal money is incomplete: FEC lines waiting for the re-read (not counted), and
+    campaigns whose itemized lines are part-way (counted as far as read; their totals are the FEC's own)."""
+    parts = []
+    if mstats.get("legacy"):
+        parts.append("Federal campaign money (FEC) is being read again with the FEC's own line codes: a check found FEC memo "
+                     "lines counted as gifts (one AIPAC PAC figure was counted 20 times). Federal candidates come back as each "
+                     "campaign is read again; until then their money is left out rather than shown wrong.")
+    if reading:
+        names = sorted(R["name"] for R in rec_list if R.get("cid") in reading)
+        parts.append(f"The itemized gifts of {len(reading)} federal campaign{'' if len(reading) == 1 else 's'} "
+                     f"({', '.join(names[:6])}{'…' if len(names) > 6 else ''}) are still being read from the FEC, newest first: "
+                     "their listed donors cover only what has been read so far, while their totals are the FEC's own.")
+    return " ".join(parts)
 
 
 def _orgs(store) -> dict:

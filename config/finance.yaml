@@ -17,6 +17,16 @@ georgia_commission:
 # (DEMO_KEY works for small volumes).
 fec:
   enabled: true
+  # FEC candidate ids the name lookup cannot settle (two FEC "people" for one person, a nickname it does not know,
+  # or several people of that name): hand-checked against the FEC's candidate search (api.open.fec.gov
+  # /candidates/search, Nov 12, 2026). Kept here, not in config/candidates.yaml, which Electo regenerates.
+  candidate_ids:
+    john-lewis: [H6GA05217]                 # LEWIS, JOHN R (GA-5, 1986-2020; principal committee C00202416)
+    tom-graves: [H0GA09030]                 # GRAVES, JOHN THOMAS JR. (GA-9/14, 2010-2020)
+    paul-broun: [H6GA09243]                 # BROUN, PAUL (GA-9 2016, GA-10 2022); his 2014-and-earlier ids are before 2016
+    derrick-grayson: [S4GA11236, S0GA00658] # GRAYSON, DERRICK EARL (Senate 2016) and DERRICK E REV (Senate 2020)
+    patricia-mccracken: [H6GA12031, S0GA00666]  # MCCRACKEN, TRICIA CARPENTER (GA-12 2016), TRICIA (Senate 2020)
+    annette-davis-jackson: [S0GA00716, S2GA00308]  # JACKSON, ANNETTE DAVIS (Senate 2020; 2022 write-in)
 
 # ProPublica Nonprofit Explorer (IRS 990 data): no key needed.
 propublica:

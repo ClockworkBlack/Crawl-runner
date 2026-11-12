@@ -18,6 +18,8 @@ http:
     en.wikipedia.org: 1
     query.wikidata.org: 2
     web.archive.org: 4         # the Wayback Machine: its CDX search is held to about 24 a minute (gacrawl/wayback.py)
+    api.open.fec.gov: 3.7      # the FEC's key allows 1,000 calls an hour: one every 3.6 s keeps under it (3 s ran into
+                               # its refusals within the hour, and each one ended that run's federal reading)
   # Public data APIs whose operators invite programmatic use with an identifying User-Agent (official websites,
   # campaign finance, nonprofits, companies, school records). robots.txt (written for crawlers indexing pages) isn't
   # applied to exactly these endpoints; spacing, back-off and the block list still are, and a refusal on the API

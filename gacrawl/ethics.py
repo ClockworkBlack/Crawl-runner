@@ -158,7 +158,10 @@ SYSTEMS = {
 SINCE_YEAR = 2022
 PAGE = 200
 GA_SOURCE = "Georgia State Ethics Commission"
-# Two Business Day reports repeat, early, gifts the next regular report lists again: never counted
+# Two Business Day reports repeat, early, gifts the next regular report lists again: kept with meta tbd, and counted
+# (gacrawl/money.py) only for the days after the filer's newest regular report. They used to be skipped, so the last
+# weeks before an election were missing until the next regular report was read (in November 2026 Rick Jackson's own
+# money read about $130 million on the Donors tab; news reports of the state's records put it above $194 million)
 TBD_REPORT = re.compile(r"(?i)two business day|2 business day|\btbd\b|24[- ]hour")
 SKIP_SUBTYPE = re.compile(r"(?i)interest|return|refund|loan payment|loan forgiv")
 
@@ -256,12 +259,11 @@ def kind_of(t: dict) -> str | None:
 
 
 def record_of(system: str, t: dict, cands: dict):
-    """One transaction as a contribution record, or None when it does not count (a Two Business Day report, interest,
-    a return)."""
+    """One transaction as a contribution record, or None when it does not count (interest, a return). A Two Business
+    Day report's line is kept with meta tbd (money.py counts it until a regular report reaches its date)."""
     from .finance import contribution_record
 
-    if TBD_REPORT.search(t.get("reportName") or ""):
-        return None
+    tbd = bool(TBD_REPORT.search(t.get("reportName") or ""))
     kind = kind_of(t)
     if kind is None or t.get("transactionAmount") in (None, ""):
         return None
@@ -291,7 +293,7 @@ def record_of(system: str, t: dict, cands: dict):
                      "report_name": t.get("reportName") or "", "report_id": t.get("filerReportId"),
                      "report_version": t.get("filerReportVersionId") or 1, "subtype": t.get("transactionSubTypeDesc") or "",
                      "source_type": t.get("transactionSource") or "", "transaction_id": t.get("transactionId"),
-                     **({"unitemized": True} if unitem else {}),
+                     **({"unitemized": True} if unitem else {}), **({"tbd": True} if tbd else {}),
                      **({"candidate_id": c["id"], "electo_key": c.get("electo_key")} if c else {})})
     # Georgia's lines are many (about 3.2 million in the two systems): the line's fields are in meta already, so the
     # text is not a second copy of them (the title is what the full-text index needs), and fields a gift never has
@@ -372,7 +374,8 @@ def drop_superseded(store) -> int:
     lines = []
     for r in store.iter_query("kind='contribution' AND key LIKE 'ga2|%'"):
         m = r.get("meta") or {}
-        g = (m.get("ga_system"), m.get("ga_filer"), m.get("report_name"))
+        # Two Business Day reports share one name; each is its own report (only its own amendments replace it)
+        g = (m.get("ga_system"), m.get("ga_filer"), m.get("report_name")) + ((m.get("report_id"),) if m.get("tbd") else ())
         v = (int(m.get("report_version") or 1), int(m.get("report_id") or 0))
         lines.append((r["key"], g, v))
         if v > best.get(g, (0, 0)):
@@ -515,7 +518,7 @@ def run(fetcher, store, root, candidates, deadline, log=print, mode: str = "all"
             th.join(timeout=1.0)     # short waits: an interrupt (the workflow's watchdog) still reaches this thread
     store.flush()
     st["superseded"] = drop_superseded(store) if superseded else 0
-    log(f"ethics: {st['added']} lines, {st['skipped']} not counted (Two Business Day reports, interest, returns), "
+    log(f"ethics: {st['added']} lines, {st['skipped']} not counted (interest, returns), "
         f"{st['superseded']} replaced by amended reports")
     return st
 

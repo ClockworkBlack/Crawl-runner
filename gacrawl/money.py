@@ -7,7 +7,15 @@ How a line counts:
               total, a partnership's attribution): never counted
   repeat      the same line read twice: an FEC line is one line however often it is read (the FEC's committee and
               transaction id, which an amendment keeps); another filer's line, once per recipient, donor, date, amount,
-              kind and filing line (a report posted twice, or amended)
+              kind and filing line (a report posted twice, or amended). An FEC line filed again in a second filing
+              under a new transaction id (an amendment filed as another report: Jim Barksdale's two $1 million loans
+              of 2016 were in his amended July report and again in a "Q1" filing, so they counted twice and his total
+              read $4.75 million against the FEC's $2.94 million) counts once: for each committee, donor, date, amount
+              and line (11, 12 or 13), the lines of one filing count, and copies in other filings beyond that number
+              are repeats
+  late        a Georgia Two Business Day report (gifts of $1,000 or more in the days before an election, listed again
+              in the next regular report): counted only for dates after the filer's newest regular report, so the
+              last weeks before an election are on the site before the year-end report, and never counted twice
   legacy      FEC lines read before the crawler kept the FEC's own fields (no memo code, no transaction id): they
               cannot be told from memo lines, so they are not counted at all; the FEC step reads each committee again
               and replaces them (finance.py _fec_committee)
@@ -39,13 +47,19 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+# words a filer writes in place of the conduit's name ("EARMARKED THROUGH THIS ORGANIZATION" is ActBlue's own phrase,
+# copied into recipients' reports): not a conduit anyone could look up
+NOT_A_CONDUIT = re.compile(r"(?i)^(this|the|our|that)\s+(organization|org|committee|conduit|pac|account)\b|^(see|below|above)\b")
+
+
 def via_of(m: dict) -> str:
     """The conduit an earmarked gift passed through, or ''."""
     if m.get("conduit_committee_name") or m.get("conduit_name"):
         return (m.get("conduit_committee_name") or m.get("conduit_name")).strip()
     mt = EARMARK.search(m.get("memo_text") or "")
     if mt:
-        return mt.group(1).strip()
+        v = mt.group(1).strip()
+        return "" if NOT_A_CONDUIT.search(v) else v
     return ""
 
 
@@ -65,20 +79,44 @@ def lines(store, stats: dict | None = None):
     """Every contribution, expenditure and loan line that counts, once, with how it counts:
     {"rid", "url", "published", "meta", "amount", "type", "via", "platform"}. `stats` gets the counts left out."""
     own: dict[str, set] = defaultdict(set)
+    covered: dict[str, str] = {}
     for r in store.iter_query("kind='contribution'"):
         m = r.get("meta") or {}
         if m.get("candidate_id") and m.get("committee"):
             own[m["candidate_id"]].add(m["committee"])
-    yield from clean(store.iter_query("kind='contribution'"), own, stats)
+        note_covered(m, covered)
+    yield from clean(store.iter_query("kind='contribution'"), own, stats, covered=covered)
 
 
-def clean(records, own: dict | None = None, stats: dict | None = None):
-    """The rules over any iterable of contribution records (a whole store, or one candidate's)."""
+def note_covered(m: dict, covered: dict) -> None:
+    """The newest date each Georgia filer's regular reports reach (a Two Business Day line after it is not listed in a
+    regular report yet)."""
+    if m.get("ga_filer") and not m.get("tbd"):
+        d = (m.get("date") or "")[:10]
+        if d > covered.get(m["ga_filer"], ""):
+            covered[m["ga_filer"]] = d
+
+
+def _name_key(s: str) -> str:
+    """A donor's name as a set of words ("PAC, FRANKLIN FORUM" and "FRANKLIN FORUM PAC" are one name)."""
+    return " ".join(sorted(re.findall(r"[a-z0-9]+", (s or "").lower())))
+
+
+def clean(records, own: dict | None = None, stats: dict | None = None, covered: dict | None = None):
+    """The rules over any iterable of contribution records (a whole store, or one candidate's). `covered`: the newest
+    date of each Georgia filer's regular reports (note_covered); without it, Two Business Day lines are read as covered
+    only when the same records carry a regular line of that filer from a later date (records are read twice)."""
     st = stats if stats is not None else {}
     for k in ("memo", "repeat", "legacy", "transfer", "lines"):
         st.setdefault(k, 0)
     own = own if own is not None else {}
+    if covered is None:
+        records = list(records)
+        covered = {}
+        for r in records:
+            note_covered(r.get("meta") or {}, covered)
     seen: set = set()
+    filed: dict = {}         # (committee, donor, date, amount, line) -> {filing: lines counted from it}
     for r in records:
         m = r.get("meta") or {}
         amt = m.get("amount")
@@ -106,7 +144,13 @@ def clean(records, own: dict | None = None, stats: dict | None = None):
         if (m.get("memo_code") or "").upper() == "X":
             st["memo"] += 1
             continue
-        if fec and m.get("committee"):
+        if m.get("tbd"):
+            # a Two Business Day line: only for the days no regular report of this filer reaches yet
+            if (m.get("date") or "")[:10] <= covered.get(m.get("ga_filer") or "", ""):
+                st["late_listed_again"] = st.get("late_listed_again", 0) + 1
+                continue
+            dk = ("tbd", m.get("ga_filer"), _name_key(m.get("name") or ""), (m.get("date") or "")[:10], round(amt, 2))
+        elif fec and m.get("committee"):
             dk = ("fec", m["committee"], m.get("transaction_id") or m.get("sub_id") or r.get("key"))
         else:
             dk = (m.get("committee") or m.get("recipient_entity") or _norm(m.get("recipient") or ""), _norm(m.get("name") or ""),
@@ -115,6 +159,15 @@ def clean(records, own: dict | None = None, stats: dict | None = None):
             st["repeat"] += 1
             continue
         seen.add(dk)
+        if fec and m.get("committee") and m.get("file_number"):
+            # the same line in a second filing under a new transaction id: as many as one filing holds, no more
+            g = filed.setdefault((m["committee"], _name_key(m.get("name") or ""), (m.get("date") or "")[:10], round(amt, 2), ln[:2]), {})
+            f = str(m["file_number"])
+            g[f] = g.get(f, 0) + 1
+            if g[f] <= max((v for k, v in g.items() if k != f), default=0):
+                st["repeat"] += 1
+                st["refiled"] = st.get("refiled", 0) + 1
+                continue
         if m.get("candidate_id") and m.get("contributor_committee_id") and m["contributor_committee_id"] in own.get(m["candidate_id"], ()):
             st["transfer"] += 1
             continue

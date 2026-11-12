@@ -221,3 +221,83 @@ def test_orphan_lines_are_read_again(tmp_path):
     s.flush()
     assert n == 1
     assert s.db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.fec_v') IS NULL").fetchone()[0] == 0
+
+
+def test_a_line_filed_again_in_another_filing_counts_once(tmp_path):
+    # Jim Barksdale, 2016: his amended July report and a "Q1" filing both list the same two $1M loans (13A and 13B,
+    # new transaction ids) and the same gifts; one filing's worth counts
+    s = Store(tmp_path / "db")
+    base = {"filing_source": "FEC", "committee": "C00611590", "candidate_id": "jim-barksdale", "recipient": "Jim Barksdale", "fec_v": 2}
+    s.add(rec("fec2|C|1", name="BARKSDALE, JAMES", amount=1e6, date="2016-05-11", line_number="13A", transaction_id="T1", file_number=1137008, **base))
+    s.add(rec("fec2|C|2", name="BARKSDALE, JAMES", amount=1e6, date="2016-05-11", line_number="13B", transaction_id="T2", file_number=1092693, **base))
+    s.add(rec("fec2|C|3", name="FRANKLIN FORUM PAC", amount=400, date="2016-06-07", line_number="11C", transaction_id="T3", file_number=1137008, **base))
+    s.add(rec("fec2|C|4", name="PAC, FRANKLIN FORUM", amount=400, date="2016-06-07", line_number="11C", transaction_id="T4", file_number=1092693, **base))
+    # two real $2,700 gifts the same day (primary and general), in each of the two filings: two count, not four
+    for i, f in enumerate((1137008, 1137008, 1092693, 1092693)):
+        s.add(rec(f"fec2|C|e{i}", name="BARKSDALE, EUGENIA", amount=2700, date="2016-05-09", line_number="11AI", transaction_id=f"E{i}", file_number=f, **base))
+    # two gifts alike inside one filing stay two
+    s.add(rec("fec2|C|5", name="DOE, JANE", amount=25, date="2016-07-01", line_number="11AI", transaction_id="T5", file_number=1, **base))
+    s.add(rec("fec2|C|6", name="DOE, JANE", amount=25, date="2016-07-01", line_number="11AI", transaction_id="T6", file_number=1, **base))
+    s.flush()
+    st = {}
+    L = list(money.lines(s, st))
+    assert round(sum(x["amount"] for x in L)) == 1_000_000 + 400 + 5400 + 50
+    assert st["refiled"] == 4
+
+
+def test_this_organization_is_not_a_conduit():
+    assert money.via_of({"memo_text": "EARMARKED THROUGH THIS ORGANIZATION"}) == ""
+    assert money.via_of({"memo_text": "* EARMARKED THROUGH ACTBLUE"}) == "ACTBLUE"
+
+
+def test_two_business_day_lines_count_until_a_regular_report_reaches_them(tmp_path):
+    s = Store(tmp_path / "db")
+    g = {"filing_source": "Georgia State Ethics Commission", "ga_filer": "F1", "recipient": "Jackson for Governor, Inc.", "type": "contribution"}
+    s.add(rec("ga2|p|1", name="JACKSON, RICHARD L.", amount=38e6, date="2026-10-05", line="1", **g))           # regular report
+    s.add(rec("ga2|p|2", name="JACKSON, RICHARD L.", amount=20e6, date="2026-10-28", line="2", tbd=True, **g))   # late, not yet listed again
+    s.add(rec("ga2|p|2b", name="JACKSON, RICHARD L.", amount=20e6, date="2026-10-28", line="2b", tbd=True, **g))  # the same, amended
+    s.add(rec("ga2|p|3", name="SMITH, ANN", amount=5000, date="2026-09-30", line="3", tbd=True, **g))          # already in a regular report
+    s.flush()
+    st = {}
+    assert round(sum(x["amount"] for x in money.lines(s, st))) == 58_000_000
+    assert st["late_listed_again"] == 1
+    # the year-end report lists the late gift again: the late line drops out, nothing counts twice
+    s.add(rec("ga2|p|4", name="JACKSON, RICHARD L.", amount=20e6, date="2026-10-28", line="4", **g))
+    s.flush()
+    assert round(sum(x["amount"] for x in money.lines(s))) == 58_000_000
+    # a single candidate's records (no store-wide pass) give the same answer
+    recs = [dict(meta=r["meta"], key=r["key"]) for r in s.iter_query("kind='contribution'")]
+    assert round(sum(x["amount"] for x in money.clean(recs))) == 58_000_000
+
+
+def test_part_read_committees_are_carried_on(tmp_path):
+    from gacrawl.finance import part_read
+
+    s = Store(tmp_path / "db")
+    s.add(rec("fec2|C1|1", name="X", amount=5, filing_source="FEC", committee="C1", candidate_id="jon-ossoff", fec_v=2))
+    s.flush()
+    s.kv_set("fec:a2r:C1", json.dumps({"floor": "2016-01-01", "last": {"last_index": "9"}, "newest": "2026-06-30", "pages": 2238}))
+    # a place kept from an older read of a committee read in full since: stale
+    s.kv_set("fec:a2:C2", "2021-03-24")
+    s.kv_set("fec:a2r:C2", json.dumps({"floor": "2016-01-01", "last": {"last_index": "1"}, "pages": 139}))
+    # a place kept by a later (incremental) read of a complete committee: current
+    s.kv_set("fec:a2:C3", "2026-06-30")
+    s.kv_set("fec:a2r:C3", json.dumps({"floor": "2026-05-01", "last": {"last_index": "1"}, "pages": 3}))
+    assert part_read(s) == {"C1": "jon-ossoff", "C3": ""}
+
+
+def test_donors_export_marks_part_read_campaigns(tmp_path):
+    from gacrawl.donors import export_donors
+
+    s = Store(tmp_path / "db")
+    s.add(rec("fec2|C1|1", name="DOE, JANE", amount=50, date="2026-06-01", filing_source="FEC", committee="C1",
+              candidate_id="jon-ossoff", recipient="Jon Ossoff", fec_v=2, transaction_id="1", line_number="11AI"))
+    s.flush()
+    s.kv_set("fec:a2r:C1", json.dumps({"floor": "2016-01-01", "last": {"last_index": "9", "last_contribution_receipt_date": "2026-04-06"},
+                                       "newest": "2026-06-30", "pages": 2238}))
+    export_donors(s, tmp_path, [{"id": "jon-ossoff", "name": "Jon Ossoff", "office": "U.S. Senate", "electo_key": "JON OSSOFF"}],
+                  tmp_path / "d.json", log=lambda *a: None)
+    d = json.loads((tmp_path / "d.json").read_text())
+    R = next(r for r in d["recipients"] if r.get("cid") == "jon-ossoff")
+    assert R["reading"] == {"committees": 1, "back_to": "2026-04-06", "newest": "2026-06-30"}
+    assert "Jon Ossoff" in d["hold"] and d["skipped"]["fec_campaigns_part_read"] == 1

@@ -211,17 +211,26 @@ def money_checks(store) -> str:
 
     L = ["", "## Campaign money checks", ""]
     ids = json.loads(store.kv_get("fec_ids2") or "{}")
-    miss = sorted(k for k, v in ids.items() if not v.get("ids"))
+    try:     # ids checked by hand (config/finance.yaml fec.candidate_ids) settle a lookup the name match could not
+        from .config import ROOT
+        from .registry import load_yaml
+
+        hand = ((load_yaml(ROOT / "config" / "finance.yaml") or {}).get("fec") or {}).get("candidate_ids") or {}
+    except Exception:  # noqa: BLE001
+        hand = {}
+    miss = sorted(k for k, v in ids.items() if not v.get("ids") and not hand.get(k))
     L.append(f"- Federal candidates the FEC lookup could not match: **{len(miss)}**" + (": " + ", ".join(miss[:40]) if miss else "")
-             + (" (their federal money is missing; set fec_ids in config/candidates.yaml)" if miss else ""))
+             + (" (their federal money is missing; add their ids under fec.candidate_ids in config/finance.yaml)" if miss else ""))
     with store._lock:
         legacy = store.db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' "
                                   "AND json_extract(meta,'$.committee') IS NOT NULL AND json_extract(meta,'$.fec_v') IS NULL").fetchone()[0]
     L.append(f"- FEC lines read before the FEC's own fields were kept, awaiting the re-read (not counted): **{legacy:,}**")
     tot = json.loads(store.kv_get("fec_totals") or "{}")
     L.append(f"- Committees with the FEC's official totals on hand (each profile's total is checked against them): **{len(tot)}**")
+    from .finance import part_read as _part_read
+
+    part = [(f"fec:a2r:{k}", store.kv_get(f"fec:a2r:{k}") or "{}") for k in _part_read(store)]
     with store._lock:
-        part = store.db.execute("SELECT k, v FROM kv WHERE k LIKE 'fec:a2r:%' AND v != ''").fetchall()
         sums = store.db.execute("SELECT json_extract(meta,'$.candidate_id') AS c, sum(json_extract(meta,'$.amount')) AS t FROM records "
                                 "WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' AND json_extract(meta,'$.fec_v') IS NOT NULL "
                                 "AND coalesce(json_extract(meta,'$.memo_code'),'') != 'X' AND json_extract(meta,'$.candidate_id') IS NOT NULL "

@@ -76,3 +76,36 @@ def test_the_reread_goes_smallest_first_and_is_left_to_its_job(tmp_path, monkeyp
     s.close()
     cli.cmd_finance(cfg, cli.build_parser().parse_args(["finance", "--reread-only", "--defer-reread", "--max-minutes", "5"]))
     assert seen.pop("cands") == ["small-house", "mid-house", "big-senate"]
+
+
+def test_a_campaign_read_part_way_is_carried_on_after_everything_else(tmp_path, monkeypatch):
+    """A Senate committee whose read stopped part-way (its place kept) and has no old lines left is still read on, but
+    after every campaign with old lines and the leadership PACs' few pages: it is a day of reading (Nov 12: nothing
+    carried Jon Ossoff's read on, and it sat at April 2026)."""
+    import json
+
+    data = tmp_path / "data"
+    store = Store(data)
+    store.add(Record("cand:small-house", "contribution", "https://example.test/fec/s/1", title="Contribution 1",
+                     meta={"filing_source": "FEC", "committee": "CSMALL", "candidate_id": "small-house", "name": "Donor 1"}))
+    store.add(Record("cand:big-senate", "contribution", "https://example.test/fec/b/1", title="Contribution 2",
+                     key="fec2|CBIG|1", meta={"filing_source": "FEC", "committee": "CBIG", "candidate_id": "big-senate",
+                                               "name": "Donor 2", "fec_v": 2}))
+    store.kv_set("fec:a2r:CBIG", json.dumps({"floor": "2016-01-01", "newest": "2026-06-30", "pages": 2238,
+                                             "last": {"last_index": "9", "last_contribution_receipt_date": "2026-04-06"}}))
+    store.close()
+    order = []
+
+    def run(self, cands, since="2016-01-01", deadline=None, org_limit=40, orgs=True):
+        order.append(("run", [c["id"] for c in cands]))
+        return {}
+
+    cands = [{"id": x, "name": x, "office": "U.S. Senate"} for x in ("big-senate", "small-house")]
+    monkeypatch.setattr(candidates, "load_candidates", lambda *a, **k: cands)
+    monkeypatch.setattr(cli, "_fetcher", lambda cfg, deadline: object())
+    monkeypatch.setattr(finance.Finance, "run", run)
+    monkeypatch.setattr(finance.Finance, "reread_orphans", lambda self, *a, **k: order.append(("orphans",)) or 0)
+    monkeypatch.setattr(finance.Finance, "fec", lambda self, c, since, deadline=None: order.append(("fec", c["id"])) or 0)
+    cfg = {"data_dir": str(data), "state_dir": str(tmp_path / "state")}
+    cli.cmd_finance(cfg, cli.build_parser().parse_args(["finance", "--reread-only", "--max-minutes", "5"]))
+    assert order == [("run", ["small-house"]), ("orphans",), ("fec", "big-senate")]

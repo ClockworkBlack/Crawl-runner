@@ -353,6 +353,34 @@ def contribution_record(source_id: str, url: str, row: dict, recipient: str, rec
 
 
 # ----------------------------------------------------------------------------- the Finance runner
+def part_read(store) -> dict:
+    """{committee id: candidate id or ''}: committees whose FEC read stopped part-way (a place kept in fec:a2r) and was
+    not finished since (a place kept for an older starting date than the committee's cursor allows is stale)."""
+    with store._lock:
+        rows = store.db.execute("SELECT k, v FROM kv WHERE k LIKE 'fec:a2r:%' AND v != ''").fetchall()
+    out = {}
+    for r in rows:
+        com = r[0][8:]
+        cursor = store.kv_get(f"fec:a2:{com}") or ""
+        try:
+            floor = json.loads(r[1]).get("floor") or ""
+        except ValueError:
+            continue
+        if cursor:
+            # read in full since: only a later read's place (from the cursor less 60 days) is still current
+            try:
+                if floor != (dt.date.fromisoformat(cursor) - dt.timedelta(days=60)).isoformat():
+                    continue
+            except ValueError:
+                continue
+        with store._lock:
+            c = store.db.execute("SELECT json_extract(meta,'$.candidate_id') FROM records WHERE kind='contribution' AND "
+                                 "json_extract(meta,'$.committee')=? AND json_extract(meta,'$.candidate_id') IS NOT NULL LIMIT 1",
+                                 (com,)).fetchone()
+        out[com] = (c[0] if c else "") or ""
+    return out
+
+
 class Finance:
     def __init__(self, root: Path, cfg: dict, fetcher: Fetcher | None, store: Store, log=print):
         self.root, self.cfg, self.f, self.store, self.log = root, cfg, fetcher, store, log
@@ -465,6 +493,14 @@ class Finance:
         key = os.environ.get("FEC_API_KEY", "").strip() or "DEMO_KEY"
         try:
             r = self.f.get(f"{FEC}{path}", params={**(params or {}), "api_key": key}, use_cache=False)
+            for wait in (60, 120, 240):
+                # the key's hourly allowance used up (two jobs on one key, or a burst): wait for it rather than end the
+                # run's federal reading on the first refusal
+                if r.status != 429 or key == "DEMO_KEY":
+                    break
+                self.log(f"  FEC API: the key's hourly allowance is used up; waiting {wait} s")
+                time.sleep(wait)
+                r = self.f.get(f"{FEC}{path}", params={**(params or {}), "api_key": key}, use_cache=False)
         except (Blocked, Disallowed):
             return None
         if r.status != 200:
@@ -502,7 +538,8 @@ class Finance:
         (fec_id / fec_ids), else found once by last name among Georgia candidates and matched on the first name (or
         its nickname, or a shared first three letters), the district when the office names one, and the office; a
         name two different people match is left unmatched (logged) rather than guessed. Remembered 30 days."""
-        given = [x for x in ([c.get("fec_id")] + list(c.get("fec_ids") or [])) if x]
+        hand = ((self.opts.get("fec") or {}).get("candidate_ids") or {}) if isinstance(getattr(self, "opts", None), dict) else {}
+        given = [x for x in ([c.get("fec_id")] + list(c.get("fec_ids") or []) + list(hand.get(c.get("id"), []) or [])) if x]
         if given:
             return list(dict.fromkeys(given))
         office = (c.get("office") or "").lower()
@@ -605,6 +642,10 @@ class Finance:
             resume = json.loads(self.store.kv_get(rk) or "{}")
         except ValueError:
             resume = {}
+        if resume and resume.get("floor") != floor:
+            # a place kept for a read from another starting date (the committee was read in full since): stale
+            self.store.kv_set(rk, "")
+            resume = {}
         if resume.get("floor") == floor and resume.get("last"):
             # a big committee (a Senate campaign files hundreds of thousands of lines) takes several runs: carry on
             # from where the last one stopped instead of starting again from the newest line every time
@@ -668,9 +709,11 @@ class Finance:
         return n
 
     def reread_orphans(self, loaded: set, since: str, deadline: float | None) -> int:
-        """FEC lines kept before the FEC's own fields whose person is no longer researched (a retired member, a
-        candidate no longer on Electo): read again by their committee id, so they count correctly and the re-read can
-        finish (they used to wait forever, and the re-read job ran again every six hours)."""
+        """FEC lines kept before the FEC's own fields that the candidates' own pass did not reach: a committee the FEC
+        does not list under the candidate (leadership PACs are listed by sponsor, not candidate), or a person no longer
+        researched (a retired member, a candidate no longer on Electo). Read again by their committee id, so they count
+        correctly and the re-read can finish (they used to wait forever, and the re-read job ran every six hours).
+        `loaded`: candidates to leave to their own pass (empty: every committee still holding old lines)."""
         with self.store._lock:
             rows = self.store.db.execute(
                 "SELECT json_extract(meta,'$.committee') AS k, json_extract(meta,'$.candidate_id') AS c, "
@@ -692,7 +735,7 @@ class Finance:
                                         "json_extract(meta,'$.filing_source')='FEC'", (r["k"],))
                 continue
             c = {"id": r["c"] or f"fec-{r['k']}", "name": r["r"] or com["name"], "jurisdiction": ""}
-            self.log(f"  fec {r['k']}: {r['n']} old lines of {c['name']} (no longer researched) read again")
+            self.log(f"  fec {r['k']}: {r['n']} old lines of {c['name']} read again by committee")
             n += self._fec_committee(c, com, since, deadline, role=role)
             self._fec_totals(r["k"])
         return n

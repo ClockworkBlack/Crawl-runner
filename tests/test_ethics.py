@@ -26,7 +26,9 @@ def test_record_matches_candidate_and_dates():
 
 def test_not_counted():
     idx = ethics.candidate_index(CANDS)
-    assert ethics.record_of("efile", t(reportName="Two Business Day Report"), idx) is None
+    # a Two Business Day report's line is kept, marked: money.py counts it only until a regular report reaches its date
+    assert ethics.record_of("efile", t(reportName="Two Business Day Report"), idx).meta["tbd"] is True
+    assert "tbd" not in ethics.record_of("efile", t(), idx).meta
     assert ethics.record_of("efile", t(transactionSubTypeDesc="Interest Earned"), idx) is None
     assert ethics.record_of("efile", t(transactionSubTypeDesc="Returned Contribution"), idx) is None
     assert ethics.record_of("efile", t(transactionSubTypeDesc="In-Kind Contribution"), idx).meta["type"] == "in_kind"

@@ -732,11 +732,27 @@ def cmd_finance(cfg, args):
                 "json_extract(meta,'$.filing_source')='FEC' AND json_extract(meta,'$.committee') IS NOT NULL AND "
                 "json_extract(meta,'$.fec_v') IS NULL GROUP BY c ORDER BY n DESC").fetchall()
         pending = {r["c"]: r["n"] for r in legacy if r["c"]}
+        # committees whose read ran out of time part-way (their place is kept, fec:a2r): the re-read carries on with
+        # them, last, after every campaign with old lines. Jon Ossoff's Senate committee had no old lines left, so
+        # nothing carried its read on: it stopped in April 2026 with the 2020 race (156 million dollars) unread
+        from .finance import part_read
+
+        old_lines, old_people = sum(pending.values()), len(pending)
+        carried = sorted({cid for cid in part_read(store).values() if cid and cid not in pending})
+        for cid in carried:
+            pending[cid] = 10 ** 9
+
+        def what() -> str:
+            s = f"{old_lines} FEC lines of {old_people} people" if old_people else ""
+            if carried:
+                s += (" and " if s else "") + f"{len(carried)} campaign(s) read part-way ({', '.join(carried)})"
+            return s
+
         minutes = float(args.max_minutes or 30)
         if pending and getattr(args, "defer_reread", False) and _reread_handed_off(store):
             # the fec-reread job owns the re-read while its hand-offs keep arriving: the crawl reading the same
             # campaigns at the same time read every page twice on the one FEC key (1,000 calls an hour between them)
-            print(f"finance: {sum(pending.values())} FEC lines of {len(pending)} people await the re-read; left to the fec-reread job")
+            print(f"finance: {what()} await the re-read; left to the fec-reread job")
             if args.reread_only:
                 return
             skip_pending = set(pending)
@@ -749,7 +765,7 @@ def cmd_finance(cfg, args):
             # parallel fec-reread job does the long re-read, asking for its own 300 minutes)
             if not args.max_minutes:
                 minutes = max(minutes, 60.0)
-            print(f"finance: {sum(pending.values())} FEC lines of {len(pending)} people await the re-read with the FEC's fields")
+            print(f"finance: {what()} await the re-read with the FEC's fields")
         elif args.reread_only:
             print("finance: no FEC lines await a re-read")
             return
@@ -769,12 +785,34 @@ def cmd_finance(cfg, args):
             cands = [c for c in cands if c["id"] not in skip_pending]
         if args.reread_only:
             cands = [c for c in cands if c["id"] in pending]
+        # the campaigns read part-way go after everything else, the orphans pass included: one of them is a day of
+        # reading, and the leadership PACs' few pages waited behind it
+        late = [c for c in cands if c["id"] in set(carried)] if pending else []
+        if late:
+            cands = [c for c in cands if c["id"] not in set(carried)]
         since = args.since or cfg.get("limits", {}).get("since", "2016-01-01")
         out = fin.run(cands, since=since, deadline=deadline, org_limit=int(args.org_limit) if args.org_limit else None,
                       orgs=not args.reread_only)
         if pending and not args.candidate and not skip_pending and fin.f and time.monotonic() < deadline:
-            # old lines of people no longer researched: read by committee, so the re-read can finish
-            out["fec_orphans"] = fin.reread_orphans({c["id"] for c in load_candidates(config.ROOT, cfg)}, since, deadline)
+            # old lines the candidates' own pass left: committees the FEC does not list under the candidate (a
+            # leadership PAC such as Austin Scott's FARM Trust or Drew Ferguson's ADF PAC), and people no longer
+            # researched; read by committee, so the re-read can finish
+            out["fec_orphans"] = fin.reread_orphans(set(), since, deadline)
+            fin.flush()
+        if late and fin.f:
+            from .fetch import OutOfTime
+
+            n = 0
+            for c in late:
+                if time.monotonic() > deadline:
+                    break
+                try:
+                    n += fin.fec(c, since, deadline)
+                except OutOfTime:
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  fec {c['id']}: {type(exc).__name__}: {exc}"[:200])
+            out["fec_carried_on"] = n       # donor ids: the money push links them (gacrawl finance link)
             fin.flush()
         print(json.dumps(out, indent=1))
     finally:
