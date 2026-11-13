@@ -10,7 +10,9 @@
 # Authorities added Nov. 13, 2026, each page opened that day: GEFA's past events (each meeting's own event page, one
 # level), the ATL board page, the Jekyll Island Authority board page, the Student Finance Commission's board meetings
 # (the same board meets as the Georgia Student Finance Authority and the Georgia Education Savings Authority) and
-# GSFIC's page of Georgia Higher Education Facilities Authority meeting summaries.
+# GSFIC's page of Georgia Higher Education Facilities Authority meeting summaries. MARTA's board documents page and the
+# Stone Mountain Memorial Association's minutes page were opened and added the same day. The Georgia Ports Authority and
+# the Georgia World Congress Center Authority post agenda PDFs but no page that lists their meetings, so they are not read.
 agencies:
   - id: regents
     name: Board of Regents
@@ -118,6 +120,19 @@ agencies:
     agency: Georgia State Financing and Investment Commission
     pages:
       - https://gsfic.georgia.gov/agendas
+
+  - id: marta
+    kind: authority
+    name: Metropolitan Atlanta Rapid Transit Authority (MARTA)
+    agency: Metropolitan Atlanta Rapid Transit Authority
+    pages:
+      - https://www.itsmarta.com/board-documents.aspx
+  - id: stone-mountain
+    kind: authority
+    name: Stone Mountain Memorial Association
+    agency: Stone Mountain Memorial Association (state authority over Stone Mountain Park)
+    pages:
+      - https://stonemountainpark.org/about-us/board-of-directors/meeting-minutes/
 
 # Bodies whose meetings are not read, and why (shown on the site beside the list of boards)
 not_read:
