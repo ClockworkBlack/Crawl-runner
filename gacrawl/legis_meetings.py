@@ -109,7 +109,8 @@ def run(fetcher, store, deadline: float | None = None, dry_run: bool = False, to
             out["refused"] = str(e)
             break
         except Exception as e:  # noqa: BLE001 - one window the service does not answer must not lose the others
-            out.setdefault("errors", []).append(f"{a or 'upcoming'}..{b}: {type(e).__name__} after {time.monotonic() - t0:.0f}s")
+            out.setdefault("errors", []).append(f"{a or 'upcoming'}..{b}: {type(e).__name__} after {time.monotonic() - t0:.0f}s"
+                                                + (f" ({str(e)[:60]})" if isinstance(e, RuntimeError) else ""))
             failed += 1
             if failed >= 2:
                 out["stopped"] = "the service did not answer twice"
