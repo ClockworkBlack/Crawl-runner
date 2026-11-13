@@ -60,10 +60,14 @@ jobs:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: |
           # jobs running now in this repository and in the private one (the token may not see the private one: then 0)
+          # (a repository the token cannot read counts 0: gh prints the error's body, so only whole numbers are counted)
           running() {
-            local repo=$1 n=0 c
-            for id in $(gh api "repos/$repo/actions/runs?status=in_progress&per_page=100" --jq '.workflow_runs[].id' 2>/dev/null); do
-              c=$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+            local repo=$1 n=0 c ids
+            ids=$(gh api "repos/$repo/actions/runs?status=in_progress&per_page=100" --jq '.workflow_runs[].id' 2>/dev/null) || ids=""
+            for id in $ids; do
+              [[ "$id" =~ ^[0-9]+$ ]] || continue
+              c=$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null) || c=0
+              [[ "$c" =~ ^[0-9]+$ ]] || c=0
               n=$((n + c))
             done
             echo $n
