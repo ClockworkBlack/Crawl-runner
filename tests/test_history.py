@@ -423,3 +423,65 @@ Totals 9,999"""
     cs = list(sos_summary_contests([p1, p2], "2011", "special", "Special Election - November 8, 2011", "u"))
     assert [(c["t"], c["tot"], c["date"]) for c in cs] == [("State Senate District 28", 9629, "2011-11-08"), ("State House District 10", 4990, "2011-11-08")]
     assert cs[0]["o"][0] == ["Duke Blackburn", "R", 4163, 0, "led"] and cs[0]["o"][2][1] == "" and cs[1]["o"][0][4] == "won"
+
+
+def test_sos_older_pages():
+    """Excerpts of the state's own pages: the 1998 primary summary (no Totals line: shares are checked), the 2006
+    general summary (party after the name), and a 1992 county table."""
+    from gacrawl.history.sources import sos_county_contests, sos_summary_contests, split_names
+    p98 = """12/30/21, 3:00 PM 7/21/98 - Summary
+Georgia Election Results
+Official Results of the Jul y 21, 1998 Primary Election
+Last Updated 2:01:48 p.m. 07-29-1998
+UNITED STATES SENATOR
+Democrat
+100 % of precincts reporting
+JIM (BIG JIM) BOYD 98,020 23.9 %
+MICHAEL COLES 312,765 76.1 %
+UNITED STATES SENATOR
+Republican
+100 % of precincts reporting
+PAUL COVERDELL 323,350 100.0 %
+GOVERNOR
+Republican
+100 % of precincts reporting
+MIKE BOWERS 167,074 39.9 %
+GUY MILLNER 210,845 60.0 %
+PUBLIC SERVICE COMMISSIONER
+Democrat
+100 % of precincts reporting
+MAC BARBER 10 50.0 %
+A B 10 50.0 %
+PUBLIC SERVICE COMMISSIONER
+Democrat
+100 % of precincts reporting
+C D 30 75.0 %
+E F 10 25.0 %"""
+    cs = list(sos_summary_contests([p98], "", "primary", "t", "u"))
+    assert [(c["t"], c["p"], c["date"], c["tot"]) for c in cs] == [
+        ("U.S. Senate", "D", "1998-07-21", 410785), ("U.S. Senate", "R", "1998-07-21", 323350),
+        ("Public Service Commission", "D", "1998-07-21", 20), ("Public Service Commission (seat 2 on the ballot)", "D", "1998-07-21", 40)]
+    assert cs[0]["o"][1][0] == "Jim (Big Jim) Boyd" and cs[1]["o"][0][4] == "unopposed"      # Governor: 39.9 + 60.0 is not the votes' shares: left out
+    p06 = """Official Results of the Tuesday, November 07, 2006 General Election
+Governor
+100% of precincts reporting Votes Percentage
+Sonny Perdue (R) 1,229,724 57.9%
+Mark Taylor (D) 811,049 38.2%
+Garrett Michael Hayes (Lib) 81,412 3.8%
+Lieutenant Governor"""
+    g = list(sos_summary_contests([p06], "", "general", "t", "u"))
+    assert g[0]["o"][0] == ["Sonny Perdue", "R", 1229724, 0, "won"] and g[0]["o"][2][1] == "L" and g[0]["date"] == "2006-11-07"
+    p92 = """12/30/21, 3:16 PM 1992 Labor Commissioner
+1992 General Election Results
+Labor Commissioner
+David Poythress Bill Flaherty Toby Nixon
+(D) (R) (L)
+3,016 1,175 121
+69.94% 27.25% 2.81%
+Vote by County
+Appling 2,000 1,000 100
+Ben Hill 1,016 175 21
+https://sos.ga.gov/elections/election_results/1992/labor.htm 1/4"""
+    c = list(sos_county_contests([p92], "1992-11-03", "general", "t", "u"))[0]
+    assert c["t"] == "Commissioner of Labor" and c["o"][0] == ["David Poythress", "D", 3016, 0, "won"] and c["cty"] == {"Appling": [2000, 1000, 100], "Ben Hill": [1016, 175, 21]}
+    assert split_names("Zell Miller Johnny Isakson Carole Ann Rand", 3) is None

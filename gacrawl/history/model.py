@@ -113,7 +113,7 @@ def nice_name(n: str) -> str:
             x = "-".join(p[:1].upper() + p[1:].lower() for p in w.split("-"))
             x = re.sub(r"^(Mc)([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
             x = re.sub(r"^(O')([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
-            x = re.sub(r'^(")([a-z])', lambda m: m.group(1) + m.group(2).upper(), x)
+            x = re.sub(r"""^(["'(]+)([a-z])""", lambda m: m.group(1) + m.group(2).upper(), x)
             out.append(x)
     return " ".join(out)
 

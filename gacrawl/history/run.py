@@ -14,7 +14,7 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 3, "sos_pdf": 3, "clerk": 2}
+READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 4, "sos_pdf": 4, "clerk": 3}
 # a failed item is tried again by the next run (three tries, then every three days)
 ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
@@ -71,6 +71,19 @@ class Net:
         except ValueError:
             return []
         return [row[0] for row in rows[1:]][::-1] if rows else []
+
+    def listing(self, prefix: str, limit: int = 400) -> list[str]:
+        """The addresses under a folder that the archive holds a good capture of (its own index of that folder)."""
+        if self.archive_off:
+            return []
+        try:
+            r = self.f.get(CDX, params=[("url", prefix.rstrip("*") + "*"), ("output", "json"), ("fl", "original"),
+                                        ("filter", "statuscode:200"), ("collapse", "urlkey"), ("limit", str(limit))], use_cache=False)
+            rows = r.json() if r.status == 200 else []
+        except Exception as exc:  # noqa: BLE001
+            self.archive_off = f"{type(exc).__name__}: {str(exc)[:120]}"
+            return []
+        return [row[0] for row in rows[1:]] if rows else []
 
     def from_archive(self, url: str, ts: str | None = None) -> bytes:
         for t in ([ts] if ts else self.captures(url)):

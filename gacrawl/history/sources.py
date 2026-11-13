@@ -125,7 +125,7 @@ def ga_office(raw: str, district: str = "") -> tuple[str, str, str, str]:
     if re.search(r"amendment|referendum|\bquestion\b|proposed|^shall\b|ballot (?:measure|question)|sunday sales|\bsplost\b|\bbond\b", sl):
         return "question", s, "", s
     if re.search(r"president of the united states|^president\b|^presidential|president and vice|\bu\.?s\.? president", sl) \
-            and not re.search(r"board|school|council|commission|senate|pro tem|education|city|county|chair", sl):
+            and not re.search(r"^vice|board|school|council|commission|senate|pro tem|education|city|county|chair", sl):
         return "federal", "President", "", "President of the United States"
     if re.search(r"u\.?\s?s\.?\s+senat|united states senat", sl):
         return "federal", "U.S. Senate", "", "U.S. Senate"
@@ -661,7 +661,7 @@ def _clarity_party(text: str) -> tuple[str, str]:
     """A choice or contest label and the party written in it: "NATHAN DEAL (R)", "Governor - Rep", "REP - Governor"."""
     s = re.sub(r"\s+", " ", text or "").strip()
     m = re.search(r"\s*\((REP|DEM|LIB|IND|R|D|L|I|GRN|G)\)?\s*$", s, re.I) or re.search(r"\s+-\s+(REP|DEM|LIB|IND|R|D|L|I)\.?$", s, re.I) \
-        or re.search(r"(?<=[a-z])\s+(R|D|L)\.$", s) \
+        or re.search(r"(?<=[A-Za-z])\s+(R|D|L)\.$", s) \
         or re.search(r",\s+(REP|DEM|LIB|IND)\.?$", s, re.I)
     if m:
         return s[:m.start()].strip(), party_code(m.group(1))
@@ -856,53 +856,83 @@ _SUM_ROW = re.compile(r"^(.+?)\s+(Republican|Democratic|Democrat|Libertarian|Non
 
 
 def sos_summary_contests(pages: list[str], date: str, stage: str, title: str, url: str):
-    """The state's "Summary" result pages as printed (2000s to mid-2012): an office heading, "N% of precincts
-    reporting", then one line a candidate (name, party, votes, share) and a "Totals" line. A contest is kept only when
-    its candidates' votes add up to its Totals line exactly; anything else is left for a person to look at."""
+    """The state's "Summary" result pages as printed, in the three forms they took:
+        1996-2004   OFFICE / Democrat|Republican (primaries) / "100 % of precincts reporting" / NAME votes share %
+        2006        Office / "100% of precincts reporting Votes Percentage" / Name (R) votes share%
+        2008-2012   Office / "100% of precincts reporting" / Name Party votes share% ... / Totals N
+    A contest is kept only when it checks out against the page itself: its votes add up to the Totals line where
+    there is one, and otherwise every printed share is the candidate's votes over the sum (within 0.15 of a point).
+    Anything else is left for a person to look at."""
     lines = [re.sub(r"\s+", " ", ln).strip() for pg in pages for ln in pg.split("\n")]
     lines = [ln for ln in lines if ln]
+    head_date = ""
     for ln in lines[:12]:
-        d = _date_in(ln) if re.search(r"Official Results|Results of", ln, re.I) else ""
-        if d:
-            date = d
-            st2 = _stage_of(ln)
-            stage = st2 if ("runoff" in st2) == ("runoff" in stage) or not stage else stage
+        if re.search(r"Official Results|Results of", ln, re.I):
+            fixed = re.sub(r"\b([A-Z][a-z]{1,3}) ([a-z]{1,6}) (\d)", r"\1\2 \3", ln)       # "Jul y 9, 1996" as the page prints it
+            head_date = _date_in(fixed)
+            if head_date:
+                st2 = _stage_of(ln)
+                stage = st2 if not stage or ("runoff" in st2) == ("runoff" in stage) else stage
             break
+    date = head_date or date
     if len(date) != 10:
         return
     src = {"t": f"Georgia Secretary of State, official results: {title}", "u": url}
     is_pri = "primary" in stage
-    head, party_head, rows, seen = "", "", [], set()
+    head, party_head, rows = "", "", []
+    seen: dict = {}
     meaningful: list[str] = []
 
     def close(total):
-        nonlocal rows
+        nonlocal rows, head
         got, rows = rows, []
-        if not got or not head or total is None or sum(r[2] for r in got) != total:
+        h, head = head, ""
+        if not got or not h:
             return None
-        ctitle, cparty = _clarity_party(head)
-        lvl, off, dist, t = ga_office(ctitle)
-        parties = {r[1] for r in got}
+        ssum = sum(r[2] for r in got)
+        if total is not None:
+            if ssum != total:
+                return None
+        else:
+            if not ssum or any(r[3] is not None and abs(100.0 * r[2] / ssum - r[3]) > 0.15 for r in got):
+                return None
+            total = ssum
+        ctitle, cparty = _clarity_party(h)
+        lvl, off, dist, t = ga_office(ctitle.title() if ctitle.isupper() else ctitle)
+        if lvl == "local" and re.search(r"school superintendent", ctitle, re.I):
+            lvl, off, t = "statewide", "State School Superintendent", "State School Superintendent"   # these pages hold state offices
+        parties = {r[1] for r in got if r[1]}
         p = (party_head or cparty or (next(iter(parties)) if len(parties) == 1 else "")) if is_pri else ""
         p = p if p in ("D", "R") else ""
         key = (lvl, off, dist, p)
-        if key in seen:
+        if re.search(r"write-?in candidates only", h, re.I):
             return None
-        seen.add(key)
-        o = [[nice_name(re.sub(r"\(I\)", " ", r[0])), "" if is_pri else r[1], r[2], 1 if "(I)" in r[0] else 0, ""] for r in sorted(got, key=lambda r: -r[2])]
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > 1:
+            if off != "Public Service Commission":
+                return None                             # the same contest printed again
+            dist, t = f"{dist} #{seen[key]}".strip(), f"{t} (seat {seen[key]} on the ballot)"   # two seats on one ballot
+        isq = lvl == "question" or all(re.fullmatch(r"yes|no|for|against", r[0], re.I) for r in got)
+        if isq:
+            lvl = "question"
+        o = [[r[0].title() if isq else nice_name(re.sub(r"\(I\)", " ", r[0])), "" if (is_pri or isq) else r[1], r[2], 1 if "(I)" in r[0] else 0, ""]
+             for r in sorted(got, key=lambda r: -r[2])]
         c = {"scope": "ga", "y": int(date[:4]), "date": date, "stage": stage, "st": "GA", "office": off, "dist": dist, "lvl": lvl, "p": p,
-             "j": "", "t": t, "tot": total, "o": o, "src": src, "basis": "official"}
+             "j": "", "t": t if not isq else (ctitle.title() if ctitle.isupper() else ctitle), "tot": total, "o": o, "src": src, "basis": "official"}
         if "special" in stage:
             c["sp"] = 1
-        tag_outcomes(o, total, majority=True)
+        if not isq:
+            tag_outcomes(o, total, majority=True)
         return c
 
     for ln in lines:
-        if re.search(r"\d+% of precincts reporting", ln, re.I):
-            rows = []
-            cand = [m for m in meaningful[-3:]]
+        if re.search(r"\d+\s?% of precincts reporting", ln, re.I):
+            c = close(None)
+            if c:
+                yield c
+            cand = meaningful[-3:]
             party_head = ""
-            if cand and re.fullmatch(r"(Republican|Democratic|Democrat|Non-?\s?Partisan)( Party)?", cand[-1], re.I):
+            if cand and re.fullmatch(r"(Republican|Democratic|Democrat|Non-?\s?Partisan|Libertarian)( Party)?", cand[-1], re.I):
                 party_head = party_code(cand[-1].split(" ")[0])
                 cand = cand[:-1]
             head = cand[-1] if cand else ""
@@ -910,16 +940,120 @@ def sos_summary_contests(pages: list[str], date: str, stage: str, title: str, ur
         m = re.match(r"^Totals?\s+([\d,]+)$", ln, re.I)
         if m:
             c = close(_int(m.group(1)))
-            head = ""
             if c:
                 yield c
             continue
         m = _SUM_ROW.match(ln)
         if m and head:
-            rows.append((m.group(1).strip(), party_code(re.sub(r"non-?\s?partisan", "", m.group(2), flags=re.I).strip("()")), _int(m.group(3))))
+            rows.append((m.group(1).strip(), party_code(re.sub(r"non-?\s?partisan", "", m.group(2), flags=re.I).strip("()")), _int(m.group(3)), float(m.group(4))))
+            continue
+        m = re.match(r"^(.+?)\s+([\d,]+)\s+([\d.]+)\s?%$", ln)
+        if m and head and not _SUM_NOISE.match(ln):
+            nm, pc = _clarity_party(m.group(1).strip())
+            rows.append((nm, pc, _int(m.group(2)), float(m.group(3))))
             continue
         if not _SUM_NOISE.match(ln):
+            if rows:                                    # the next heading: the contest above is complete
+                c = close(None)
+                if c:
+                    yield c
             meaningful.append(ln)
+    c = close(None)
+    if c:
+        yield c
+
+
+_NAME_SUFFIX = re.compile(r"^(Jr\.?|Sr\.?|II|III|IV),?$", re.I)
+
+
+def split_names(text: str, n: int) -> list[str] | None:
+    """N candidates' names printed on one line with nothing between them ("Michael Dukakis George Bush Ron Paul
+    Lenora Fulani"). Two words a name when the count fits; otherwise a name is taken to end after its second full word,
+    initials, nicknames and suffixes staying with it. None when that does not give exactly N names of two words or
+    more: the contest is then left for a person rather than guessed."""
+    w = text.split()
+    if n <= 0:
+        return None
+    if len(w) == n:
+        return w
+    if len(w) == 2 * n:
+        return [" ".join(w[i:i + 2]) for i in range(0, len(w), 2)]
+    out, cur, full = [], [], 0
+    for tok in w:
+        initial = bool(re.fullmatch(r"[A-Z]\.?", tok)) or bool(re.fullmatch(r"[\"'(“].*[\"')”]", tok))
+        if cur and full >= 2 and not _NAME_SUFFIX.match(tok) and not (initial and False):
+            out.append(" ".join(cur)); cur, full = [], 0
+        cur.append(tok)
+        if not initial and not _NAME_SUFFIX.match(tok):
+            full += 1
+    if cur:
+        out.append(" ".join(cur))
+    return out if len(out) == n and all(len(x.split()) >= 2 for x in out) else None
+
+
+def sos_county_contests(pages: list[str], date: str, stage: str, title: str, url: str):
+    """The state's 1988-1994 result pages as printed: "YYYY General Election Results", the office, the candidates'
+    names on one line, their parties on the next, the statewide votes, the shares, then "Vote by County" and a row a
+    county. Kept only when the names split cleanly and the printed shares match the votes; the counties are attached
+    only when their rows add up to the statewide line exactly."""
+    lines = [re.sub(r"\s+", " ", ln).strip() for pg in pages for ln in pg.split("\n")]
+    lines = [ln for ln in lines if ln and not _SUM_NOISE.match(ln)]
+    starts = [i for i, ln in enumerate(lines) if re.fullmatch(r"(19\d\d|20\d\d) (General|Primary|Special)[A-Za-z ]* Results", ln)]
+    src = {"t": f"Georgia Secretary of State, official results: {title}", "u": url}
+    nums = lambda ln: [_int(x) for x in ln.split()] if re.fullmatch(r"[\d, ]+", ln) else None      # noqa: E731
+    seen: dict = {}
+    for a, b in zip(starts, starts[1:] + [len(lines)]):
+        blk = lines[a:b]
+        y = int(blk[0][:4])
+        d = date if len(date) == 10 and date.startswith(str(y)) else (general_day(y) if "General" in blk[0] else str(y))
+        ti = next((k for k, ln in enumerate(blk[2:8], 2) if nums(ln)), None)
+        if ti is None or len(blk) < ti + 2:
+            continue
+        totals = nums(blk[ti])
+        n = len(totals)
+        office = blk[1]
+        between = blk[2:ti]
+        parties = [""] * n
+        if between and len(between[-1].split()) == n and all(re.fullmatch(r"\(?[A-Za-z]{1,5}\.?\)?", t) for t in between[-1].split()) \
+                and any(party_code(t.strip("()")) in ("D", "R") or t.startswith("(") for t in between[-1].split()):
+            parties = [party_code(t.strip("()")) for t in between[-1].split()]
+            between = between[:-1]
+        names = split_names(" ".join(between), n)
+        pcts = re.findall(r"([\d.]+)%", blk[ti + 1]) if ti + 1 < len(blk) else []
+        tot = sum(totals)
+        if not names or not tot or len(pcts) != n or any(abs(100.0 * v / tot - float(pc)) > 0.02 for v, pc in zip(totals, pcts)):
+            continue
+        lvl, off, dist, t = ga_office(office)
+        if re.search(r"\bpsc\b", office, re.I):
+            m = re.search(r"seat\s*(\d+)", office, re.I)
+            lvl, off, dist = "statewide", "Public Service Commission", m.group(1) if m else ""
+            t = "Public Service Commission" + (f" Seat {dist}" if dist else "")
+        elif re.search(r"school superintendent", office, re.I):
+            lvl, off, dist, t = "statewide", "State School Superintendent", "", "State School Superintendent"
+        isq = all(re.fullmatch(r"yes|no|for|against", x, re.I) for x in names)
+        if isq:
+            lvl, t = "question", office
+        key = (lvl, off, dist)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > 1:
+            continue
+        order = sorted(range(n), key=lambda k: -totals[k])
+        o = [[names[k] if isq else nice_name(names[k]), "" if isq else parties[k], totals[k], 0, ""] for k in order]
+        cty = {}
+        for ln in blk[ti + 2:]:
+            m = re.fullmatch(r"([A-Z][A-Za-z. ]*?) ((?:[\d,]+ ){%d}[\d,]+)" % (n - 1), ln) if n > 1 else re.fullmatch(r"([A-Z][A-Za-z. ]*?) ([\d,]+)", ln)
+            if m:
+                vals = [_int(x) for x in m.group(2).split()]
+                cty[county_name(m.group(1))] = [vals[k] for k in order]
+        c = {"scope": "ga", "y": y, "date": d, "stage": stage if stage else "general", "st": "GA", "office": off, "dist": dist, "lvl": lvl,
+             "p": "", "j": "", "t": t, "tot": tot, "o": o, "src": src, "basis": "official"}
+        if cty and all(sum(v[k] for v in cty.values()) == o[k][2] for k in range(n)):
+            c["cty"] = dict(sorted(cty.items()))
+        elif cty:
+            c["note"] = "the county rows on file do not add up to the statewide line; shown without them"
+        if not isq:
+            tag_outcomes(o, tot, majority=True)
+        yield c
 
 
 def resample(work) -> None:
@@ -950,7 +1084,13 @@ class SosPdf(_Pdfs):
     INDEX = "https://sos.ga.gov/page/georgia-election-results"
 
     def contests(self, pages, item, net):
-        yield from sos_summary_contests(pages, item.meta.get("date") or "", item.meta.get("stage") or "", item.title + net.note(item.url), item.url)
+        args = (pages, item.meta.get("date") or "", item.meta.get("stage") or "", item.title + net.note(item.url), item.url)
+        n = 0
+        for c in sos_summary_contests(*args):
+            n += 1
+            yield c
+        if not n:
+            yield from sos_county_contests(*args)
 
     def wanted(self, url, text):
         if not urlsplit(url).netloc.endswith("sos.ga.gov") or not urlsplit(url).path.lower().endswith(".pdf"):
@@ -968,6 +1108,26 @@ class Clerk(_Pdfs):
     name = "clerk"
     INDEX = "https://history.house.gov/Institution/Election-Statistics/Election-Statistics/"
     ALSO = ("https://clerk.house.gov/Members/ViewElectionInformation",)
+    FOLDER = "clerk.house.gov/member_info/electionInfo/"      # where the Clerk's site keeps the yearly PDFs
+
+    def discover(self, net):
+        """The yearly PDFs as the Internet Archive's index of the Clerk's folder lists them (the index pages that
+        link them are scripted or closed to crawlers); the linked pages are still tried for anything it lacks."""
+        out, years = [], set()
+        for u in getattr(net, "listing", lambda *_: [])(self.FOLDER):
+            m = re.search(r"/((?:19|20)\d\d)election\.pdf$", urlsplit(u).path)
+            if m and FIRST_YEAR <= int(m.group(1)) <= 2000 and m.group(1) not in years:
+                years.add(m.group(1))
+                out.append(Item(id=f"clerk:{m.group(1)}election", url="https://" + u.split("://", 1)[-1], title=f"{m.group(1)} Election Statistics",
+                                meta={"date": m.group(1), "stage": "general"}))
+        try:
+            for it in super().discover(net):
+                if it.meta["date"] not in years:
+                    out.append(it)
+        except Exception:  # noqa: BLE001  the folder's list stands on its own
+            if not out:
+                raise
+        return sorted(out, key=lambda it: it.id)
 
     def wanted(self, url, text):
         m = re.search(r"/(19\d\d)election(?:\.pdf)?/?$", urlsplit(url).path) or re.search(r"^(19\d\d)(?: Election Statistics)?$", text.strip())

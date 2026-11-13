@@ -87,6 +87,12 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
             A["checked"] += 1
             near = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.01 * max(a, b, 1)   # noqa: E731
             near3 = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.03 * max(a, b, 1)  # noqa: E731  totals: write-ins are counted differently
+            if same_w and other.get("tot") and best.get("tot") and other["tot"] < 0.97 * best["tot"] and (ow[2] or 0) <= (bw[2] or 0) \
+                    and {best.get("item", "").split(":", 1)[0], other.get("item", "").split(":", 1)[0]} <= {"sos_zip", "openelections", "sos_pdf", "manual"}:
+                A["partial_other"] = A.get("partial_other", 0) + 1     # the other Georgia file lacks some counties: the fuller is shown
+                best.setdefault("chk", "agree")
+                A["checked"] -= 1
+                continue
             if same_w and near(bw[2], ow[2]) and (near3(best.get("tot"), other.get("tot")) or not other.get("tot") or not best.get("tot")):
                 A["agree"] += 1
                 best.setdefault("chk", "agree")
@@ -283,7 +289,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
         "sources": [{"id": k, "n": n, "t": src_urls[k]["t"], "u": src_urls[k]["u"]} for k, n in sources.most_common() if k in src_urls],
         "pending": {k: v[:60] for k, v in held.items()},
         "coverage": _coverage(summary, cs),
-        "audit": {"checked": audit["checked"], "agree": audit["agree"], "differ": len(audit["differ"]),
+        "audit": {"checked": audit["checked"], "agree": audit["agree"], "differ": len(audit["differ"]), "partial_other": audit.get("partial_other", 0),
                   "seated_differs": len(audit["seated_differs"]), "seats": _seat_check(summary)},
     }
     _dump(out / "index.json", index)
