@@ -18,7 +18,8 @@ from urllib.parse import quote, urljoin
 from .sources.legis import SITE, SOURCE, Legis, TokenRefused
 from .store import Record
 
-CHAMBER = {1: "House", 2: "Senate", "1": "House", "2": "Senate", "house": "House", "senate": "Senate", 0: "Joint", "0": "Joint"}
+# the site's own schedule page shows chamber 1 as House and every other value as Senate
+CHAMBER = {1: "House", "1": "House", "house": "House", "senate": "Senate"}
 BACK_DAYS = 400        # the first read goes back this far; later reads go back RECENT_DAYS (a notice can change late)
 RECENT_DAYS = 45
 AHEAD_DAYS = 120
@@ -62,8 +63,10 @@ def shape(m: dict) -> dict | None:
         return None
     day = mm.group(1)
     clock = f"{mm.group(2)}:{mm.group(3)}" if mm.group(2) else ""
-    ch = _first(m, "chamber", "chamberType", "chamberId")
-    chamber = CHAMBER.get(ch if not isinstance(ch, str) else ch.lower(), _text(ch) if isinstance(ch, str) else "")
+    if clock == "00:00":                 # midnight is the schedule's "time to be decided" (its page prints TBD)
+        clock = ""
+    ch = m.get("chamber")
+    chamber = "" if ch is None else CHAMBER.get(ch if not isinstance(ch, str) else ch.lower(), "Senate")
     body = _text(_first(m, "subject", "title", "committeeName", "committee", "name", "description") or "")
     committee = _text(_first(m, "committeeName", "committee") or "")
     return {

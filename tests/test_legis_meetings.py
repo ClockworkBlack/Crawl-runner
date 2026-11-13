@@ -10,6 +10,8 @@ def test_a_meeting_of_the_schedule_in_this_crawlers_terms():
     assert s["date"] == "2026-11-17" and s["time"] == "10:00" and s["chamber"] == "House"
     assert s["agenda"] == "https://www.legis.ga.gov/api/x/agenda.pdf" and s["video"] == "https://example.org/live"
     assert L.shape({"subject": "no start"}) is None
+    tbd = L.shape({"id": 8, "start": "2026-11-18T00:00:00", "subject": "Senate Rules", "chamber": 2})
+    assert tbd["time"] == "" and tbd["chamber"] == "Senate" and tbd["agenda"] == "" and tbd["video"] == ""
 
 
 def test_an_unanswered_month_does_not_lose_the_others(monkeypatch):

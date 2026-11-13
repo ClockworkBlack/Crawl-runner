@@ -1,0 +1,180 @@
+name: history
+# Election history, 1968 to now, for Electo's Compare Past Elections tab (gacrawl/history): Georgia at every level and
+# federal races in every state, primaries and runoffs included, read from the publishers' result files.
+#
+# Runs in the PUBLIC runner repository only (free minutes), beside every other job: it has its own work folder, its
+# own progress file (state/history.json) and its own files on Electo (ga/pipeline_archive/hist/), and it never opens
+# the crawl database, so nothing has to stop for it and it stops nothing.
+#
+# Nothing a run reads can be lost:
+#   - each file is read whole and checkpointed (state/history.json in the private repository) before the next one;
+#   - after every round the work (data/history/: the contests read so far, documents kept as text) is saved to the
+#     private crawl-data release as history-work.tar.zst, so a run that is cancelled, times out or loses its runner
+#     resumes from the last round;
+#   - the bundle for Electo is first saved to the same release (history-bundle.tar.zst, the hand-off copy), then
+#     committed to Electo, then checked there file by file against its manifest (python -m gacrawl.history verify);
+#     only after that check passes is the hand-off copy deleted. If Electo does not take it, the copy stays and the
+#     next run delivers it.
+#
+# Every 6 hours, on a change to the readers, or by hand. With everything read, a run ends in about two minutes.
+on:
+  schedule:
+    - cron: "41 2,8,14,20 * * *"
+  push:
+    branches: [main]
+    paths: ["gacrawl/history/**", ".github/workflows/history.yml"]
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of reading (default 240)"
+        required: false
+        default: "240"
+      only:
+        description: "sources, comma separated (default: all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: write        # start publish-site once Electo has the new files
+
+concurrency:
+  group: history
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  history:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The work saved by earlier runs
+        run: |
+          mkdir -p data
+          if gh release download "$DATA_TAG" -p history-work.tar.zst -D . --clobber 2>/dev/null; then
+            zstd -d -q -c history-work.tar.zst | tar -xf - && rm -f history-work.tar.zst
+            echo "work on hand: $(du -sh data/history | cut -f1)"
+          else
+            echo "no saved work yet (first run)"
+          fi
+      - name: Read, in rounds; after each, save the work and the progress
+        id: read
+        run: |
+          save() {
+            [ -d data/history ] || return 0
+            tar -cf - data/history | zstd -q -T0 -6 -o history-work.tar.zst
+            if [ "$IS_MAIN" = "true" ]; then
+              for i in 1 2 3; do gh release upload "$DATA_TAG" history-work.tar.zst --clobber && break || sleep $((i * 10)); done
+              bash scripts/ci_runner.sh push-state "Election history: progress $(date -u +%Y-%m-%dT%H:%MZ)" state/history.json || echo "::warning::progress not kept this round; the next round keeps it"
+            fi
+            echo "saved: $(du -h history-work.tar.zst | cut -f1)"; rm -f history-work.tar.zst
+          }
+          END=$(( $(date +%s) + ${{ inputs.minutes || '240' }} * 60 ))
+          ONLY="${{ inputs.only }}"
+          round=0; total=0
+          while :; do
+            LEFT=$(( (END - $(date +%s)) / 60 ))
+            [ "$LEFT" -ge 6 ] || { echo "the run's minutes are used; the next run carries on"; break; }
+            round=$((round + 1))
+            M=$(( LEFT - 4 < 40 ? LEFT - 4 : 40 ))
+            echo "::group::round $round: up to $M minutes"
+            timeout -s INT -k 2m "$((M + 6))m" python -m gacrawl.history run --max-minutes "$M" ${ONLY:+--only "$ONLY"} | tee run.out || echo "the round stopped; what it read is kept"
+            echo "::endgroup::"
+            read -r READ LEFTOVER < <(tail -n 1 run.out | python3 -c "import json,sys
+          try:
+              d = json.loads(sys.stdin.read()); print(d.get('read', 0) + d.get('kept_for_later', 0), d.get('left', 0))
+          except ValueError:
+              print(0, 1)")
+            total=$((total + READ))
+            save
+            [ "$LEFTOVER" = "0" ] && { echo "everything listed has been read"; break; }
+            [ "$READ" = "0" ] && [ "$round" -ge 2 ] && { echo "nothing more could be read this run"; break; }
+          done
+          echo "read=$total" >> "$GITHUB_OUTPUT"
+          python -m gacrawl.history status | tee status.json | head -c 6000
+      - name: Build the bundle, keep a hand-off copy, deliver it to Electo, check it there, then delete the copy
+        if: env.IS_MAIN == 'true'
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          set -uo pipefail
+          python -m gacrawl.history build --out dist/history
+          N=$(python3 -c "import json;print(len(json.load(open('dist/history/index.json'))['elections']))")
+          [ "$N" -gt 0 ] || { echo "nothing to deliver yet"; exit 0; }
+          tar -cf - -C dist history | zstd -q -T0 -6 -o history-bundle.tar.zst
+          gh release upload "$DATA_TAG" history-bundle.tar.zst --clobber || { echo "::error::the hand-off copy could not be saved; nothing is sent to Electo without it"; exit 1; }
+          rm -f history-bundle.tar.zst
+          DEST=ga/pipeline_archive/hist
+          ok=false; pushed=false
+          for i in 1 2 3 4 5; do
+            rm -rf /tmp/electo-hist
+            git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-hist || { sleep $((i * 10)); continue; }
+            git -C /tmp/electo-hist sparse-checkout set --no-cone "/$DEST/"
+            mkdir -p "/tmp/electo-hist/$DEST"
+            rsync -a --delete dist/history/ "/tmp/electo-hist/$DEST/"
+            git -C /tmp/electo-hist config user.name "gacrawl-bot"; git -C /tmp/electo-hist config user.email "gacrawl-bot@users.noreply.github.com"
+            git -C /tmp/electo-hist add -A "$DEST"
+            if git -C /tmp/electo-hist diff --cached --quiet; then echo "Electo already holds this bundle"; ok=true; break; fi
+            git -C /tmp/electo-hist commit -qm "Election history from Crawl: $N elections ($(date -u +%Y-%m-%dT%H:%MZ))"
+            if git -C /tmp/electo-hist push -q origin HEAD:main; then ok=true; pushed=true; break; fi
+            sleep $((i * 10))
+          done
+          [ "$ok" = "true" ] || { echo "::warning title=Election history::Electo did not take the bundle; the hand-off copy stays in the release and the next run delivers it"; exit 0; }
+          # ingested properly? a fresh copy of what Electo now holds, against the bundle's manifest
+          rm -rf /tmp/electo-check
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-check
+          git -C /tmp/electo-check sparse-checkout set --no-cone "/$DEST/"
+          if python -m gacrawl.history verify --bundle dist/history --electo "/tmp/electo-check/$DEST"; then
+            AID=$(gh api "repos/${GH_REPO:-$GITHUB_REPOSITORY}/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="history-bundle.tar.zst") | .id' 2>/dev/null || true)
+            [ -n "$AID" ] && gh api -X DELETE "repos/${GH_REPO:-$GITHUB_REPOSITORY}/releases/assets/$AID" && echo "Electo holds every file; the hand-off copy is deleted"
+          else
+            echo "::warning title=Election history::Electo's copy does not match the bundle yet; the hand-off copy is kept"
+          fi
+          rm -rf /tmp/electo-hist /tmp/electo-check
+          echo "pushed=$pushed" >> "$GITHUB_ENV"
+      - name: Publish the site now
+        if: env.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
+      - name: Keep the work and the progress (whatever happened above)
+        if: always() && steps.read.outcome != 'success' && steps.read.outcome != 'skipped'
+        run: |
+          [ -d data/history ] || exit 0
+          tar -cf - data/history | zstd -q -T0 -6 -o history-work.tar.zst
+          [ "$IS_MAIN" = "true" ] && gh release upload "$DATA_TAG" history-work.tar.zst --clobber || true
+          [ "$IS_MAIN" = "true" ] && bash scripts/ci_runner.sh push-state "Election history: progress (run ended early)" state/history.json || true
+      - name: Summary
+        if: always()
+        run: |
+          [ -f status.json ] || exit 0
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          s = json.load(open("status.json"))
+          print("### Election history\n\n| source | files read | kept for a later reader | failed | contests |\n|---|---|---|---|---|")
+          for k, v in s["sources"].items():
+              print(f"| {k} | {v.get('done', 0)} | {v.get('held', 0)} | {v.get('failed', 0)} | {v.get('contests', 0)} |")
+          print("\n| scope and decade | contests | primaries | with vote counts |\n|---|---|---|---|")
+          for k in sorted(s["decades"]):
+              d = s["decades"][k]; print(f"| {k} | {d['contests']} | {d['primaries']} | {d['with_votes']} |")
+          PY

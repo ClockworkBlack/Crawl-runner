@@ -173,8 +173,8 @@ def meetings_on(html: str, url: str, event_links: str = "") -> list[dict]:
 
     for a in soup.find_all("a", href=True):
         href = urljoin(url, a["href"]).split("#")[0]
-        if not href.startswith("http"):
-            continue
+        if not href.startswith("http") or re.search(r"unpublished|do-not-share", href, re.I):
+            continue                              # not a link, or a file whose own address says not to pass it on
         label = a.get_text(" ", strip=True)
         name = urlsplit(href).path.rsplit("/", 1)[-1]
         is_doc = bool(DOC_RX.search(href)) or bool(re.search(r"agenda|minutes", label, re.I) and "/download" in href)
