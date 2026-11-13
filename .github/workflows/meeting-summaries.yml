@@ -1,0 +1,99 @@
+name: meeting-summaries
+# What each meeting took up and decided, written by the open model (Qwen3-8B, 4-bit, CPU) from its minutes or its
+# recording's captions (gacrawl/meeting_summaries.py), on a runner of its own: city, county and school board minutes,
+# the state boards' minutes, and the General Assembly's committee hearings. It runs beside model-work (donor
+# backgrounds, Rumor Mill readings, federal bills), so the backlog of minutes costs those nothing.
+#
+# It works on a copy of the crawl database; what it wrote travels as meetings-handoff.json in the private crawl-data
+# release (gacrawl/model_handoff.py: meeting_summary records and the training log only), which the crawl's merge job
+# applies before its export and deletes only once the database holding it is stored. A hand-off still waiting is
+# carried into the next run's. Every 6 hours, between model-work's runs.
+on:
+  schedule:
+    - cron: "40 5,11,17,23 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of reading (default 290)"
+        required: false
+        default: "290"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meeting-summaries
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  write:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: Is the last hand-off still waiting for the crawl? (then it is carried, not waited for)
+        id: need
+        run: |
+          # a hand-off the crawl has not applied yet is applied to this job's copy of the database and handed over
+          # again with this job's work (one file, both runs' writing): the model no longer sits out a run waiting
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="meetings-handoff.json") | .id' 2>/dev/null || true)
+          if [ -n "$ID" ]; then
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+          fi
+      - name: The open model (Qwen3-8B, 4-bit; kept between runs)
+        if: steps.need.outputs.go == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-8b-q4km-v1
+      - name: llama.cpp
+        if: steps.need.outputs.go == 'true'
+        run: |
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: A copy of the crawl database
+        if: steps.need.outputs.go == 'true'
+        run: |
+          bash scripts/ci_db.sh pull
+          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
+          gacrawl model-handoff mark --out mark.json
+          echo "MW_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Minutes and committee hearings read (the parser's lines first, newest first)
+        if: steps.need.outputs.go == 'true'
+        run: |
+          M=${{ inputs.minutes || '290' }}
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" || echo "meeting summaries stopped after $((M + 8)) minutes"
+      - name: Hand it to the crawl (meetings-handoff.json in the private release)
+        if: always() && steps.need.outputs.go == 'true'
+        run: |
+          [ -f mark.json ] || { echo "nothing was started"; exit 0; }
+          # only this job's own writing travels: the readings and their training log
+          if [ -s waiting.json ]; then
+            gacrawl model-handoff export --mark mark.json --out meetings-handoff.json --only records,train --kinds meeting_summary --carry waiting.json | tee export.json
+          else
+            gacrawl model-handoff export --mark mark.json --out meetings-handoff.json --only records,train --kinds meeting_summary | tee export.json
+          fi
+          if grep -q '"has_work": true' export.json; then :
+          else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
+          gh release upload "$DATA_TAG" meetings-handoff.json --clobber
+          echo "uploaded $(du -h meetings-handoff.json | cut -f1) for the crawl's next merge"

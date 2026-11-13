@@ -118,3 +118,18 @@ def test_the_bundle_file_carries_checked_lines_and_leaves_statements_and_routine
     assert rec["k"] == "recording" and rec["i"] == [["vote", "", "the budget is adopted five to zero"]] and rec["u"].endswith("v=abc")
     assert mins["k"] == "minutes" and mins["s"] == "" and [x[0] for x in mins["i"]] == ["vote", "motion"]     # the call to order is routine
     s.close()
+
+
+def test_the_jobs_hand_off_carries_its_readings_and_nothing_it_did_not_write(tmp_path):
+    from gacrawl import model_handoff as mh
+
+    s = _store(tmp_path)
+    start = mh.mark(s, tmp_path)
+    s.add(Record("x", "organization", "https://example.org/o", title="An organization", key="x|organization|o"))
+    MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=FakeLLM(), log=lambda *a: None)
+    h = mh.export(s, tmp_path, start, only=("records", "train"), kinds=("meeting_summary",))
+    assert [d["kind"] for d in h["records"]] == ["meeting_summary"] and not h["rumors"] and not any(h["kv"].values())
+    other = Store(tmp_path / "other.db")
+    assert mh.apply(other, tmp_path, h)["records"] == 1 and len(other.read("example:site", "meeting_summary")) == 1
+    other.close()
+    s.close()

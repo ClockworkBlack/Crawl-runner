@@ -74,8 +74,11 @@ def mark(store, root: Path) -> dict:
             "train": {str(p.relative_to(root)): p.stat().st_size for p in sorted(train.glob("*.jsonl"))} if train.exists() else {}}
 
 
-def export(store, root: Path, start: dict, carry: dict | None = None, progress: dict | None = None) -> dict:
-    """What this job wrote since `start` (mark). `progress`: the candidate progress file's entries (news lane)."""
+def export(store, root: Path, start: dict, carry: dict | None = None, progress: dict | None = None,
+           only: tuple | None = None, kinds: tuple | None = None) -> dict:
+    """What this job wrote since `start` (mark). `progress`: the candidate progress file's entries (news lane).
+    `only`: the parts this job hands over (a job that writes one thing must not hand back the rest as it found it:
+    its copy of a Rumor Mill reading may be older than what another job wrote meanwhile); `kinds`: of the records."""
     from .candidates import RumorMill
 
     out = _empty()
@@ -124,6 +127,11 @@ def export(store, root: Path, start: dict, carry: dict | None = None, progress: 
             lines = [x.decode("utf-8", "replace") for x in fh.read().splitlines() if x.strip()]
         if lines:
             out["train"][rel] = lines
+    if only:
+        blank = _empty()
+        out = {k: (v if k in only else blank.get(k, type(v)())) for k, v in out.items()}
+    if kinds:
+        out["records"] = [d for d in out["records"] if d.get("kind") in kinds]
     return merge(carry, out) if carry else out
 
 

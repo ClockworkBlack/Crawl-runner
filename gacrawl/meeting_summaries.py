@@ -17,8 +17,8 @@ Working the backlog down (Nov 12: thousands of minutes, a model that writes a fe
     "from": "minutes") need no listing pass: the model writes the summary from the parser's lines in one short call
     instead of five, and those lines reach the site at once, before any model has run (export_summaries);
   - these go first, newest first; a quarter of each run is kept for minutes the parser read nothing from and for hearings;
-  - the readings run in the open model's own job (model-work.yml: hours, four times a day) and travel to the crawl
-    in its hand-off, as well as in the crawl's own short step.
+  - the readings run in a job of their own (meeting-summaries.yml: about five hours, four times a day, beside the
+    open model's other work) and travel to the crawl in its own hand-off, meetings-handoff.json.
 
 export_summaries() writes the bundle's meeting_summaries.json for Electo's Committee Meetings tab. Statements (who
 said where they stand) are never in it: captions do not label speakers, and the site attributes nothing unreviewed.

@@ -4,7 +4,7 @@
 #     already queued or running)
 #   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news), and has not
 #     waited over an hour for Electo's newest commit (else it starts publish-site)
-#   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, candidate-news, the ai-* jobs)
+#   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, meeting-summaries, candidate-news, the ai-* jobs)
 #     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
 #     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
 #   - each open-model job still passes its own checker as often as before (Electo tools/ai/health.py): a job that got
@@ -255,7 +255,7 @@ jobs:
           # workflow name -> (file, hours a success may be apart before a restart)
           jobs = {"news": ("news.yml", 8), "publish-site": ("publish-site.yml", 2), "results": ("results.yml", 2),
                   "sync-code": ("sync-code.yml", 2), "fec-reread": ("fec-reread.yml", 20), "ga-money": ("ga-money.yml", 20),
-                  "model-work": ("model-work.yml", 20), "candidate-news": ("candidate-news.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
+                  "model-work": ("model-work.yml", 20), "meeting-summaries": ("meeting-summaries.yml", 20), "candidate-news": ("candidate-news.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
                   "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40), "ai-predict": ("ai-predict.yml", 52), "ai-law-questions": ("ai-law-questions.yml", 52), "ai-said-by": ("ai-said-by.yml", 40), "site-search": ("site-search.yml", 52),
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():

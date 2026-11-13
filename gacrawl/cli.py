@@ -1191,7 +1191,9 @@ def cmd_model_handoff(cfg, args):
             carry = json.loads(Path(args.carry).read_text(encoding="utf-8")) if getattr(args, "carry", None) and Path(args.carry).exists() else None
             pp = cfg["state_dir"] / "candidate_progress.json"
             prog = json.loads(pp.read_text(encoding="utf-8")) if pp.exists() else {}
-            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")), carry=carry, progress=prog)
+            split = lambda v: tuple(x for x in (v or "").split(",") if x) or None
+            h = mh.export(store, config.ROOT, json.loads(Path(args.mark).read_text(encoding="utf-8")), carry=carry, progress=prog,
+                          only=split(getattr(args, "only", None)), kinds=split(getattr(args, "kinds", None)))
             Path(args.out).write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
             print(json.dumps({k: len(v) for k, v in h["kv"].items()} | {"records": len(h["records"]), "rumors": len(h["rumors"]),
                              "rumor_text": len(h["rumor_text"]), "rumor_rows": len(h["rumor_rows"]), "progress": len(h["progress"]),
@@ -1465,6 +1467,8 @@ def build_parser() -> argparse.ArgumentParser:
     mhp.add_argument("--out", default="model-handoff.json")
     mhp.add_argument("--mark", default="mark.json")
     mhp.add_argument("--in", dest="inp", default="model-handoff.json")
+    mhp.add_argument("--only", help="export: hand over these parts only (comma-separated: kv,records,train,...)")
+    mhp.add_argument("--kinds", help="export: of the records, these kinds only (comma-separated)")
     mhp.add_argument("--carry", help="export: a hand-off still waiting for the crawl, handed over together with this job's")
     nw = sub.add_parser("news", help="Georgia political news for the News tab (outlets' news APIs and feeds)")
     nw.add_argument("--max-minutes", type=float, default=6)
