@@ -4,16 +4,27 @@ police     For each seeded jurisdiction (county or city with a website), follow 
            police department, sheriff's office or public-safety department (same site, or another host the home
            page itself links to that names the place), then up to four of that section's own pages (chief /
            command staff, contact, precincts / zones / stations, internal affairs / complaints, records).
-           What is kept, each field with the URL it was read on: the department's name, the chief or sheriff
-           (name and title as printed), phone numbers with the label printed beside them, email addresses on the
-           government's domain, the street address, precincts with their addresses and phones, and the complaint
-           and records pages. Nothing is guessed: no pattern-built emails, no inferred chiefs.
+           A county keeps its sheriff's office and its county police separately (Cobb, Gwinnett, DeKalb, Chatham...
+           have both); a city keeps its police (or marshal). When the home page itself links to no department (a
+           menu built by scripts, as on cobbcounty.gov), the site's own department index pages and the sitemaps its
+           robots.txt names are read for one. What is kept, each field with the URL it was read on: the
+           department's name, the chief or sheriff (name and title as printed), phone numbers with the label printed
+           beside them, email addresses on the government's domain, the street address, precincts with their
+           addresses and phones, and the complaint and records pages. Nothing is guessed: no pattern-built URLs or
+           emails, no inferred chiefs.
+roster     Every Georgia law enforcement agency the FBI's Uniform Crime Reporting program lists (the Crime Data
+           Explorer API: name, type, counties, ORI), once a week -> state/police_roster.json. It names the
+           departments whose sites refuse the crawler or link nowhere useful (Atlanta, Marietta, Cherokee...), every
+           county's sheriff's office, and the other agencies in each county (campus police, school-system police,
+           marshals, the State Patrol post).
 media      For each outlet in config/outlets.yaml, the outlet's own contact / tips page and the news-tip addresses
            printed there (on the outlet's domain only).
 records    The open-records contacts the seed found (state/discovered.json `records`), plus config/private/openrecords.yaml
            approvals, in one file for Electo's records-request drafter.
 
-State: state/police.json and state/media.json (checked_at per entry; re-read after 30 days or with --refresh).
+State: state/police.json (one entry per jurisdiction: its first department, any other under `also`), state/media.json
+(checked_at per entry; a department re-read after 30 days, a place where none was found after 7, every place when
+POLICE_VERSION changes, or with --refresh) and state/police_roster.json.
 Export: police.json, media.json, records_contacts.json in the Electo bundle (export.py).
 """
 from __future__ import annotations
@@ -60,7 +71,25 @@ LABELS = (("non-emergency", "Non-emergency"), ("nonemergency", "Non-emergency"),
           ("detective", "Detectives"), ("investigat", "Investigations"), ("jail", "Jail"), ("fax", "Fax"),
           ("main", "Main"), ("front desk", "Front desk"), ("administration", "Administration"), ("office", "Office"))
 STALE_DAYS = 30
+NOT_FOUND_DAYS = 7     # a place where no department was found is tried again sooner (a site that moved, a new menu)
 MAX_SUBPAGES = 4
+# a link that leads to one of the department's services, not to the department ("File a Police Report", "Obtain a
+# Police Report", "Pay a Ticket"): Gwinnett's and Fulton's entries were such pages, with the county's purchasing
+# office's phone numbers read as the police department's
+NOT_LANDING = re.compile(r"\b(report|reports|file|obtain|request|pay|apply|application|online|permits?|tips?|wanted|offenders?|"
+                         r"registry|warrants?|crash|accident|camera|alarm|recruit\w*|careers?|jobs?|hiring|academy|explorers?|"
+                         r"volunteer\w*|museum|foundation|auction|calendar|events?|news|press|releases?|faq|forms?|"
+                         r"bond|inmate|visitation|commissary|fingerprint\w*|background|clearance|fees?)\b", re.I)
+# a menu page that lists the government's departments: read when the home page itself links to none
+INDEX_LINK = re.compile(r"\b(departments?|government|public[\s-]*safety|services|directory|agencies|offices|"
+                        r"departments?\s*(?:&|and)\s*services|county\s+departments|city\s+departments)\b", re.I)
+# a sitemap entry whose address is a department's landing page (cobbcounty.gov/police)
+POLICE_PATH = re.compile(r"/(police(?:[-_]department)?|sheriff(?:s|'s)?(?:[-_]office)?|public[-_]safety|law[-_]enforcement|"
+                         r"marshals?(?:[-_]office)?)/?$", re.I)
+# hosts that serve a department's forms or alerts but are not the department (crash reports, alerts, job boards)
+VENDOR_HOST = re.compile(r"lexisnexis|buycrash|crimereports|spotcrime|communitycrimemap|cityprotect|nixle|everbridge|"
+                         r"governmentjobs|neogov|municode|civicplus\.com|granicus|paymentus|govpay|nicusa|tylertech|"
+                         r"arcgis|google\.|youtube|apple\.com|microsoft|instagram|twitter|x\.com|facebook|linkedin", re.I)
 
 
 def _now() -> str:
@@ -85,10 +114,28 @@ def _clean(t: str) -> str:
     return re.sub(r"\s+", " ", t or "").strip()
 
 
+NAME_STOP = re.compile(r"\b(Department|Police|Sheriff|Office|County|City|Contact|About|Welcome|Meet|Our|The|Home|Page|"
+                       r"Georgia|Division|Bureau|Precinct|Zone|Services?|Message|From|Fire|Rescue|EMS|Emergency|Management|"
+                       r"Animal|Control|Code|Enforcement|Court|Courts|Municipal|Clerk|Mayor|Council|Commissioners?|Board|"
+                       r"Unit|Investigations?|Patrol|Training|Records|Support|Operations|Jail|Detention|Warrants?|Civil|"
+                       r"Process|Criminal|Community|Public|Safety|Affairs|Internal|Professional|Standards|Administration|"
+                       r"Administrative|Staff|Command|Report|Online|Annual|Agency|Center|Headquarters|Uniform|Traffic|"
+                       r"Special|Victim|School|Resource|Accreditation|Leadership|Team|Chief|Deputy|Captain|Major|"
+                       r"Lieutenant|Sergeant|Officer|Assistant|Interim|Acting|Directory|Employment|Contact|Info)\b", re.I)
+SUFFIX_FIRST = re.compile(r"^(Jr|Sr|II|III|IV)\.?$", re.I)
+
+
 def _name_ok(n: str) -> bool:
-    bad = re.compile(r"\b(Department|Police|Sheriff|Office|County|City|Contact|About|Welcome|Meet|Our|The|Home|Page|"
-                     r"Georgia|Division|Bureau|Precinct|Zone|Services?|Message|From)\b")
-    return 2 <= len(n.split()) <= 5 and not bad.search(n)
+    """A person's name as a page prints it: two to five words, none of them a department word ("Jr. Fire" was read as
+    Valdosta's chief), not starting with a suffix, every word capitalized, and at least two words longer than an
+    initial."""
+    w = n.split()
+    if not 2 <= len(w) <= 5 or NAME_STOP.search(n) or SUFFIX_FIRST.match(w[0]):
+        return False
+    if not all(x[0].isupper() for x in w if x[0].isalpha()):
+        return False
+    full = [x for x in w if len(x.strip(".,'’")) > 1 and not SUFFIX_FIRST.match(x)]
+    return len(full) >= 2
 
 
 def official_email(addr: str, *sites: str) -> bool:
@@ -220,119 +267,324 @@ def parse_page(html: str, url: str, site: str) -> dict:
 
 
 # ----------------------------------------------------------------------------- the department of one jurisdiction
-def police_links(home_html: str, home_url: str, name: str) -> list[tuple[int, str, str]]:
-    """Links on the home page to the police / sheriff / public-safety section: (score, url, label)."""
+def link_kind(label: str, href: str = "") -> str | None:
+    """What kind of department a link leads to, by its text (or, with none, its address): sheriff, marshal or police
+    (police, public safety, law enforcement). A fire marshal is none of them."""
+    for text in (label or "", urlsplit(href or "").path.replace("-", " ").replace("_", " ")):
+        if not text.strip() or re.search(r"fire\s+marshal", text, re.I):
+            continue
+        if re.search(r"sheriff", text, re.I):
+            return "sheriff"
+        if re.search(r"\bmarshal", text, re.I):
+            return "marshal"
+        if re.search(r"\b(police|public\s+safety|law\s+enforcement)\b", text, re.I):
+            return "police"
+    return None
+
+
+def _offsite_ok(u: str, label: str) -> bool:
+    """A link off the government's own site is followed when it is a public body's address (.gov, .us, .org) or the
+    department's own site (cobbsheriff.org, a sheriff's .com), never a vendor's (crash reports, alerts, job boards)."""
+    h = _host(u)
+    if VENDOR_HOST.search(h):
+        return False
+    if re.search(r"\.(gov|us|org)$", h):
+        return True
+    # a department's own .com or .net names itself in the address: gwinnettcountysheriff.com, henrycountyso.com
+    return bool(link_kind(label, u) and re.search(r"sheriff|police|marshal|(?:so|pd)\.(?:com|net)$", h, re.I))
+
+
+def police_links(home_html: str, home_url: str, name: str, limit: int = 8) -> list[tuple[int, str, str]]:
+    """Links on a government page to its police / sheriff / public-safety section: (score, url, label), best first.
+    The department's own landing page scores above links to one of its services ("File a Police Report")."""
     soup = extract.soup_of(home_html)
     host = _host(home_url)
     out = {}
     for a in soup.find_all("a", href=True):
         label = _clean(a.get_text(" "))
         href = a["href"]
-        if not POLICE_LINK.search(label + " " + href) or SKIP_LINK.search(href) or href.startswith(("mailto:", "tel:", "#")):
+        if not POLICE_LINK.search(label + " " + href) or SKIP_LINK.search(href) or href.startswith(("mailto:", "tel:", "#", "javascript:")):
             continue
         if re.search(r"fire\s+marshal", label, re.I) or (len(label.split()) > 6 and HEADLINE_LABEL.search(label)):
             continue
         u = urljoin(home_url, href).split("#")[0]
-        if not u:
+        if not u or not u.startswith("http"):
             continue
         same = _base(_host(u)) == _base(host)
+        if not same and not _offsite_ok(u, label):
+            continue
         score = (3 if re.search(r"police|sheriff", label, re.I) else 2 if re.search(r"public safety|marshal", label, re.I) else 1) + (1 if same else 0)
         if re.search(r"\b(department|office|dept)\b", label, re.I):
             score += 1
-        if not same and not re.search(r"\.(gov|us|org)$", _host(u)):
-            continue
+        if NOT_LANDING.search(label) or NOT_LANDING.search(urlsplit(u).path.rsplit("/", 1)[-1].replace("-", " ")):
+            score -= 3
+        if POLICE_PATH.search(urlsplit(u).path):
+            score += 1
         if u not in out or out[u][0] < score:
             out[u] = (score, u, label)
-    return sorted(out.values(), key=lambda x: -x[0])[:3]
+    return sorted(out.values(), key=lambda x: -x[0])[:limit]
 
 
-def read_department(fetcher, j: dict, website: str, log=print, direct: bool = False) -> dict | None:
-    """Follow the government's own police link and read that section (at most five requests). With `direct`, the
-    site given is the department's own (config/overrides.yaml `police_site:`, set by hand where the government's
-    site refuses the crawler or links nowhere useful) and is read as the department's page."""
+def index_links(html: str, base_url: str, limit: int = 2) -> list[str]:
+    """The government's own pages that list its departments ("Departments", "Government", "Public Safety"), on its
+    own site: read when the home page links to no department."""
+    soup = extract.soup_of(html)
+    host = _base(_host(base_url))
+    out = []
+    for a in soup.find_all("a", href=True):
+        label = _clean(a.get_text(" "))
+        if not label or len(label) > 40 or not INDEX_LINK.search(label) or SKIP_LINK.search(a["href"]) or link_kind(label):
+            continue        # "Police Department" is a department, not a list of them
+        u = urljoin(base_url, a["href"]).split("#")[0]
+        if u.startswith("http") and _base(_host(u)) == host and u.rstrip("/") != base_url.rstrip("/") and u not in out:
+            out.append(u)
+    out.sort(key=lambda u: 0 if re.search(r"department|public.safety", u, re.I) else 1)
+    return out[:limit]
+
+
+def sitemap_links(fetcher, home_url: str, max_files: int = 5) -> list[tuple[int, str, str]]:
+    """Department landing pages listed in the sitemaps the site's robots.txt names (cobbcounty.gov/police), for a site
+    whose menus are built by scripts. Only sitemaps the site itself names are read; none is guessed."""
+    from .channels import _sitemap_entries
+
+    try:
+        maps = list((getattr(fetcher, "robots", None) and fetcher.robots.sitemaps(home_url)) or [])
+    except Exception:  # noqa: BLE001
+        return []
+    host = _base(_host(home_url))
+    out, seen, reads = {}, set(), 0
+    queue = [m for m in maps if _base(_host(m)) == host][:3]
+    while queue and reads < max_files:
+        sm = queue.pop(0)
+        if sm in seen:
+            continue
+        seen.add(sm)
+        try:
+            r = fetcher.get(sm)
+        except Exception:  # noqa: BLE001
+            continue
+        reads += 1
+        if r.status != 200:
+            continue
+        entries = _sitemap_entries(r.content)
+        if entries and all(loc.endswith(".xml") or "sitemap" in loc.lower() for loc, _ in entries[:5]):
+            # an index of sitemaps: the ones for departments and plain pages first, never events or news
+            kids = [loc for loc, _ in entries if _base(_host(loc)) == host and not re.search(r"event|news|article|post|blog|calendar", loc, re.I)]
+            kids.sort(key=lambda loc: 0 if re.search(r"depart|landing|basic|page", loc, re.I) else 1)
+            queue = kids[:max_files] + queue
+            continue
+        for loc, _ in entries:
+            if _base(_host(loc)) != host or not POLICE_PATH.search(urlsplit(loc).path):
+                continue
+            seg = urlsplit(loc).path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").replace("_", " ")
+            label = seg.title() if seg else "Police"
+            out[loc] = (3 + (1 if link_kind(label) in ("police", "sheriff") else 0), loc, label)
+        if out:
+            break
+    return sorted(out.values(), key=lambda x: -x[0])
+
+
+CHROME = re.compile(r"header|footer|top-?nav|topbar|utility|global|site-?nav|main-?nav|mainnav|navbar|mega-?menu|"
+                    r"quick-?links|breadcrumb|skip|social|banner|alert", re.I)
+
+
+def _content_links(soup) -> list:
+    """The page's links outside its site-wide header, footer and main menus: a county site's "Contact Us" and
+    "About" in its header are the county's, not the department's (Fulton's purchasing office's phones were read as
+    the police department's that way)."""
+    chrome = set()
+    for el in soup.find_all(["header", "footer"]):
+        chrome.update(id(a) for a in el.find_all("a", href=True))
+    for el in soup.find_all(True, attrs={"class": True}):
+        if CHROME.search(" ".join(el.get("class") or [])):
+            chrome.update(id(a) for a in el.find_all("a", href=True))
+    for el in soup.find_all(True, attrs={"id": True}):
+        if CHROME.search(str(el.get("id") or "")):
+            chrome.update(id(a) for a in el.find_all("a", href=True))
+    return [a for a in soup.find_all("a", href=True) if id(a) not in chrome]
+
+
+def wanted_kinds(j: dict) -> list[tuple[str, ...]]:
+    """The departments a government has, each a group of kinds any one of which fills it: a county its sheriff's
+    office and, in some, a county police department; a consolidated government both; a city or town its police
+    department, or a marshal where it has no police (a city's "Sheriff" link is the county's sheriff, read from the
+    county's own site)."""
+    k = j.get("kind")
+    if k == "county":
+        return [("sheriff",), ("police",)]
+    if k == "consolidated":
+        return [("police",), ("sheriff",)]
+    return [("police", "marshal")]
+
+
+def _read_section(fetcher, j: dict, home_url: str, website: str, u: str, label: str, want: str | tuple, direct: bool = False) -> dict | None:
+    """One department's landing page and up to four of its own pages, as a department record; None when the page is
+    not this government's department of that kind."""
     from .blocked import Blocked
     from .fetch import Disallowed, OutOfTime
 
-    r = fetcher.get(website)
-    if r.status != 200 or "html" not in r.content_type:
+    try:
+        p = fetcher.get(u)
+    except OutOfTime:
+        raise
+    except (Disallowed, Blocked, Exception):  # noqa: BLE001
         return None
-    links = [(9, r.url, f"{place_of(j)} Police")] if direct else police_links(r.text, r.url, j["name"])
-    if not links:
-        return {"found": False, "checked_at": _now(), "home": r.url}
-    dept = None
-    for _, u, label in links:
+    if p.status != 200 or "html" not in (p.content_type or ""):
+        return None
+    same = _base(_host(p.url)) == _base(_host(home_url))
+    if not same and not direct and place_of(j).split()[0].lower() not in p.text.lower():
+        return None        # another host that never names the place: not this government's department
+    P = parse_page(p.text, p.url, website)
+    head = f"{P['title']} {label}"
+    kind = "sheriff" if re.search(r"sheriff", head, re.I) else "marshal" if re.search(r"\bmarshal", head, re.I) and not re.search(r"fire\s+marshal", head, re.I) else "police"
+    if not direct and kind not in ((want,) if isinstance(want, str) else want):
+        return None
+    if re.search(r"fire\s+marshal", head, re.I):
+        return None
+    dept = {"found": True, "kind": kind, "name": P["title"] or label, "url": p.url, "link_label": label, "v": POLICE_VERSION,
+            "chief": dict(P["chief"], src=p.url) if P["chief"] else None,
+            "phones": [dict(x, src=p.url) for x in P["phones"]], "emails": [{"address": e, "src": p.url} for e in P["emails"]],
+            "address": {"text": P["address"], "src": p.url} if P["address"] else None,
+            "precincts": P["precincts"], "pages": {}, "checked_at": _now(), "home": home_url}
+    # the section's own pages: chief, contact, precincts, complaints, records. On the government's main site only the
+    # links in the page's own content (not its site-wide menus), under the department's address, or naming the
+    # department; on the department's own site, any of its pages.
+    soup = extract.soup_of(p.text)
+    own_site = not same or bool(re.search(r"police|sheriff|marshal", _host(p.url), re.I))
+    base_path = urlsplit(p.url).path.rstrip("/")
+    content = {id(a) for a in _content_links(soup)}
+    subs = {}
+    for a in soup.find_all("a", href=True):
+        lab = _clean(a.get_text(" "))
+        href = a["href"]
+        if not SUB_LINK.search(lab + " " + href) or SKIP_LINK.search(href) or href.startswith(("mailto:", "tel:", "#", "javascript:")):
+            continue
+        su = urljoin(p.url, href).split("#")[0]
+        if _host(su) != _host(p.url) or su.rstrip("/") == p.url.rstrip("/"):
+            continue
+        in_section = own_site or (base_path and urlsplit(su).path.startswith(base_path + "/")) or \
+            bool(re.search(r"police|sheriff|marshal|precinct|internal affairs|professional standards", lab + " " + urlsplit(su).path, re.I))
+        if not in_section and id(a) not in content:
+            continue
+        key = ("complaints" if re.search(r"internal affairs|professional standards|complaint|commendation", lab + href, re.I)
+               else "records" if re.search(r"records", lab + href, re.I)
+               else "precincts" if re.search(r"precinct|zone|station|district|substation", lab + href, re.I)
+               else "chief" if re.search(r"chief|command|leadership|administration|about", lab + href, re.I)
+               else "contact" if re.search(r"contact", lab + href, re.I) else "")
+        if key in ("chief", "contact") and not in_section:
+            continue        # "About" and "Contact Us" in a county page's body are still the county's
+        if key and key not in subs:
+            subs[key] = (su, lab)
+    for key, (su, lab) in list(subs.items())[:MAX_SUBPAGES]:
         try:
-            p = fetcher.get(u)
+            s = fetcher.get(su)
         except OutOfTime:
             raise
         except (Disallowed, Blocked, Exception):  # noqa: BLE001
             continue
-        if p.status != 200 or "html" not in p.content_type:
+        if s.status != 200 or "html" not in (s.content_type or ""):
             continue
-        same = _base(_host(p.url)) == _base(_host(r.url))
-        if not same and j["name"].split()[0].lower() not in p.text.lower():
-            continue   # another host that never names the place: not this government's department
-        P = parse_page(p.text, p.url, website)
-        kind = "sheriff" if re.search(r"sheriff", (P["title"] + " " + label), re.I) else "marshal" if re.search(r"marshal", P["title"] + " " + label, re.I) else "police"
-        dept = {"found": True, "kind": kind, "name": P["title"] or label, "url": p.url, "link_label": label, "v": POLICE_VERSION,
-                "chief": dict(P["chief"], src=p.url) if P["chief"] else None,
-                "phones": [dict(x, src=p.url) for x in P["phones"]], "emails": [{"address": e, "src": p.url} for e in P["emails"]],
-                "address": {"text": P["address"], "src": p.url} if P["address"] else None,
-                "precincts": P["precincts"], "pages": {}, "checked_at": _now(), "home": r.url}
-        # the section's own pages: chief, contact, precincts, complaints, records
-        soup = extract.soup_of(p.text)
-        subs = {}
-        for a in soup.find_all("a", href=True):
-            lab = _clean(a.get_text(" "))
-            href = a["href"]
-            if not SUB_LINK.search(lab + " " + href) or SKIP_LINK.search(href) or href.startswith(("mailto:", "tel:", "#")):
-                continue
-            su = urljoin(p.url, href).split("#")[0]
-            if _host(su) != _host(p.url) or su == p.url:
-                continue
-            key = ("complaints" if re.search(r"internal affairs|professional standards|complaint|commendation", lab + href, re.I)
-                   else "records" if re.search(r"records", lab + href, re.I)
-                   else "precincts" if re.search(r"precinct|zone|station|district|substation", lab + href, re.I)
-                   else "chief" if re.search(r"chief|command|leadership|administration|about", lab + href, re.I)
-                   else "contact" if re.search(r"contact", lab + href, re.I) else "")
-            if key and key not in subs:
-                subs[key] = (su, lab)
-        for key, (su, lab) in list(subs.items())[:MAX_SUBPAGES]:
-            try:
-                s = fetcher.get(su)
-            except OutOfTime:
-                raise
-            except (Disallowed, Blocked, Exception):  # noqa: BLE001
-                continue
-            if s.status != 200 or "html" not in s.content_type:
-                continue
-            S = parse_page(s.text, s.url, website)
-            dept["pages"][key] = {"url": s.url, "label": lab}
-            if S["chief"] and (not dept["chief"] or key == "chief"):
-                dept["chief"] = dict(S["chief"], src=s.url)
-            for x in S["phones"]:
-                if all(y["number"] != x["number"] for y in dept["phones"]):
-                    dept["phones"].append(dict(x, src=s.url))
-            for e in S["emails"]:
-                if all(y["address"] != e for y in dept["emails"]):
-                    dept["emails"].append({"address": e, "src": s.url, "page": key})
-            if not dept["address"] and S["address"]:
-                dept["address"] = {"text": S["address"], "src": s.url}
-            for pr in S["precincts"]:
-                if all(q["name"].lower() != pr["name"].lower() for q in dept["precincts"]):
-                    dept["precincts"].append(pr)
-            if key in ("complaints", "records"):
-                dept[key] = {"url": s.url, "emails": [e for e in S["emails"]][:3],
-                             "phones": [x["number"] for x in S["phones"][:2]]}
-        break
-    if dept is None:
-        return {"found": False, "checked_at": _now(), "home": r.url}
+        S = parse_page(s.text, s.url, website)
+        dept["pages"][key] = {"url": s.url, "label": lab}
+        if S["chief"] and (not dept["chief"] or key == "chief"):
+            dept["chief"] = dict(S["chief"], src=s.url)
+        for x in S["phones"]:
+            if all(y["number"] != x["number"] for y in dept["phones"]):
+                dept["phones"].append(dict(x, src=s.url))
+        for e in S["emails"]:
+            if all(y["address"] != e for y in dept["emails"]):
+                dept["emails"].append({"address": e, "src": s.url, "page": key})
+        if not dept["address"] and S["address"]:
+            dept["address"] = {"text": S["address"], "src": s.url}
+        for pr in S["precincts"]:
+            if all(q["name"].lower() != pr["name"].lower() for q in dept["precincts"]):
+                dept["precincts"].append(pr)
+        if key in ("complaints", "records"):
+            dept[key] = {"url": s.url, "emails": [e for e in S["emails"]][:3],
+                         "phones": [x["number"] for x in S["phones"][:2]]}
     dept["heading"] = dept["name"]
     dept["name"], dept["name_from"] = department_name(j, dept)
     dept["phones"] = dept["phones"][:12]
     dept["emails"] = dept["emails"][:8]
     dept["precincts"] = dept["precincts"][:30]
     return dept
+
+
+def _read_all(fetcher, j: dict, website: str, log=print, direct: bool = False) -> tuple[str, list[dict]] | None:
+    """(the home page's address, every department the government's own site leads to): one of each kind it has
+    (wanted_kinds), from its home page's links first; with none of a wanted kind there, its department index pages (one
+    level), then the sitemaps its robots.txt names. None when the site itself could not be read; an empty list when
+    it was read and leads to no department.
+    With `direct`, the site given is the department's own (config/overrides.yaml `police_site:`, set by hand where
+    the government's site refuses the crawler or links nowhere useful) and is read as the department's page."""
+    from .blocked import Blocked
+    from .fetch import Disallowed, OutOfTime
+
+    r = fetcher.get(website)
+    if r.status != 200 or "html" not in (r.content_type or ""):
+        return None
+    if direct:
+        d = _read_section(fetcher, j, r.url, website, r.url, f"{place_of(j)} Police", "police", direct=True)
+        return r.url, ([d] if d else [])
+    want = wanted_kinds(j)
+    cands = police_links(r.text, r.url, j["name"])
+
+    def missing(cs):
+        """The wanted departments with no landing-page link yet (Gwinnett's home page links only "File Police Report"
+        and "Search inmate information"; its Departments page links the Police and Sheriff's Office pages)."""
+        return [g for g in want if not any(link_kind(lab, u) in g and s >= 2 for s, u, lab in cs)]
+
+    if missing(cands):
+        for u in index_links(r.text, r.url):
+            try:
+                ix = fetcher.get(u)
+            except OutOfTime:
+                raise
+            except (Disallowed, Blocked, Exception):  # noqa: BLE001
+                continue
+            if ix.status == 200 and "html" in (ix.content_type or ""):
+                cands += [c for c in police_links(ix.text, ix.url, j["name"]) if c[1] not in {x[1] for x in cands}]
+            if not missing(cands):
+                break
+    if missing(cands) == want:
+        try:
+            cands += [c for c in sitemap_links(fetcher, r.url) if c[1] not in {x[1] for x in cands}]
+        except OutOfTime:
+            raise
+        except Exception:  # noqa: BLE001
+            pass
+    found, tried = [], set()
+    for group in want:
+        for _, u, label in sorted((c for c in cands if link_kind(c[2], c[1]) in group), key=lambda c: -c[0])[:3]:
+            if u in tried:
+                continue
+            tried.add(u)
+            d = _read_section(fetcher, j, r.url, website, u, label, group)
+            if d and all(x["url"] != d["url"] for x in found):
+                found.append(d)
+                break
+    return r.url, found
+
+
+def read_departments(fetcher, j: dict, website: str, log=print, direct: bool = False) -> list[dict] | None:
+    """Every department the government's own site leads to (see _read_all); None when the site could not be read."""
+    res = _read_all(fetcher, j, website, log, direct)
+    return None if res is None else res[1]
+
+
+def read_department(fetcher, j: dict, website: str, log=print, direct: bool = False) -> dict | None:
+    """The government's first department (read_departments), or a not-found record; None when the site could not be
+    read. Others it has are under `also`."""
+    res = _read_all(fetcher, j, website, log, direct)
+    if res is None:
+        return None
+    home, r = res
+    if not r:
+        return {"found": False, "checked_at": _now(), "home": home, "v": POLICE_VERSION}
+    first = dict(r[0])
+    if r[1:]:
+        first["also"] = r[1:]
+    return first
 
 
 DEPT_WORD = re.compile(r"\b(police|sheriff|marshal|public safety)\b", re.I)
@@ -345,7 +597,8 @@ SMALL_WORDS = re.compile(r"\b(Of|And|The|For)\b")
 def is_fire_marshal(d: dict) -> bool:
     """A fire marshal's office is not a police department (an early read took Walker County's for one)."""
     return bool(re.search(r"fire\s+marshal", f"{d.get('heading') or d.get('name') or ''} {d.get('link_label') or ''}", re.I))
-POLICE_VERSION = 2   # bump when department discovery changes: every department is read again
+POLICE_VERSION = 3   # bump when department discovery changes: every place is read again (3: sheriff and county police
+                    # both kept, department index pages and sitemaps, landing pages over service pages)
 
 
 def place_of(j: dict) -> str:
@@ -391,11 +644,17 @@ def news_phrase(j: dict, d: dict) -> str:
     return f"{place} {'sheriff' if kind == 'sheriff' else 'marshal' if kind == 'marshal' else 'police'}"
 
 
-def _stale(rec: dict | None, days: int) -> bool:
+def _stale(rec: dict | None, days: int, versioned: bool = True) -> bool:
+    """Due for another read: never read, read by an older version of the department reader (found or not: a place
+    where the old reader found nothing is read again by the new one), nothing found and NOT_FOUND_DAYS passed, or
+    `days` passed. Outlets (versioned=False) carry no version: they were read again on every run while this test
+    applied the departments' version to them."""
     if not rec:
         return True
-    if rec.get("found") and rec.get("v") != POLICE_VERSION:
+    if versioned and rec.get("v") != POLICE_VERSION:
         return True
+    if versioned and not rec.get("found"):
+        days = min(days, NOT_FOUND_DAYS)
     try:
         return (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(rec["checked_at"])).days >= days
     except (KeyError, ValueError):
@@ -419,8 +678,10 @@ def discover_police(fetcher, jurisdictions: list[dict], state_dir: Path, deadlin
         if only and j["id"] != only:
             continue
         site = j.get("police_site") or j.get("website") or (disc.get(j["id"]) or {}).get("website")
-        if not site or (not refresh and not _stale(out.get(j["id"]), STALE_DAYS)
-                        and not (j.get("police_site") and (out.get(j["id"]) or {}).get("url", "").find(j["police_site"].split("//")[-1].strip("/")) < 0)):
+        rec = out.get(j["id"]) or {}
+        # a department site set by hand (config/overrides.yaml police_site:) is read at once, then on the usual schedule
+        new_override = bool(j.get("police_site")) and not rec.get("direct")
+        if not site or (not refresh and not new_override and not _stale(rec, STALE_DAYS)):
             continue
         if deadline and time.monotonic() > deadline:
             break
@@ -431,12 +692,21 @@ def discover_police(fetcher, jurisdictions: list[dict], state_dir: Path, deadlin
         except (Disallowed, Blocked, Exception) as exc:  # noqa: BLE001
             d = {"found": False, "checked_at": _now(), "error": f"{type(exc).__name__}: {exc}"[:160]}
         if d is None:
-            d = {"found": False, "checked_at": _now()}
+            d = {"found": False, "checked_at": _now(), "error": "the site's home page did not answer with a page"}
+        if not d.get("found") and d.get("error") and rec.get("found"):
+            # the site failed this time (refused, timed out, down): the department read before is kept as it was, and
+            # the failure noted; it is read again on its usual schedule
+            out[j["id"]] = {**rec, "last_error": d["error"], "error_at": d["checked_at"]}
+            n += 1
+            continue
+        d["v"] = POLICE_VERSION
+        if j.get("police_site"):
+            d["direct"] = True
         out[j["id"]] = d
         n += 1
-        if d.get("found"):
-            log(f"{j['id']}: {d['name']}" + (f" · {d['chief']['title']} {d['chief']['name']}" if d.get("chief") else "")
-                + f" · {len(d['phones'])} phones, {len(d['emails'])} emails, {len(d['precincts'])} precincts")
+        for x in ([d] + list(d.get("also") or [])) if d.get("found") else []:
+            log(f"{j['id']}: {x['name']}" + (f" · {x['chief']['title']} {x['chief']['name']}" if x.get("chief") else "")
+                + f" · {len(x['phones'])} phones, {len(x['emails'])} emails, {len(x['precincts'])} precincts")
         if n % 10 == 0:
             write_json_atomic(out_p, out, indent=1, ensure_ascii=False)
     write_json_atomic(out_p, out, indent=1, ensure_ascii=False)
@@ -510,7 +780,7 @@ def discover_media(fetcher, root: Path, state_dir: Path, deadline: float | None 
     out = json.loads(out_p.read_text()) if out_p.exists() else {}
     n = 0
     for dom in domains:
-        if not refresh and not _stale(out.get(dom), STALE_DAYS):
+        if not refresh and not _stale(out.get(dom), STALE_DAYS, versioned=False):
             continue
         if deadline and time.monotonic() > deadline:
             break
@@ -525,34 +795,232 @@ def discover_media(fetcher, root: Path, state_dir: Path, deadline: float | None 
     return n
 
 
+# ----------------------------------------------------------------------------- the FBI's roster of agencies
+ROSTER_URL = "https://api.usa.gov/crime/fbi/cde/agency/byStateAbbr/GA"
+ROSTER_SITE = "https://cde.ucr.cjis.gov/"       # the Crime Data Explorer, where a reader can look an agency up
+ROSTER_DAYS = 7
+
+
+def _api_key() -> str:
+    """An api.data.gov key: DATA_GOV_API_KEY, or the project's FEC key (api.data.gov issues it, and one key works
+    for every API it serves), else DEMO_KEY (a few requests an hour per address: enough for one a week)."""
+    import os
+
+    for k in ("DATA_GOV_API_KEY", "FEC_API_KEY"):
+        v = (os.environ.get(k) or "").strip()
+        if v:
+            return v
+    return "DEMO_KEY"
+
+
+def _age_days(iso: str | None) -> float:
+    try:
+        return (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(iso)).total_seconds() / 86400
+    except (TypeError, ValueError):
+        return 1e9
+
+
+def parse_roster(data: dict) -> list[dict]:
+    """The API's answer ({county: [agency, ...]}) as one list, each agency once (by ORI)."""
+    out, seen = [], set()
+    for county, lst in (data or {}).items():
+        for a in lst or []:
+            ori = (a.get("ori") or "").strip()
+            name = re.sub(r"\s+", " ", a.get("agency_name") or "").strip()
+            if not ori or not name or ori in seen:
+                continue
+            seen.add(ori)
+            counties = [c.strip() for c in (a.get("counties") or county or "").split(",") if c.strip()]
+            out.append({"ori": ori, "name": name, "type": a.get("agency_type_name") or "", "counties": counties,
+                        "lat": a.get("latitude"), "lon": a.get("longitude"), "nibrs": bool(a.get("is_nibrs"))})
+    return sorted(out, key=lambda x: x["ori"])
+
+
+def read_roster(fetcher, state_dir: Path, log=print, refresh: bool = False) -> dict:
+    """Every Georgia agency on the FBI's Uniform Crime Reporting roster -> state/police_roster.json, once a week.
+    The key travels in a header, never in an address that could be logged."""
+    p = state_dir / "police_roster.json"
+    cur = json.loads(p.read_text()) if p.exists() else {}
+    if not refresh and cur.get("agencies") and _age_days(cur.get("as_of")) < ROSTER_DAYS:
+        return {"agencies": len(cur["agencies"]), "read": False}
+    key = _api_key()
+    r = fetcher.get(ROSTER_URL, headers={"X-Api-Key": key}, use_cache=False)
+    if r.status in (401, 403):        # a gateway that wants the key as a parameter
+        r = fetcher.get(ROSTER_URL, params={"API_KEY": key}, use_cache=False)
+    if r.status != 200 or not (r.content or b"").strip().startswith(b"{"):
+        log(f"police roster: HTTP {r.status} from the FBI's Crime Data Explorer" + (" (no DATA_GOV_API_KEY or FEC_API_KEY: DEMO_KEY)" if key == "DEMO_KEY" else "")
+            + "; the last roster is kept")
+        return {"agencies": len(cur.get("agencies") or []), "read": False, "status": r.status}
+    agencies = parse_roster(r.json())
+    if len(agencies) < 0.8 * len(cur.get("agencies") or []):
+        log(f"police roster: only {len(agencies)} agencies this time ({len(cur['agencies'])} before); the last roster is kept")
+        return {"agencies": len(cur["agencies"]), "read": False}
+    write_json_atomic(p, {"as_of": _now(), "source": ROSTER_URL, "site": ROSTER_SITE,
+                          "note": "Every Georgia law enforcement agency the FBI's Uniform Crime Reporting program lists (Crime Data "
+                                  "Explorer API): name, type, counties and ORI as the FBI publishes them.",
+                          "agencies": agencies}, indent=1, ensure_ascii=False)
+    log(f"police roster: {len(agencies)} agencies")
+    return {"agencies": len(agencies), "read": True}
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+AGENCY_SUFFIX = re.compile(r"\s+(police\s+department|police\s+dept\.?|police|department\s+of\s+public\s+safety|"
+                           r"public\s+safety\s+department|public\s+safety|city\s+marshal'?s?(\s+office)?|marshal'?s?(\s+office)?)$", re.I)
+
+
+def roster_departments(roster: list[dict], jurisdictions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(departments, others) from the FBI's roster. A county's sheriff's office and county police, and a city's (or a
+    consolidated government's) police or marshal, become departments of that jurisdiction; every other agency
+    (campus, school-system, transit and airport police, county marshals, State Patrol posts, state agencies) is
+    listed by county."""
+    counties = {_alnum(re.sub(r"\s+county$", "", j["name"], flags=re.I)): j for j in jurisdictions if j.get("kind") == "county"}
+    places = [j for j in jurisdictions if j.get("kind") in ("city", "town", "consolidated", "municipality")]
+
+    def county_of(a):
+        for c in a.get("counties") or []:
+            j = counties.get(_alnum(re.sub(r"\s+county$", "", c, flags=re.I)))
+            if j:
+                return j
+        return None
+
+    def place_for(core, a):
+        k = _alnum(re.sub(r"^(city|town) of\s+", "", core, flags=re.I))
+        if not k:
+            return None
+        cs = {_alnum(c) for c in a.get("counties") or []}
+        here = [j for j in places if cs & {_alnum(c) for c in j.get("counties") or []}] or places
+        for j in here:
+            names = {_alnum(j["name"]), _alnum(place_of(j))}
+            if j.get("kind") == "consolidated":
+                cw = _alnum(re.sub(r"\s+county$", "", j.get("consolidated_with") or "", flags=re.I))
+                names |= {_alnum(j["name"]) + cw, _alnum(j["name"]) + cw + "county", cw + "county" + _alnum(j["name"])}
+            if k in names:
+                return j
+        # a merged city keeps its first town's department name ("McRae Police Department" serves McRae-Helena)
+        for j in here:
+            if "-" in j["name"] and _alnum(j["name"].split("-")[0]) == k:
+                return j
+        return None
+
+    depts, others = [], []
+    for a in roster:
+        name, typ = a["name"], (a.get("type") or "").lower()
+        cj = county_of(a)
+        cname = re.sub(r"\s+county$", "", cj["name"], flags=re.I) if cj else ((a.get("counties") or [""])[0].title())
+        base = {"ori": a["ori"], "name": name, "county": cname, "lat": a.get("lat"), "lon": a.get("lon"), "listed_by": "fbi"}
+        if typ == "county" and cj and re.search(r"sheriff", name, re.I):
+            depts.append({**base, "jurisdiction": cj["id"], "kind": "sheriff"})
+            continue
+        if typ == "county" and cj and re.search(r"\bpolice\b", name, re.I):
+            depts.append({**base, "jurisdiction": cj["id"], "kind": "police"})
+            continue
+        if typ == "city":
+            core = AGENCY_SUFFIX.sub("", name).strip()
+            j = place_for(core, a)
+            if j:
+                kind = "marshal" if re.search(r"marshal", name, re.I) else "police"
+                depts.append({**base, "jurisdiction": j["id"], "kind": kind})
+                continue
+        kind = ("campus" if "university" in typ or "college" in typ else "state_patrol" if typ == "state police"
+                else "state" if "state agency" in typ else "marshal" if re.search(r"\bmarshal", name, re.I)
+                else "schools" if re.search(r"board of education|school", name, re.I) else "other")
+        if cj:                    # an agency the FBI files under no county ("NOT SPECIFIED") is shown nowhere
+            others.append({**base, "kind": kind, "jurisdiction": cj["id"]})
+    return depts, others
+
+
+def department_list(root: Path, jurisdictions: list[dict]) -> tuple[list[tuple[dict, dict]], list[dict], dict]:
+    """([(jurisdiction, department)], others, counts): every department the governments' own pages gave
+    (state/police.json, the first and any under `also`), then each county's and city's departments on the FBI's
+    roster that the pages did not give, as listed-only entries (name and ORI, no contact read yet). A sheriff's office
+    a consolidated government's site leads to is the county's. Others: the roster's other agencies, by county."""
+    from .registry import load_json
+
+    police = load_json(root / "state" / "police.json") or {}
+    roster = (load_json(root / "state" / "police_roster.json") or {}).get("agencies") or []
+    by_id = {j["id"]: j for j in jurisdictions}
+    county_id = {_alnum(re.sub(r"\s+county$", "", j["name"], flags=re.I)): j["id"] for j in jurisdictions if j.get("kind") == "county"}
+    got: dict[tuple, dict] = {}
+    order: list[tuple] = []
+    cands = []
+    for jid, d in police.items():
+        j = by_id.get(jid)
+        if not j or not isinstance(d, dict) or not d.get("found"):
+            continue
+        for x in [d] + [y for y in (d.get("also") or []) if isinstance(y, dict) and y.get("found")]:
+            if is_fire_marshal(x):
+                continue
+            home = jid
+            if x.get("kind") == "sheriff" and j.get("kind") != "county":
+                home = county_id.get(_alnum((j.get("counties") or [""])[0])) or jid
+            # a county and its consolidated government share one site and both lead to the same pages: the sheriff
+            # is the county's, the police the consolidated government's
+            mine = (x.get("kind") == "sheriff") == (by_id.get(home, j).get("kind") == "county")
+            cands.append((0 if mine else 1, home, x))
+    taken: set[str] = set()
+    for _, home, x in sorted(cands, key=lambda c: c[0]):
+        key = (home, x.get("kind") or "police")
+        url = (x.get("url") or "").rstrip("/").lower()
+        if key in got or (url and url in taken):
+            continue
+        taken.add(url)
+        got[key] = {k: v for k, v in x.items() if k != "also"}
+        order.append(key)
+    rdepts, others = roster_departments(roster, jurisdictions)
+    n_pages, n_listed = len(order), 0
+    for r in rdepts:
+        key = (r["jurisdiction"], r["kind"])
+        if key in got:
+            d = got[key]
+            d["ori"] = r["ori"]
+            if str(d.get("name_from") or "").startswith("standard form"):
+                d["name"], d["name_from"] = r["name"], "the FBI's list of law enforcement agencies"
+            continue
+        got[key] = {"found": False, "kind": r["kind"], "name": r["name"], "name_from": "the FBI's list of law enforcement agencies",
+                    "ori": r["ori"], "listed_by": "fbi", "url": "", "chief": None, "phones": [], "emails": [], "address": None,
+                    "precincts": [], "pages": {}, "lat": r.get("lat"), "lon": r.get("lon")}
+        order.append(key)
+        n_listed += 1
+    out = [(by_id[k[0]], got[k]) for k in order if k[0] in by_id]
+    return out, others, {"from_pages": n_pages, "listed_only": n_listed, "others": len(others), "roster": len(roster)}
+
+
 # ----------------------------------------------------------------------------- export
 def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dict:
     from .registry import load_json, load_yaml
 
     state = root / "state"
-    police = load_json(state / "police.json")
     media = load_json(state / "media.json")
     disc = load_json(state / "discovered.json")
     _p = root / "config" / "private" / "openrecords.yaml"
     orr = load_yaml(_p if _p.exists() else root / "config" / "openrecords.yaml")
+    roster_asof = ((load_json(state / "police_roster.json") or {}).get("as_of") or "")
     by_id = {j["id"]: j for j in jurisdictions}
+    pairs, others, counts = department_list(root, jurisdictions)
     depts = []
-    for jid, d in police.items():
-        j = by_id.get(jid)
-        if not j or not d.get("found") or is_fire_marshal(d):
-            continue
-        name, name_from = (d["name"], d.get("name_from")) if d.get("v") == POLICE_VERSION else department_name(j, d)
-        depts.append({"jurisdiction": jid, "jurisdiction_name": j["name"], "jurisdiction_kind": j.get("kind"),
+    for j, d in pairs:
+        name, name_from = (d["name"], d.get("name_from")) if d.get("v") == POLICE_VERSION or d.get("listed_by") else department_name(j, d)
+        depts.append({"jurisdiction": j["id"], "jurisdiction_name": j["name"], "jurisdiction_kind": j.get("kind"),
                       "county": (j.get("counties") or [None])[0] if j.get("kind") != "county" else j["name"].replace(" County", ""),
                       **{k: d.get(k) for k in ("kind", "url", "chief", "phones", "emails", "address", "precincts",
-                                              "complaints", "records", "pages", "checked_at")},
-                      "name": name, "name_from": name_from or "the department's page"})
+                                              "complaints", "records", "pages", "checked_at", "ori", "listed_by")},
+                      "name": name, "name_from": name_from or "the department's page",
+                      **({"checked_at": roster_asof} if d.get("listed_by") and roster_asof else {})})
     (out_dir / "police.json").write_text(json.dumps({
         "note": "Police departments, sheriff's offices and public-safety departments as each government's own site "
                 "presents them: the chief or sheriff with the title printed, phones with the label beside them, emails "
                 "on the government's domain, the street address, precincts with addresses. Every field carries the "
-                "page it was read on (src). Nothing is inferred; a missing field was not printed on the pages read.",
-        "departments": depts}, ensure_ascii=False, indent=1), encoding="utf-8")
+                "page it was read on (src). Nothing is inferred; a missing field was not printed on the pages read. "
+                "Departments marked listed_by \"fbi\" are on the FBI's Uniform Crime Reporting roster (name and ORI as the "
+                "FBI lists them) and their own pages have not been read yet; `others` are the roster's other agencies "
+                "in each county (campus, school-system, transit and airport police, marshals, State Patrol posts).",
+        "roster": {"source": ROSTER_SITE, "as_of": roster_asof},
+        "departments": depts,
+        "others": [{k: o.get(k) for k in ("county", "jurisdiction", "kind", "name", "ori")} for o in others]},
+        ensure_ascii=False, indent=1), encoding="utf-8")
     ocfg = load_yaml(root / "config" / "outlets.yaml")
     names = ocfg.get("names") or {}
     listed = [d for d in (ocfg.get("outlets") or []) if isinstance(d, str)]
@@ -581,4 +1049,5 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
         "note": "Open-records contacts found on each government's own site (a clerk or records address on its domain, "
                 "or its request portal), for Electo's records-request drafter. Never guessed.",
         "contacts": contacts}, ensure_ascii=False, indent=1), encoding="utf-8")
-    return {"departments": len(depts), "outlets": len(outlets), "records_contacts": len(contacts)}
+    return {"departments": len(depts), "from_pages": counts["from_pages"], "listed_only": counts["listed_only"],
+            "others": counts["others"], "outlets": len(outlets), "records_contacts": len(contacts)}

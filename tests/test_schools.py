@@ -156,6 +156,9 @@ CCRPI_XLSX = _xlsx([["SYSTEM_ID", "SYSTEM_NAME", "SCHOOL_ID", "SCHOOL_NAME", "SI
                     ["7730", "Decatur City", "ALL", "All Schools", "92.3", "90.0", "93.1"]])
 
 
+EXTRA: dict = {}      # path -> HTML, for tests that add pages
+
+
 class H(http.server.BaseHTTPRequestHandler):
     def _send(self, body, ct="text/html"):
         self.send_response(200); self.send_header("Content-Type", ct); self.end_headers(); self.wfile.write(body)
@@ -163,6 +166,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlsplit(self.path)
         q = parse_qs(u.query)
+        if u.path in EXTRA:
+            return self._send(EXTRA[u.path].encode())
         if u.path == "/robots.txt":
             return self._send(b"User-agent: *\nAllow: /\n", "text/plain")
         if u.path.startswith("/arcgis/") and u.path.endswith("/query"):
@@ -447,3 +452,48 @@ def test_school_sites_read_a_district_page_again_when_its_copy_kept_no_links(roo
     assert known["sch-130012000001"]["url"].endswith("/achs/") and known["sch-130012000001"]["found_on"].endswith("/our-schools-live/")
     assert json.loads(store.kv_get("schools:sites:checked"))["sd-appling"]
     store.close()
+
+
+def test_district_people_pages_from_its_home_page(root, fetcher, server, monkeypatch):
+    """The superintendent and the board come from the pages the district's own home page links, read once a month;
+    the State School Superintendent quoted on its home page is not the district's."""
+    EXTRA.update({
+        "/sd/": ('<html><body><nav><a href="/sd/superintendent">Meet the Superintendent</a><a href="/sd/assistant-superintendent">Assistant Superintendent</a>'
+                 '<a href="/sd/board-members">Board of Education</a><a href="/sd/board-meetings">Board Meetings</a></nav>'
+                 '<main><p>State School Superintendent Richard Woods visited Appling County High School on Monday to see the new '
+                 'robotics lab and to talk with students about careers.</p></main></body></html>'),
+        "/sd/superintendent": ('<html><body><main><h1>Office of the Superintendent</h1><p>Dr. Pamela Kelly, Superintendent</p>'
+                               '<p>Dr. Kelly has led Appling County Schools since 2022 and has served Georgia students for twenty-five years.</p></main></body></html>'),
+        "/sd/board-members": ('<html><body><main><h1>Board Members</h1><p>Lisa Moore</p><p>Chair, District 3</p>'
+                              '<p>Wade Collins</p><p>Vice Chair, District 1</p><p>Ann Bell</p><p>Member, District 2</p>'
+                              '<p>The board meets on the second Monday of every month at the central office.</p></main></body></html>')})
+    store = Store(root / "data")
+    schools.seed(fetcher, root, store, log=lambda *a: None)
+    monkeypatch.setattr("gacrawl.registry.jurisdictions", lambda r: [{"id": "sd-appling", "name": "Appling County School District",
+                                                                       "kind": "school_district", "county": "Appling", "website": f"{server}/sd/"}])
+    out = schools.district_people_pages(fetcher, root, store, log=lambda *a: None)
+    assert out == {"districts": 1, "pages": 3}
+    assert schools.district_people_pages(fetcher, root, store, log=lambda *a: None)["districts"] == 0     # next month
+    schools.people(root, store, log=lambda *a: None)
+    ppl = {(p["name"], p["role"], p.get("seat", "")) for p in schools.load_people(root) if p["district_id"] == "sd-appling"}
+    assert ("Pamela Kelly", "Superintendent", "") in ppl and not any(n == "Richard Woods" for n, _, _ in ppl)
+    assert {("Lisa Moore", "Chair", "3"), ("Wade Collins", "Vice Chair", "1"), ("Ann Bell", "Member", "2")} <= ppl
+    store.close()
+
+
+def test_milestones_from_counts_when_no_all_grades_row():
+    """A Milestones file with grade rows only: proficient + distinguished over the number tested, per place, from the
+    file's own counts; a place with a suppressed count gets no value."""
+    import yaml
+
+    s = yaml.safe_load((ROOT / "config" / "schools.yaml").read_text())["gosa"]["series"]["eog_ela"]
+    csv_text = ("LONG_SCHOOL_YEAR,SCHOOL_DISTRCT_CD,SCHOOL_DSTRCT_NM,INSTN_NUMBER,INSTN_NAME,ACDMC_LVL,SUBGROUP_NAME,TEST_CMPNT_TYP_NM,"
+                "NUM_TESTED_CNT,PROFICIENT_CNT,DISTINGUISHED_CNT,PROFICIENT_PCT,DISTINGUISHED_PCT\n"
+                "2024-25,601,Appling County,ALL,All Schools,3,All Students,English Language Arts,100,30,10,30,10\n"
+                "2024-25,601,Appling County,ALL,All Schools,4,All Students,English Language Arts,300,90,30,30,10\n"
+                "2024-25,601,Appling County,ALL,All Schools,4,Black,English Language Arts,50,10,2,20,4\n"
+                "2024-25,601,Appling County,ALL,All Schools,3,All Students,Mathematics,100,50,10,50,10\n"
+                "2024-25,602,Atkinson County,ALL,All Schools,3,All Students,English Language Arts,40,TFS,TFS,TFS,TFS\n"
+                "2024-25,602,Atkinson County,ALL,All Schools,4,All Students,English Language Arts,60,20,5,33,8\n")
+    rows = schools.parse_gosa_csv(csv_text, "eog_ela", s)
+    assert [(r["district_code"], r["level"], r["value"]) for r in rows] == [("601", "district", 40.0)]

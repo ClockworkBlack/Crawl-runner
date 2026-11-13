@@ -239,7 +239,7 @@ class PoliceNews:
 
         j = j or {"name": jname, "kind": "county" if jname.endswith("County") else "city"}
         phrase = news_phrase(j, dept)
-        name = dept.get("name") if dept.get("v") == POLICE_VERSION else department_name(j, dept)[0]
+        name = dept.get("name") if dept.get("v") == POLICE_VERSION or dept.get("listed_by") else department_name(j, dept)[0]
         dept = {**dept, "name": name}
         county = (j.get("counties") or [""])[0] if j.get("kind") != "county" else jname.replace(" County", "")
         phrases = [f'"{phrase}"']
@@ -321,14 +321,17 @@ class RateLimited(Exception):
 
 def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None = None, log=print,
              limit: int | None = None) -> dict:
+    """Search the news for every department: the ones read from the governments' own pages and the ones on the FBI's
+    roster whose pages are not read yet (a news search needs only the department's name and place), largest places
+    first, each once a week."""
     from .fetch import OutOfTime
+    from .police import department_list
     from .registry import jurisdictions
 
-    p = state_dir / "police.json"
-    police = json.loads(p.read_text()) if p.exists() else {}
     cp = state_dir / "police_news.json"
     checked = json.loads(cp.read_text()) if cp.exists() else {}
-    jur = {j["id"]: j for j in jurisdictions(root)}
+    jl = jurisdictions(root)
+    jur = {j["id"]: j for j in jl}
     pop = {jid: (j.get("population") or 0, j["name"]) for jid, j in jur.items()}
     if checked.get("_version") != NEWS_VERSION:
         # incidents found by the old searches are dropped and every department is searched again (the articles they
@@ -341,18 +344,22 @@ def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None
         log(f"police news v{NEWS_VERSION}: {gone} incidents from the old searches removed; every department is searched again")
     pn = PoliceNews(fetcher, store, root, log)
     done = found = 0
-    from .police import is_fire_marshal
-
-    order = sorted((jid for jid, d in police.items() if d.get("found") and not is_fire_marshal(d)), key=lambda j: -pop.get(j, (0, ""))[0])
-    for jid in order:
-        d = police[jid]
-        last = checked.get(jid) or d.get("news_checked_at")
+    pairs, _, _ = department_list(root, jl)
+    pairs.sort(key=lambda p: -pop.get(p[0]["id"], (0, ""))[0])
+    first_kind: dict[str, str] = {}
+    for j, d in pairs:
+        first_kind.setdefault(j["id"], d.get("kind") or "police")
+    for j, d in pairs:
+        jid, kind = j["id"], d.get("kind") or "police"
+        key = f"{jid}:{kind}"
+        # a department searched before this list held more than one per place is keyed by its place alone
+        last = checked.get(key) or (checked.get(jid) if first_kind.get(jid) == kind else None) or d.get("news_checked_at")
         if last and (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(last)).days < RECHECK_DAYS:
             continue
         if deadline and time.monotonic() > deadline or (limit and done >= limit):
             break
         try:
-            n = pn.department(jid, d, pop.get(jid, (0, jid))[1], jur.get(jid))
+            n = pn.department(jid, d, pop.get(jid, (0, jid))[1], j)
         except OutOfTime:
             break
         except RateLimited:
@@ -362,11 +369,11 @@ def research(fetcher, store, root: Path, state_dir: Path, deadline: float | None
             log("  gdelt keeps refusing this runner's address and no outlet API is known; the rest wait for the next run")
             break
         if getattr(pn, "gdelt_ok", True):
-            checked[jid] = _now()      # a department GDELT refused is searched again next run (outlet APIs found what they could)
+            checked[key] = _now()      # a department GDELT refused is searched again next run (outlet APIs found what they could)
         done += 1
         found += n
         if n:
-            log(f"{jid}: {n} new incident reports")
+            log(f"{jid} ({kind}): {n} new incident reports")
         if done % 5 == 0:
             write_json_atomic(cp, checked, indent=1)
     write_json_atomic(cp, checked, indent=1)
@@ -387,9 +394,11 @@ def export_incidents(store, out_path: Path, jurisdictions: list[dict]) -> dict:
                 meta = json.loads(meta)
             except ValueError:
                 meta = {}
-        D = depts.setdefault(jid, {"jurisdiction": jid, "jurisdiction_name": (by_id.get(jid) or {}).get("name", jid),
-                                   "department": meta.get("department"), "kind": meta.get("department_kind"),
-                                   "incidents": [], "people": {}})
+        # one entry per department: a county's sheriff's office and its county police are reported apart
+        D = depts.setdefault((jid, meta.get("department_kind") or "police"),
+                             {"jurisdiction": jid, "jurisdiction_name": (by_id.get(jid) or {}).get("name", jid),
+                              "department": meta.get("department"), "kind": meta.get("department_kind"),
+                              "incidents": [], "people": {}})
         item = {"t": r.get("title") or "", "u": r["url"], "d": r.get("published") or "", "outlet": meta.get("outlet", ""),
                 "evidence": r.get("evidence"), "excerpt": r.get("text") or "", "names": meta.get("names") or [], "cues": meta.get("cues") or []}
         D["incidents"].append(item)

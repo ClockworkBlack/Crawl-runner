@@ -31,6 +31,9 @@ http:
     - query.wikidata.org/sparql
     - en.wikipedia.org/w/api.php
     - api.open.fec.gov/v1
+    # the FBI's Crime Data Explorer API (Uniform Crime Reporting): Georgia's list of law enforcement agencies, one
+    # request a week (gacrawl/police.py read_roster); api.data.gov keys it, as it does the FEC's
+    - api.usa.gov/crime/fbi/cde
     - projects.propublica.org/nonprofits/api
     - api.opencorporates.com
     - api.legiscan.com             # LegiScan's API (a free key; weekly state datasets): the backup source for roll calls

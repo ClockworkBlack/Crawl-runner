@@ -37,7 +37,7 @@ packets and profile supplements in Electo's own shapes.
 | **Derive** (`gacrawl derive`) | Parses what was crawled into structured records, incrementally: city/county **election results** and qualifying lists (Electo archive shape, `elections.json`); **ballot questions** (SPLOST, ESPLOST, homestead, bonds, alcohol, charter, annexation…: text, amounts, results, `ballot_questions.json`); **minutes → motions and named votes** (movers, seconders, ayes/nays, roll calls, tallies, unanimous; every vote carries its basis); **press releases → appointments** (who was appointed to what, by whom, term); **endorsements, scorecards and questionnaires** from organizations' own pages (`config/guides.yaml`). |
 | **Transcripts** (`gacrawl transcripts`) | Meeting video pages → captions/transcripts (Granicus viewer, VTT/SRT, YouTube Data API; optional local Whisper). Candidate mentions carry a time code; a candidate's own speaker-labeled lines become positions (marked needs_review). |
 | **School boards** (`config/school_districts.yaml`) | All 180 districts (159 county, 21 city) in the registry; BoardDocs adapter (meetings, agenda items with permalinks, opened attachments — minutes feed the vote parser); district websites. |
-| **Schools** (`gacrawl schools`, `config/schools.yaml`) | Every public school, private school and college in Georgia with coordinates, from NCES's EDGE data services (Common Core of Data 2024-25, Private School Survey, IPEDS), each tied to one of the 180 districts, plus every district's outline (so an address finds its district). Official statistics by district and school from GOSA's downloadable data (graduation rate, enrollment, attendance, dropouts, certified personnel, retained students, HOPE eligibility, completers, financial efficiency and per-pupil spending, ACT) and GaDOE's CCRPI files, newest year of each series, found on the index pages themselves. Board policy manuals and meetings on GSBA's eBOARD/Simbli (`<id>:policies`, browser channel; a policy page carries its GSBA code and adoption date). **Board members, superintendents and principals** read off the districts' board pages and the schools' own pages (school sites are the links the district's "our schools" page gives); each becomes a research candidate with the same packet and profile supplement as everyone on a ballot (official-record mentions, board roll calls from minutes, news, statements), and one who also ran for office keeps the Electo key. Board metrics are counts from the minutes (meetings, recorded votes, unanimous and divided votes, each member's recorded votes), never characterizations. Exported as `schools.json`, `schools/<district>.json` and `school_bounds.json`. |
+| **Schools** (`gacrawl schools`, `config/schools.yaml`) | Every public school, private school and college in Georgia with coordinates, from NCES's EDGE data services (Common Core of Data 2024-25, Private School Survey, IPEDS), each tied to one of the 180 districts, plus every district's outline (so an address finds its district). Official statistics by district and school from GOSA's downloadable data (graduation rate, enrollment, attendance, dropouts, certified personnel, retained students, HOPE eligibility, completers, financial efficiency and per-pupil spending, ACT) and GaDOE's CCRPI files, newest year of each series, found on the index pages themselves. Board policy manuals and meetings on GSBA's eBOARD/Simbli (`<id>:policies`, browser channel; a policy page carries its GSBA code and adoption date). **Board members, superintendents and principals** read off the districts' board pages and the schools' own pages (school sites are the links the district's "our schools" page gives; each district's superintendent and board pages are followed from its own home page once a month, `schools:district_pages`); each becomes a research candidate with the same packet and profile supplement as everyone on a ballot (official-record mentions, board roll calls from minutes, news, statements), and one who also ran for office keeps the Electo key. Board metrics are counts from the minutes (meetings, recorded votes, unanimous and divided votes, each member's recorded votes), never characterizations. Exported as `schools.json`, `schools/<district>.json` and `school_bounds.json`. |
 | **Legislature** (`gacrawl legis`) | legis.ga.gov's own data service (the calls Electo makes): members and committees, every bill with sponsors, roll calls for landmark bills (`config/legislature.yaml`), passed legislation and then every bill of every followed session whose record shows a floor vote (`votes.all_floor_votes`; newest session first, 400 bills a run on the public runner, a closed session's bill once); per-candidate votes/bills/terms/committees in Electo's profile shapes. Current sessions re-listed every run; history once. |
 | **Vote model** (`gacrawl legis votemodel`, `vote_model.py`, `vote_model.json`) | How each legislator votes, added up. From every member's Yea/Nay on the stored roll calls (no requests): a left-right position per member fitted to the roll calls that divided their chamber; the chance each member votes Yea on a roll call (their position, party and record, the bill's sponsors and committee, how each party and the member voted on the bill's earlier roll calls); and each roll call's expected Yea count, the sum of those chances. Scored forward in time only (a year's votes from the years before it) next to plain rules on the same questions (always Yea, the member's usual vote, the lead sponsor's party, their party on the bill's earlier vote), with a verdict: the file says so when the model is no better than a rule. Built at export when numpy, scipy and scikit-learn are installed (the crawl workflow installs them); positions only until 60 divided roll calls are in the store. |
 | **Legislature votes, night and day** (`.github/workflows/legis-votes.yml`, `scripts/legis_handoff.sh`, `gacrawl/legis_handoff.py`) | The roll calls of every bill since 2015 that reached a floor vote, LegiScan's datasets first (every roll call of a session in one download, so the vote model has the whole history within a night), then legis.ga.gov for up to 2.5 hours a night and three times by day on the public runner (free minutes), at the site's own pace (2 s between requests at night, 4 s by day), newest session first; past bills LegiScan already gave in full come last, where the site's reading is the cross-check. An unreachable site or a refused token is waited out (15 minutes, then again while time is left). It works on a copy of the crawl database and hands what it read to the crawl's next merge (`legis-delta.db.zst`, `legis-kv.json` in the private crawl-data release; applied, then deleted once stored, so it never races the crawl's upload). With nothing left to read it ends in minutes. `gacrawl legis waiting` says how many bills are left. |
@@ -241,29 +241,43 @@ Every crawl run's merge job gives it 15 minutes (`BILL_REASONS_MINUTES`). State:
 For Electo's Policing tab. `gacrawl police` follows each seeded county's and city's **own link** to its police
 department, sheriff's office or public-safety department (same site, or another host the home page itself links to
 that names the place), then up to four of that section's pages (chief / command staff, contact, precincts or zones,
-internal affairs or complaints, records). It keeps, each with the page it was read on: the department's name, the
-chief or sheriff with the title as printed, phone numbers with the label beside them, emails on the government's
-domain, the street address, precincts with their addresses, and the complaint and records pages. Nothing is guessed
-(no pattern-built emails, no inferred chiefs); a missing field was not printed on the pages read. `gacrawl police
-media` reads each outlet in `config/outlets.yaml` for the news-tip addresses on its own contact page. Both are re-read
-after 30 days (`--refresh` sooner). State: `state/police.json`, `state/media.json`. Exported as `police.json`,
-`media.json` and `records_contacts.json` (the open-records contacts the seed found, see below) in the Electo bundle.
-These pages are read by their own workflow, `police.yml` (concurrency group `police`, so it never queues behind
-the crawl): three runs a weeknight and one more on weekend nights, each 30 minutes (`POLICE_MINUTES`), only inside the
-off-peak window; it commits `state/police.json` and `state/media.json` and patches those three files into the
-published bundle (`gacrawl export --policing-only`), so Electo can import them before the nightly export. Once every
-department is current a run ends in a minute or two. Actions -> police -> Run workflow runs one now (outside the
-window it reads nothing).
+internal affairs or complaints, records). A county keeps its sheriff's office and its county police separately (the
+second under `also` in `state/police.json`); a city keeps its police department, or its marshal. When the home page
+links only to a department's services ("File Police Report"), the government's own Departments page is read for the
+landing pages; when its menus are built by scripts (cobbcounty.gov), the sitemaps its robots.txt names are. It keeps,
+each with the page it was read on: the department's name, the chief or sheriff with the title as printed, phone numbers
+with the label beside them, emails on the government's domain, the street address, precincts with their addresses, and
+the complaint and records pages (on a county's site, only the department's own links, never the site-wide "Contact
+Us"). Nothing is guessed (no pattern-built URLs or emails, no inferred chiefs); a missing field was not printed on the
+pages read. A department is re-read after 30 days, a place where none was found after 7, and every place when
+`POLICE_VERSION` changes (`--refresh` reads all now).
 
-`gacrawl police news` then asks GDELT once a week per department for news about it and its chief, keeps only hits
-from the outlets in `config/outlets.yaml` or official pages, opens each, and keeps the ones that name the department
-and describe an incident (shooting, use of force, lawsuit or settlement, firing or suspension, indictment, misconduct
-complaint, investigation, pursuit, in-custody death). Each `police_incident` record carries the excerpt around the
-first cue and the people the article names **with a rank** (Officer, Sgt., Chief, Deputy...); the export groups
-those mentions into per-department profiles (`police_incidents.json`): what was reported, by whom, with every line
-linked to the article. It runs in every crawl run's merge job (it owns the database), 20 minutes
-(`POLICE_NEWS_MINUTES`), with its progress in `state/police_news.json`. `config/outlets.yaml` also says where each outlet reports from (`statewide`, `regions` with
-an anchor point, `county_outlets`, `names`) for Electo's "email the news" picker.
+`gacrawl police roster` reads the FBI's list of every Georgia law enforcement agency (the Crime Data Explorer API,
+api.usa.gov/crime/fbi/cde; once a week, `state/police_roster.json`). It needs an api.data.gov key: `DATA_GOV_API_KEY`,
+else the project's `FEC_API_KEY` (api.data.gov issues it, and one key works for every API it serves), else the public
+DEMO_KEY. The export adds every county's and city's department on that list that the pages did not give (name and ORI,
+`listed_by: "fbi"`), and lists each county's other agencies (campus, school-system, transit and airport police,
+marshals, the State Patrol post) as `others`. `gacrawl police media` reads each outlet in `config/outlets.yaml` for the
+news-tip addresses on its own contact page (re-read after 30 days). State: `state/police.json`, `state/media.json`,
+`state/police_roster.json`. Exported as `police.json`, `media.json` and `records_contacts.json` (the open-records
+contacts the seed found, see below) in the Electo bundle. These are read by their own workflow, `police.yml`
+(concurrency group `police`, so it never queues behind the crawl): three runs a weeknight and one more on weekend
+nights, only inside the off-peak window; it commits the state files and patches those three files into the published
+bundle (`gacrawl export --policing-only`), so Electo can import them before the nightly export. Once every department
+is current a run ends in a minute or two. Actions -> police -> Run workflow runs one now (outside the window it reads
+nothing). Electo's import names every county's sheriff from the Secretary of State's results, so the Policing tab shows
+all 159 even where neither the pages nor the FBI's list has the office.
+
+`gacrawl police news` then asks GDELT once a week per department (those read from their pages and those on the FBI's
+list alike) for news about it and its chief, keeps only hits from the outlets in `config/outlets.yaml` or official
+pages, opens each, and keeps the ones that name the department and describe an incident (shooting, use of force,
+lawsuit or settlement, firing or suspension, indictment, misconduct complaint, investigation, pursuit, in-custody
+death). Each `police_incident` record carries the excerpt around the first cue and the people the article names **with
+a rank** (Officer, Sgt., Chief, Deputy...); the export groups those mentions into per-department profiles
+(`police_incidents.json`, one entry per department, a county's sheriff and police apart): what was reported, by whom,
+with every line linked to the article. It runs early in every crawl run's merge job (it owns the database), up to 15
+minutes, with its progress in `state/police_news.json`. `config/outlets.yaml` also says where each outlet reports from
+(`statewide`, `regions` with an anchor point, `county_outlets`, `names`) for Electo's "email the news" picker.
 
 ## Open records requests (`gacrawl records`)
 

@@ -402,6 +402,15 @@ def _colx(H: list[str], *names: str) -> int | None:
 
 
 def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
+    """The series' rows from a GOSA CSV (_gosa_rows); with none, from the file's own counts when the series says how
+    (`counts`, for files without an all-grades row)."""
+    out = _gosa_rows(text, series_id, s)
+    if not out and s.get("counts"):
+        out = _gosa_counts(text, series_id, s)
+    return out
+
+
+def _gosa_rows(text: str, series_id: str, s: dict) -> list[dict]:
     """GOSA CSVs: one row per place x subgroup (x grade, x category). The series' rules say which rows count:
       value        the column holding the number
       where        {column: value or [values]}: only rows with exactly these values (e.g. LABEL_LVL_1_DESC
@@ -488,6 +497,55 @@ def parse_gosa_csv(text: str, series_id: str, s: dict) -> list[dict]:
             row["value"] = round(row["value"] / row["rows"], 1)     # the mean over the matching rows (EOC courses)
         if not s.get("sum"):
             row.pop("rows", None)
+    return out
+
+
+def _gosa_counts(text: str, series_id: str, s: dict) -> list[dict]:
+    """A percentage from the file's own counts, for a file that has no all-grades row: the rows `counts.where` keeps
+    (all students, one subject) are added up per place across `counts.over` (the grades), and the value is
+    100 x sum(num) / sum(den), the same figure an all-grades row would print. A place with any suppressed count
+    (TFS) among its rows gets no value rather than a partial one."""
+    c = s["counts"]
+    rd = csv.reader(io.StringIO(text))
+    try:
+        H = [h.strip().lstrip("\ufeff").lstrip("#").strip().upper() for h in next(rd)]
+    except StopIteration:
+        return []
+    pc = {k: _colx(H, *v) for k, v in _PLACE.items()}
+    num = [_colx(H, x) for x in c.get("num") or []]
+    den = _colx(H, c.get("den") or "")
+    where = {(_colx(H, k)): {str(v).strip().lower() for v in (vals if isinstance(vals, list) else [vals])}
+             for k, vals in (c.get("where") or {}).items()}
+    if None in num or den is None or None in where or (pc["dc"] is None and pc["dn"] is None):
+        return []
+
+    def cell(r, i):
+        return r[i].strip() if i is not None and i < len(r) else ""
+
+    acc: dict[tuple, dict] = {}
+    for r in rd:
+        if not r or any(cell(r, i).lower() not in ok for i, ok in where.items()):
+            continue
+        dc = cell(r, pc["dc"]).lstrip("0") or cell(r, pc["dc"])
+        sc, sn, dn, year = cell(r, pc["sc"]), cell(r, pc["sn"]), cell(r, pc["dn"]), cell(r, pc["year"])
+        is_school = bool(sc and sc.upper() not in ("ALL", "0", "000") and sn)
+        level = "school" if is_school else ("state" if dc.upper() == "ALL" else "district")
+        a = acc.setdefault((dc, sc if is_school else "", year), {"series": series_id, "year": year, "district_code": dc,
+                                                                 "district_name": dn, "school_code": sc if is_school else "",
+                                                                 "school_name": sn if is_school else "", "level": level,
+                                                                 "n": 0.0, "d": 0.0, "bad": False})
+        vals = [_num(cell(r, i)) for i in num] + [_num(cell(r, den))]
+        if any(v is None for v in vals):
+            a["bad"] = True
+            continue
+        a["n"] += sum(vals[:-1])
+        a["d"] += vals[-1]
+    out = []
+    for a in acc.values():
+        if a.pop("bad") or not a["d"]:
+            continue
+        n, d = a.pop("n"), a.pop("d")
+        out.append({**a, "value": round(100.0 * n / d, 1)})
     return out
 
 
@@ -655,7 +713,9 @@ def stats(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
             n_rows += len(rows)
             log(f"gosa {oid}: {len(rows)} rows ({n} new or changed) from {url.rsplit('/', 1)[-1]}")
             if not rows:
-                out["errors"].append(f"{oid}: no rows matched in {url.rsplit('/', 1)[-1]} (the file's layout may have changed)")
+                head = "" if (s.get("xlsx") or url.lower().endswith((".xlsx", ".xls"))) else fr.content[:400].decode("utf-8", "replace").split("\n", 1)[0]
+                out["errors"].append(f"{oid}: no rows matched in {url.rsplit('/', 1)[-1]} (the file's layout may have changed)"
+                                     + (f"; its columns: {head[:300]}" if head else ""))
         if n_rows:
             store.kv_set(f"schools:gosa:{sid}", f"{url}#p{GOSA_PARSER}")   # read: skipped until the file or parser changes
         out["files"] += 1
@@ -827,6 +887,14 @@ def sites(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
     def timed_out():
         return deadline is not None and time.monotonic() > deadline
 
+    # 0. each district's superintendent and board pages, with up to half of this run's time
+    if fetcher is not None:
+        half = None if deadline is None else time.monotonic() + max(0.0, deadline - time.monotonic()) / 2
+        try:
+            out["people_pages"] = district_people_pages(fetcher, root, store, log=log, deadline=half)
+        except OutOfTime:
+            pass
+
     # 1. school websites, from the district's own pages that list its schools: its home page (the menu names them) and
     #    the pages crawled from its site (source <sd>:site) whose address or title says they list them. The stored
     #    copies mostly keep no links (Nov 12: 480 of 3,416 district pages had any, and no school site was ever found),
@@ -946,6 +1014,99 @@ def sites(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, l
     return out
 
 
+# ----------------------------------------------------------------------------- the districts' own people pages
+SRC_DPAGES = "schools:district_pages"
+SUP_LINK_RX = re.compile(r"\bsuperintendent", re.I)
+SUP_LINK_NOT = re.compile(r"\b(assistant|deputy|associate|area|search|evaluation|contract|former|state school|advisory|"
+                          r"student|teacher|council|cabinet|calendar|application|apply)\b", re.I)
+BOARD_LINK_RX = re.compile(r"\b(board of education|board members|members of the board|school board|our board|meet the board|"
+                           r"board of trustees|boe members|meet our board|board)\b", re.I)
+BOARD_LINK_NOT = re.compile(r"\b(meetings?|agendas?|minutes|polic(?:y|ies)|calendar|videos?|live\s*stream|budget|elections?|"
+                            r"bylaws|boarddocs|simbli|eboard|work session|hearing|retreat|recognition|approved|notices?|"
+                            r"advisory|foundation|health|state board)\b", re.I)
+
+
+def district_people_pages(fetcher: Fetcher, root: Path, store: Store, log=print, deadline: float | None = None) -> dict:
+    """Each district's superintendent and board-member pages, followed from the links on its own home page, once a
+    month, kept as `page` records (source schools:district_pages, meta role "superintendent", "board" or "home"). The
+    district `:site` crawl keeps the pages that hold meetings and minutes: of its pages only 64 named a board or a
+    superintendent (16 superintendents and 51 members for 180 districts, Nov 13, 2026)."""
+    from .registry import jurisdictions
+
+    dists = {j["id"]: j for j in jurisdictions(root) if j.get("kind") == "school_district" or str(j.get("id", "")).startswith("sd-")}
+    checked = json.loads(store.kv_get("schools:people_pages:checked") or "{}")
+    month_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)).isoformat(timespec="seconds")
+    out = {"districts": 0, "pages": 0}
+
+    def timed_out():
+        return deadline is not None and time.monotonic() > deadline
+
+    for did, j in sorted(dists.items()):
+        if timed_out():
+            break
+        if (checked.get(did) or "") > month_ago:
+            continue
+        home = str(j.get("website") or "").strip()
+        if not home:
+            checked[did] = _now()
+            continue
+        try:
+            r = fetcher.get(home)
+        except OutOfTime:
+            break
+        except Exception:  # noqa: BLE001 — a site that refuses or fails waits for next month
+            checked[did] = _now()
+            continue
+        if r.status != 200 or "html" not in (r.content_type or ""):
+            checked[did] = _now()
+            continue
+        host = urlsplit(r.url).netloc.lower().removeprefix("www.")
+        picks: dict[str, list] = defaultdict(list)
+        for a in extract.soup_of(r.text).find_all("a", href=True):
+            lab = re.sub(r"\s+", " ", a.get_text(" ", strip=True))
+            u = urljoin(r.url, a["href"]).split("#")[0]
+            if not u.startswith("http") or u.rstrip("/") == r.url.rstrip("/") or re.search(r"\.(pdf|docx?|jpe?g|png)$", u, re.I):
+                continue
+            if urlsplit(u).netloc.lower().removeprefix("www.") != host:
+                continue                 # the district's own pages only (BoardDocs and Simbli hold meetings, not rosters)
+            hay = f"{lab} {urlsplit(u).path.replace('-', ' ').replace('_', ' ')}"
+            if SUP_LINK_RX.search(hay) and not SUP_LINK_NOT.search(hay):
+                picks["superintendent"].append((2 if SUP_LINK_RX.search(lab) else 1, u))
+            elif BOARD_LINK_RX.search(hay) and not BOARD_LINK_NOT.search(hay) and len(lab) <= 50:
+                picks["board"].append((2 if re.search(r"member|board of education|school board|our board|meet", hay, re.I) else 1, u))
+        pages = [(r.url, r.text, "home")]          # a home page often names its superintendent
+        stopped = False
+        for role in ("superintendent", "board"):
+            for _, u in sorted(picks.get(role, []), key=lambda x: -x[0])[:1]:
+                try:
+                    p = fetcher.get(u)
+                except OutOfTime:
+                    stopped = True
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+                if p.status == 200 and "html" in (p.content_type or ""):
+                    pages.append((p.url, p.text, role))
+            if stopped:
+                break
+        for u, html, role in pages:
+            title, md = extract.html_to_markdown(html, u)
+            if not md:
+                continue
+            store.add(Record(SRC_DPAGES, "page", u, title=title or "", text=md, markdown=md, channel="html", evidence="primary",
+                             jurisdiction=did, key=f"{SRC_DPAGES}|page|{u}",
+                             meta={"district_id": did, "role": role, "opened": True, "found_on": r.url}))
+            out["pages"] += 1
+        if stopped:
+            break
+        checked[did] = _now()
+        out["districts"] += 1
+    store.kv_set("schools:people_pages:checked", json.dumps(checked))
+    store.flush()
+    log(f"district people pages: {out['pages']} pages from {out['districts']} districts")
+    return out
+
+
 # ----------------------------------------------------------------------------- people (board, superintendent, principals)
 SEAT_RX_DEFAULT = r"(?:district|post|seat|area|ward)\s*(\d+|[A-Z]\b)"
 
@@ -994,8 +1155,13 @@ def board_members_from_text(text: str, seat_rx: str = SEAT_RX_DEFAULT) -> list[d
     return out
 
 
+SUP_BEFORE = re.compile(r"(assistant|asst\.?|associate|deputy|former|retired|area|state school|state|georgia)\s*$", re.I)
+
+
 def superintendent_from_text(text: str) -> str | None:
-    return _titled(text, "superintendent", re.compile(r"(assistant|asst\.?|associate|deputy|former|retired)\s*$", re.I))
+    """The district's superintendent as its page names them; never an assistant's, a former one's, or the State School
+    Superintendent's (district pages often quote "State School Superintendent Richard Woods")."""
+    return _titled(text, "superintendent", SUP_BEFORE)
 
 
 def people(root: Path, store: Store, cfg: dict | None = None, log=print) -> dict:
@@ -1025,6 +1191,15 @@ def people(root: Path, store: Store, cfg: dict | None = None, log=print) -> dict
             return
         found[k] = p
 
+    sup_best: dict[str, tuple] = {}
+
+    def sup_cand(prio: int, p: dict):
+        """One superintendent per district: the one its superintendent page names, then its board page, then any other
+        page (a home page can quote a former or the state's superintendent)."""
+        cur = sup_best.get(p["district_id"])
+        if cur is None or prio < cur[0]:
+            sup_best[p["district_id"]] = (prio, p)
+
     n_pages = 0
     for did in dists:
         rows = store.query("source_id=? AND kind='page'", (f"{did}:site",), limit=600)
@@ -1041,14 +1216,41 @@ def people(root: Path, store: Store, cfg: dict | None = None, log=print) -> dict
                 members = [m for m in members if m["role"] not in ("Principal",)]
                 if sum(1 for m in members if m["role"] != "Superintendent") >= 2:
                     for m in members:
-                        put({"name": m["name"], "role": m["role"] if m["role"] != "Superintendent" else "Superintendent", "seat": m["seat"],
-                             "district_id": did, "district_name": dists[did]["name"], "county": dists[did].get("county", ""),
-                             "url": r["url"], "page_title": r.get("title") or "", "line": m["line"], "found_at": r.get("fetched_at") or ""})
+                        (sup_cand if m["role"] == "Superintendent" else (lambda _p, x: put(x)))(1, {
+                            "name": m["name"], "role": m["role"], "seat": m["seat"],
+                            "district_id": did, "district_name": dists[did]["name"], "county": dists[did].get("county", ""),
+                            "url": r["url"], "page_title": r.get("title") or "", "line": m["line"], "found_at": r.get("fetched_at") or ""})
             sup = superintendent_from_text(text)
             if sup:
-                put({"name": sup, "role": "Superintendent", "seat": "", "district_id": did, "district_name": dists[did]["name"],
-                     "county": dists[did].get("county", ""), "url": r["url"], "page_title": r.get("title") or "", "line": "",
-                     "found_at": r.get("fetched_at") or ""})
+                sup_cand(1 if is_sup else 2, {"name": sup, "role": "Superintendent", "seat": "", "district_id": did, "district_name": dists[did]["name"],
+                                              "county": dists[did].get("county", ""), "url": r["url"], "page_title": r.get("title") or "", "line": "",
+                                              "found_at": r.get("fetched_at") or ""})
+    # the districts' own superintendent and board pages (district_people_pages), read live from their home pages
+    for r in store.query("source_id=? AND kind='page'", (SRC_DPAGES,), limit=5000):
+        meta = r.get("meta") or {}
+        if isinstance(meta, str):
+            meta = json.loads(meta or "{}")
+        did = meta.get("district_id") or r.get("jurisdiction") or ""
+        text = r.get("text") or ""
+        if did not in dists or len(text) < 80:
+            continue
+        n_pages += 1
+        if meta.get("role") == "board":
+            members = [m for m in board_members_from_text(text, seat_rx) if m["role"] != "Principal"]
+            if sum(1 for m in members if m["role"] != "Superintendent") >= 2:
+                for m in members:
+                    (sup_cand if m["role"] == "Superintendent" else (lambda _p, x: put(x)))(1, {
+                        "name": m["name"], "role": m["role"], "seat": m["seat"], "district_id": did, "district_name": dists[did]["name"],
+                        "county": dists[did].get("county", ""), "url": r["url"], "page_title": r.get("title") or "", "line": m["line"],
+                        "found_at": r.get("fetched_at") or ""})
+        sup = superintendent_from_text(text)
+        if sup:
+            sup_cand({"superintendent": 0, "board": 1}.get(meta.get("role"), 3),
+                     {"name": sup, "role": "Superintendent", "seat": "", "district_id": did, "district_name": dists[did]["name"],
+                      "county": dists[did].get("county", ""), "url": r["url"], "page_title": r.get("title") or "", "line": "",
+                      "found_at": r.get("fetched_at") or ""})
+    for _, p in sup_best.values():
+        put(p)
     # principals from the school pages
     for r in store.query("source_id=? AND kind='page'", (SRC_SITES,), limit=20000):
         meta = r.get("meta") or {}

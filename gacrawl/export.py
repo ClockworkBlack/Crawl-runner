@@ -335,8 +335,12 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
 
     schools_counts = export_schools(root, store, out, log=log)
     from .police import export_policing
+    from .policing_news import export_incidents
 
     policing_counts = export_policing(root, out, jur)
+    # the incidents the news search filed (police_incident records): never written before Nov 13, 2026, so the
+    # Policing tab's "In the news" and the incident log's news rows stayed empty while the database held them
+    policing_counts["incidents"] = export_incidents(store, out / "police_incidents.json", jur)
     from .bill_reasons import export_reasons
 
     reasons_counts = export_reasons(store, root, out / "bill_reasons.json")

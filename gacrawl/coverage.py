@@ -56,8 +56,10 @@ FEATURES: list[tuple[str, str, str, str]] = [
     ("Schools", "superintendents", "Superintendents", "need"),
     ("Schools", "principals", "Principals", "need"),
     ("Schools", "budget_docs", "School budget documents", "need"),
-    ("Policing", "departments", "Police and sheriff's departments found", "need"),
+    ("Policing", "departments", "Police and sheriff's departments read from their own pages", "need"),
     ("Policing", "chiefs", "Departments with a chief or sheriff named", "need"),
+    ("Policing", "roster_agencies", "Agencies on the FBI's roster (every Georgia law enforcement agency)", "need"),
+    ("Policing", "sheriffs", "Counties with their sheriff's office on file (own pages or the FBI's roster)", "need"),
     ("Policing", "incidents", "Reported incidents", "need"),
     ("Policing", "incident_departments", "Departments with reported incidents", "need"),
     ("Crawl health", "sources_ok", "Sources read completely at least once", "info"),
@@ -125,8 +127,19 @@ def measure(root: Path, store) -> dict[str, int]:
     c["superintendents"], c["principals"] = roles["Superintendent"], roles["Principal"]
     c["budget_docs"] = k("budget_doc")
     police = load_json(root / "state" / "police.json")
-    found = [d for d in police.values() if isinstance(d, dict) and d.get("found")]
+    found = [x for d in police.values() if isinstance(d, dict) and d.get("found")
+             for x in [d] + [y for y in (d.get("also") or []) if isinstance(y, dict) and y.get("found")]]
     c["departments"], c["chiefs"] = len(found), sum(1 for d in found if d.get("chief"))
+    roster = (load_json(root / "state" / "police_roster.json") or {}).get("agencies") or []
+    c["roster_agencies"] = len(roster)
+    try:
+        from .police import department_list
+        from .registry import jurisdictions
+
+        pairs, _, _ = department_list(root, jurisdictions(root))
+        c["sheriffs"] = len({j["id"] for j, d in pairs if d.get("kind") == "sheriff" and j.get("kind") == "county"})
+    except Exception:  # noqa: BLE001
+        c["sheriffs"] = 0
     c["incidents"], c["incident_departments"] = k("police_incident"), places("police_incident")
     prog = load_json(root / "state" / "progress.json")
     st = Counter()
@@ -175,6 +188,8 @@ NOTES = {
     "milestones": "GOSA EOG/EOC files (gacrawl schools stats)",
     "ccrpi": "the CCRPI single score in GOSA's FESR workbooks (gacrawl schools stats)",
     "incidents": "police news: GDELT finds, trusted outlets confirm; Georgia stories that name the department",
+    "roster_agencies": "gacrawl police roster: the FBI's Crime Data Explorer API, once a week (police job)",
+    "sheriffs": "159 counties; a sheriff's office not read from its own pages comes from the FBI's roster",
     "contributions_local": "local candidates file with county or city offices; few publish data the crawler can read",
     "official_places": "officials come from Legistar and similar portals; most towns list theirs only on web pages",
     "video_transcripts": "official captions where the channel has them; YouTube captions are not read",

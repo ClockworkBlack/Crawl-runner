@@ -1406,9 +1406,15 @@ def cmd_profiles(cfg, args):
 
 def cmd_police(cfg, args):
     """Police departments, sheriffs and media tip lines from official pages (Electo's Policing tab)."""
-    from .police import discover_media, discover_police
+    from .police import discover_media, discover_police, read_roster
 
     deadline = time.monotonic() + float(args.max_minutes or 10) * 60
+    if args.action in ("roster", "all"):
+        # the FBI's list of every Georgia agency (an API: any time of day, one request a week)
+        try:
+            print(json.dumps(read_roster(_fetcher(cfg, deadline), cfg["state_dir"], refresh=args.refresh and args.action == "roster")))
+        except Exception as exc:  # noqa: BLE001  the departments' own pages are still read
+            print(f"police roster: {type(exc).__name__}: {exc}"[:200])
     if args.action in ("police", "all"):
         n = discover_police(_fetcher(cfg, deadline), registry.jurisdictions(config.ROOT), cfg["state_dir"], deadline,
                             only=args.only, refresh=args.refresh)
@@ -1554,7 +1560,7 @@ def build_parser() -> argparse.ArgumentParser:
     for flag in ("--candidate", "--url", "--claim", "--author", "--id", "--evidence", "--note"):
         ru.add_argument(flag)
     e = sub.add_parser("export"); e.add_argument("--out"); e.add_argument("--no-packets", action="store_true"); e.add_argument("--policing-only", action="store_true")
-    po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
+    po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "roster", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
     dv = sub.add_parser("derive"); dv.add_argument("--only"); dv.add_argument("--full", action="store_true"); dv.add_argument("--max-minutes", type=float)
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
     fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money", "orgs", "link"])

@@ -1,8 +1,8 @@
 name: police
 
 # Police departments, sheriff's offices and public-safety departments (chief or sheriff, phones, emails, address,
-# precincts, complaint and records pages) from each government's own site, and the news-tip addresses on the
-# outlets in config/outlets.yaml, for Electo's Policing tab. Its own workflow and concurrency group, so it never
+# precincts, complaint and records pages) from each government's own site, the FBI's roster of every Georgia agency
+# (once a week), and the news-tip addresses on the outlets in config/outlets.yaml, for Electo's Policing tab. Its own workflow and concurrency group, so it never
 # queues behind (or displaces) the crawl, the backfill chain or open records.
 #
 # Pages are read only inside the off-peak window (config/settings.yaml schedule): three runs a weeknight, more on
@@ -87,6 +87,10 @@ jobs:
           [ "$G" = "true" ] || echo "::notice::Outside the off-peak window; government pages are read at night. Nothing read."
       - name: Departments and media tip lines (official pages)
         if: steps.window.outputs.go == 'true'
+        env:
+          # the FBI's agency roster (an api.data.gov API, once a week): the FEC key api.data.gov issued works for it too
+          DATA_GOV_API_KEY: ${{ secrets.DATA_GOV_API_KEY }}
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
         run: |
           M="${{ inputs.minutes || steps.window.outputs.free_minutes || vars.POLICE_MINUTES || '30' }}"
           FLAG=""
@@ -97,7 +101,7 @@ jobs:
       - name: Commit state
         if: always() && steps.window.outputs.go == 'true'
         run: |
-          bash scripts/ci_runner.sh push-state "police: $(date -u +%Y-%m-%dT%H:%MZ)" state/police.json state/media.json state/blocked.json
+          bash scripts/ci_runner.sh push-state "police: $(date -u +%Y-%m-%dT%H:%MZ)" state/police.json state/media.json state/police_roster.json state/blocked.json
       - name: Patch the Electo bundle (police.json, media.json, records_contacts.json)
         if: always() && steps.window.outputs.go == 'true'
         run: |
@@ -158,8 +162,10 @@ jobs:
           import json, pathlib
           p = pathlib.Path("state/police.json"); d = json.loads(p.read_text()) if p.exists() else {}
           m = pathlib.Path("state/media.json"); o = json.loads(m.read_text()) if m.exists() else {}
-          found = sum(1 for v in d.values() if v.get("found"))
-          chiefs = sum(1 for v in d.values() if v.get("found") and v.get("chief"))
-          print(f"## Police\n\n- jurisdictions checked: {len(d)}\n- departments found: {found}\n- with a chief or sheriff named: {chiefs}\n"
+          deps = [x for v in d.values() if v.get("found") for x in [v] + list(v.get("also") or [])]
+          r = pathlib.Path("state/police_roster.json"); roster = (json.loads(r.read_text()) if r.exists() else {}).get("agencies") or []
+          print(f"## Police\n\n- jurisdictions checked: {len(d)}\n- departments found on their own pages: {len(deps)} "
+                f"(sheriffs {sum(1 for x in deps if x.get('kind') == 'sheriff')})\n- with a chief or sheriff named: {sum(1 for x in deps if x.get('chief'))}\n"
+                f"- agencies on the FBI's roster: {len(roster)}\n"
                 f"- outlets checked: {len(o)}, with tip addresses: {sum(1 for v in o.values() if v.get('found'))}")
           PY

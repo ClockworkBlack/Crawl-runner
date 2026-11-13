@@ -439,6 +439,54 @@ jobs:
             done < modeld/applied
             rm -f modeld/applied
           fi
+      - name: Schools (registry, statistics, school sites, board members, superintendents, principals)
+        # Early in the job, ahead of the long research block. Placed after it, every part but `people` found no time
+        # left in every run from Nov 7 to Nov 13, 2026 (scripts/budget.sh): the statistics, school sites and budgets
+        # never ran, so Milestones, CCRPI, school pages, principals and budget documents stayed at zero. Each part has
+        # its own small cap here, so the block never holds the research back by more than about half an hour, and
+        # parts with nothing due end in a minute.
+        continue-on-error: true      # a failed part waits for the next run; it must not stop the night's export
+        timeout-minutes: 50
+        run: |
+          M=${{ vars.SCHOOLS_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          part() {    # minutes, then the command; SIGINT after the minutes lets the part save what it read
+            local B; B=$(bash scripts/budget.sh "$1"); shift
+            [ "$B" -gt 0 ] || { echo "no time left for: $*"; return 0; }
+            timeout -s INT -k 1m "$((B + 4))m" "$@" --max-minutes "$B" || echo "$* stopped after $((B + 4)) minutes"
+          }
+          # the registry changes a few times a year (weekly, NCES EDGE)
+          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
+            part "$M" gacrawl schools seed
+          fi
+          # the statistics every run: a file already read is skipped (one request for GOSA's index), so a series added
+          # to config/schools.yaml or a parser change is read by the next run
+          part "$M" gacrawl schools stats
+          # school websites, then each district's superintendent and board pages and each school's principal page
+          part "$M" gacrawl schools sites
+          # GaDOE's funding files; what was read is skipped
+          part 6 gacrawl schools budgets
+          gacrawl schools people || true    # local: from pages already in the database; feeds the research and export
+      - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
+        # Early too, for the same reason as the schools: after the research block it found no time left in every run.
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          # the departments the police job found (its own workflow, inside the off-peak window, keeping its state in
+          # the private repository): its newest files, so this search and tonight's export use them
+          if [ "$PUBLIC_RUNNER" = "true" ] && [ -n "${DATA_REPO:-}" ]; then
+            for f in state/police.json state/media.json state/police_roster.json; do
+              if gh api -H "Accept: application/vnd.github.raw" "repos/$DATA_REPO/contents/$f" > "$f.new" 2>/dev/null \
+                 && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f.new" 2>/dev/null; then mv "$f.new" "$f"; else rm -f "$f.new"; fi
+            done
+          fi
+          # GDELT is an API (any time of day); each department is searched once a week, so this exits early once the
+          # week's searches are done. Stops at the first rate-limit and carries on next run.
+          M=${{ needs.prepare.outputs.police_news_minutes || vars.POLICE_NEWS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
+          [ "$M" -gt 15 ] && M=15
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || echo "police news stopped after $((M + 5)) minutes"
       - name: County election reports (the 2021 and 2023 city seats the state's results do not hold)
         continue-on-error: true      # a search that fails leaves the next run to try; it must not stop the derive or the export
         timeout-minutes: 25
@@ -589,25 +637,6 @@ jobs:
             timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --no-pages --with-hearings --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
           fi
           python3 -c "import json;d=json.load(open('/tmp/lv.json'));print({k:d.get(k) for k in ('histories','video','hearings')})" 2>/dev/null || true
-      - name: Schools (registry, statistics, school sites, board members, superintendents, principals)
-        run: |
-          # the registry and the statistics change a few times a year (weekly, NCES EDGE and GOSA/GaDOE data
-          # services); school websites and the people pages are read a bounded batch at a time, every night
-          M=${{ vars.SCHOOLS_MINUTES || '12' }}; [ "$IS_MAIN" != "true" ] && M=3
-          [ "$PUBLIC_RUNNER" = "true" ] && M=40    # 180 district sites: board, superintendent and school pages
-          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          # each part fits what is left of the job (scripts/budget.sh); a part with no time left waits for the next run
-          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
-            B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools seed --max-minutes "$B" || true; }
-          fi
-          # the statistics every night: a file already read is skipped (one request for GOSA's index), so a series
-          # added to config/schools.yaml (the Milestones scores) or a parser change is read the next night, not on Sunday
-          B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools stats --max-minutes "$B" || true; }
-          B=$(bash scripts/budget.sh "$M"); [ "$B" -gt 0 ] && { gacrawl schools sites --max-minutes "$B" || true; }
-          if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ "$PUBLIC_RUNNER" = "true" ]; then
-            B=$(bash scripts/budget.sh 15); [ "$B" -gt 0 ] && { gacrawl schools budgets --max-minutes "$B" || true; }
-          fi
-          gacrawl schools people || true    # local: from pages already in the database; feeds tonight's research and export
       - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
         run: |
           # each enacted act is read once (about 1,440 for 2023-2026, ~2 requests and ~3 s each: two to three nights
@@ -706,20 +735,6 @@ jobs:
             gacrawl records deadlines > "$Q" || true   # late replies -> one GitHub issue (you're notified)
           fi
           if [ "$PUBLIC_RUNNER" = "true" ]; then gacrawl records status | python3 -c "import sys,json;d=json.load(sys.stdin);print('records requests:',d.get('by_status'),'overdue:',len(d.get('overdue') or []))" || true; else gacrawl records status; fi
-      - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
-        run: |
-          # department contacts and media tip lines are read by police.yml (its own job, inside the off-peak
-          # window, several runs a night); take its latest results so tonight's export and news search use them
-          B="${{ github.event.repository.default_branch }}"
-          if git fetch -q origin "$B"; then
-            for f in state/police.json state/media.json; do git show "origin/$B:$f" > "$f.new" 2>/dev/null && mv "$f.new" "$f" || rm -f "$f.new"; done
-          fi
-          # GDELT is an API (any time of day); each department is searched once a week, so this exits early once the
-          # week's searches are done. Stops at the first rate-limit and carries on next run.
-          M=${{ needs.prepare.outputs.police_news_minutes || vars.POLICE_NEWS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=2
-          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || echo "police news stopped after $((M + 5)) minutes"
       - name: General Assembly, second try (only when legis.ga.gov refused the first one earlier in this run)
         continue-on-error: true
         run: |

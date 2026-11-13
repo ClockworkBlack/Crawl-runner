@@ -53,12 +53,20 @@ gosa:
     act: {match: "ACT_", label: "ACT composite (average score)", where: {SUBGRP_DESC: "All Students", TEST_CMPNT_TYP_CD: "Composite"},
           level_value: {school: "INSTN_AVG_SCORE_VAL", district: "DSTRCT_AVG_SCORE_VAL", state: "STATE_AVG_SCORE_VAL"}}
     # Georgia Milestones (EOG grades 3-8, EOC high school): percent proficient or distinguished, all students
+    # A file with no all-grades row: `counts` adds the grade rows' published counts up per place (proficient +
+    # distinguished over the number tested), the figure an all-grades row would print; a place with a suppressed count
+    # gets none. When neither matches, the run's errors list the file's columns.
     eog_ela: {match: "EOG_", label: "Milestones EOG English Language Arts (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
-              where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "English Language Arts", ACDMC_LVL: "ALL GRADES"}}
+              where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "English Language Arts", ACDMC_LVL: "ALL GRADES"},
+              counts: {num: ["PROFICIENT_CNT", "DISTINGUISHED_CNT"], den: "NUM_TESTED_CNT",
+                       where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "English Language Arts"}}}
     eog_math: {match: "EOG_", label: "Milestones EOG Mathematics (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
-               where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "Mathematics", ACDMC_LVL: "ALL GRADES"}}
+               where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "Mathematics", ACDMC_LVL: "ALL GRADES"},
+               counts: {num: ["PROFICIENT_CNT", "DISTINGUISHED_CNT"], den: "NUM_TESTED_CNT",
+                        where: {SUBGROUP_NAME: "All Students", TEST_CMPNT_TYP_NM: "Mathematics"}}}
     eoc_all: {match: "EOC_", label: "Milestones EOC, all courses (% proficient or above)", add: ["PROFICIENT_PCT", "DISTINGUISHED_PCT"],
-              where: {SUBGROUP_NAME: "All Students", ACDMC_LVL: "ALL GRADES"}, avg: true}
+              where: {SUBGROUP_NAME: "All Students", ACDMC_LVL: "ALL GRADES"}, avg: true,
+              counts: {num: ["PROFICIENT_CNT", "DISTINGUISHED_CNT"], den: "NUM_TESTED_CNT", where: {SUBGROUP_NAME: "All Students"}}}
   max_file_bytes: 150000000
 
 # CCRPI: each school's and district's single score comes from GOSA's FESR workbooks (gosa series fesr_*, read with
