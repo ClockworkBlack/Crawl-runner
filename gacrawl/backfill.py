@@ -175,6 +175,7 @@ def plan(root: Path = ROOT, now=None) -> dict:
             "research_minutes": cfg["research_minutes"], "finance_minutes": cfg["finance_minutes"], "crawl_minutes": cfg["crawl_minutes"],
             "night_shards": cfg["night_shards"], "night_minutes": cfg["night_minutes"],
             "crawl_shards": cfg.get("crawl_shards") or "", "backfill_shards": cfg.get("backfill_shards") or 1,
+            **{"pro_" + k: v for k, v in (cfg.get("pro") or {}).items() if not k.startswith("_")},
             "police_minutes": cfg.get("police_minutes") or "", "police_news_minutes": cfg.get("police_news_minutes") or "",
             "free": free_mode(cfg, now), "free_today": _now(cfg, now).weekday() in ((cfg.get("free") or {}).get("days") or range(7)), **{"free_" + k: v for k, v in (cfg.get("free") or {}).items() if k != "days"}}
 

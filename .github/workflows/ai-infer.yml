@@ -33,14 +33,35 @@ env:
   ELECTO_LLM_NAME: Phi-4
 
 jobs:
+  plan:
+    # how many shards: 12 on GitHub Pro (40 jobs at once), 6 when the account is full (scripts/shards.sh)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.n.outputs.shards }}
+      of: ${{ steps.n.outputs.of }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: scripts}
+      - id: n
+        env:
+          RUNNER_TOKEN: ${{ github.token }}
+          SHARDS_PLAN: ${{ vars.SHARDS_PLAN || 'auto' }}
+        run: |
+          N=$(bash scripts/shards.sh 12 6)
+          echo "$N shards"
+          echo "of=$N" >> "$GITHUB_OUTPUT"
+          echo "shards=$(python3 -c "import json;print(json.dumps(list(range($N))))")" >> "$GITHUB_OUTPUT"
   infer:
+    needs: plan
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
@@ -56,7 +77,7 @@ jobs:
         id: need
         run: |
           cd electo
-          N=$(python3 -I tools/ai/infer_ai.py --list --shard ${{ matrix.shard }} --of 6 2>/dev/null | sed -n 's/^TODO=//p' || true)
+          N=$(python3 -I tools/ai/infer_ai.py --list --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} 2>/dev/null | sed -n 's/^TODO=//p' || true)
           echo "to read: ${N:-not known (an older tool): the model is fetched as before}"
           if [ "$N" = "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
       - name: The open model (Phi-4, 4-bit; kept between runs when the cache has room)
@@ -71,7 +92,7 @@ jobs:
       - name: Infer for this runner's share of the people
         run: |
           M="${{ inputs.minutes || '300' }}"
-          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/infer_ai.py --shard ${{ matrix.shard }} --of 6 --minutes "$M" --out ../shard.json || echo "stopped"
+          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/infer_ai.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || echo "stopped"
           [ -f ../shard.json ] || echo '{"v":1,"p":{}}' > ../shard.json
           cp research/train/infer_ai_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
       - uses: actions/upload-artifact@v4

@@ -18,8 +18,11 @@ http:
     en.wikipedia.org: 1
     query.wikidata.org: 2
     web.archive.org: 4         # the Wayback Machine: its CDX search is held to about 24 a minute (gacrawl/wayback.py)
-    api.open.fec.gov: 3.7      # the FEC's key allows 1,000 calls an hour: one every 3.6 s keeps under it (3 s ran into
-                               # its refusals within the hour, and each one ended that run's federal reading)
+    api.legiscan.com: 2        # LegiScan: a handful of calls a night (dataset list, then only changed datasets)
+    api.open.fec.gov: 1.6      # the FEC raised the key to 7,200 calls an hour (Nov 12, 2026; it was 1,000, at 3.7 s). Three
+                               # jobs can use it at once (the crawl, fec-reread, model-work's organization lookups): one
+                               # call every 1.6 s each is 2,250 an hour, 6,750 for all three, under the limit. A refusal
+                               # still waits for the hour to turn (gacrawl/finance.py)
   # Public data APIs whose operators invite programmatic use with an identifying User-Agent (official websites,
   # campaign finance, nonprofits, companies, school records). robots.txt (written for crawlers indexing pages) isn't
   # applied to exactly these endpoints; spacing, back-off and the block list still are, and a refusal on the API
@@ -30,6 +33,7 @@ http:
     - api.open.fec.gov/v1
     - projects.propublica.org/nonprofits/api
     - api.opencorporates.com
+    - api.legiscan.com             # LegiScan's API (a free key; weekly state datasets): the backup source for roll calls
     # NCES EDGE's own feature services (public-domain school, district and college data, published by NCES as a
     # query API); the shared ArcGIS host has no robots.txt at all (/robots.txt answers 403 "Invalid URL"), which the
     # crawler would otherwise read as "disallow everything"

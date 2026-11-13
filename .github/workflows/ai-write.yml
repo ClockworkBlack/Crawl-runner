@@ -30,14 +30,35 @@ env:
   IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
 
 jobs:
+  plan:
+    # how many shards: 4 on GitHub Pro (40 jobs at once), 2 when the account is full (scripts/shards.sh)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.n.outputs.shards }}
+      of: ${{ steps.n.outputs.of }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: scripts}
+      - id: n
+        env:
+          RUNNER_TOKEN: ${{ github.token }}
+          SHARDS_PLAN: ${{ vars.SHARDS_PLAN || 'auto' }}
+        run: |
+          N=$(bash scripts/shards.sh 4 2)
+          echo "$N shards"
+          echo "of=$N" >> "$GITHUB_OUTPUT"
+          echo "shards=$(python3 -c "import json;print(json.dumps(list(range($N))))")" >> "$GITHUB_OUTPUT"
   write:
+    needs: plan
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
@@ -65,7 +86,7 @@ jobs:
         run: |
           M="${{ inputs.minutes || '240' }}"
           cd electo && python3 -I tools/ai/profile_write.py --list
-          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profile_write.py --shard ${{ matrix.shard }} --of 2 --minutes "$M" --out ../shard.json || echo "stopped"
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profile_write.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || echo "stopped"
           [ -f ../shard.json ] || echo '{"v":1,"p":{}}' > ../shard.json
           cp research/train/profile_write_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
       - uses: actions/upload-artifact@v4

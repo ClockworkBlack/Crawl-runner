@@ -42,6 +42,9 @@
                                          enacted 2023-2026 acts parsed into exact Code changes (as-passed text,
                                          struck/underlined words) for Electo's current Code text
   gacrawl legis votemodel                How each legislator votes, added up, tested on later votes (no requests)
+  gacrawl legis legiscan                 LegiScan's weekly datasets: backup source and cross-check for roll calls (LEGISCAN_API_KEY)
+  gacrawl legis waiting                  How many bills' roll calls are still to read (no requests)
+  gacrawl legis export-kv|apply          The nightly legis-votes job's hand-off to the crawl
   gacrawl legis [update|people|all] [--max-minutes M] [--max-bills N]
                                          General Assembly members, bills, roll calls; per-candidate legislature records
   gacrawl schools seed|stats|sites|people|all [--max-minutes M] [--refresh]
@@ -905,7 +908,8 @@ def cmd_legis(cfg, args):
             print(json.dumps({"update": "the earlier try was not refused; nothing to do"}))
             return
         if args.action in ("update", "all"):
-            out["update"] = update(_fetcher(cfg, deadline), store, config.ROOT, deadline=deadline, max_bills=args.max_bills)
+            out["update"] = update(_fetcher(cfg, deadline), store, config.ROOT, deadline=deadline, max_bills=args.max_bills,
+                                   votes_only=getattr(args, "votes_only", False))
             # a refusal leaves a marker, so the merge job's second try later in the run knows to ask again; so does a
             # site that could not be reached at all (Nov 12, 02:50 UTC: a connection timeout stopped the step and, not
             # being a refusal, got no second try that run); a try that is neither clears it
@@ -958,6 +962,27 @@ def cmd_legis(cfg, args):
 
             out["meetings"] = meetings_run(_fetcher(cfg, deadline), store, deadline, dry_run=getattr(args, "dry_run", False),
                                            log=lambda *x: print(*x, file=sys.stderr, flush=True))
+        if args.action == "legiscan":
+            # LegiScan's weekly datasets: the backup source for roll calls (one call a run unless a dataset changed)
+            from .sources.legiscan import update as legiscan_update
+
+            out["legiscan"] = legiscan_update(_fetcher(cfg, deadline), store, deadline=deadline)
+        if args.action == "waiting":
+            # how many bills' roll calls are still to read (no requests); the nightly legis-votes job reads it
+            from .sources.legis import votes_waiting
+
+            print(votes_waiting(store, config.ROOT))
+            return
+        if args.action == "export-kv":
+            # the nightly job's hand-off: which bills' roll calls it read, and which LegiScan datasets
+            from .legis_handoff import export_kv
+
+            out["export_kv"] = export_kv(store, Path(args.out), since=getattr(args, "since", None))
+        if args.action == "apply":
+            # the crawl applies the nightly job's hand-off: its records (a delta database) and its marks
+            from .legis_handoff import apply
+
+            out["apply"] = apply(store, Path(args.delta) if args.delta else None, Path(args.kv) if args.kv else None)
         if args.action == "votemodel":
             # every member's recorded votes -> positions, a tested vote model, expected counts (no requests)
             from .vote_model import export_vote_model
@@ -1540,13 +1565,16 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
-    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "votemodel", "meetings", "all"])
+    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "votemodel", "meetings", "legiscan", "waiting", "export-kv", "apply", "all"])
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
     lg.add_argument("--dry-run", action="store_true", help="meetings: read and report; keep nothing")
     lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
     lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
     lg.add_argument("--if-refused", action="store_true",
                     help="update: only when legis.ga.gov refused this run's earlier try (a second try later in the run)")
+    lg.add_argument("--votes-only", action="store_true", help="update: roll calls only (the nightly legis-votes job)")
+    lg.add_argument("--out", help="export-kv: the hand-off file"); lg.add_argument("--since", help="export-kv: marks set since")
+    lg.add_argument("--delta", help="apply: the delta database"); lg.add_argument("--kv", help="apply: the marks file")
     sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")

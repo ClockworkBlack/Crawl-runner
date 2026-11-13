@@ -47,6 +47,12 @@
     "finance_minutes": 40,
     "police_minutes": 60,
     "police_news_minutes": 40,
-    "until": ""
+    "until": "",
+    "pro": {
+      "_why": "GitHub Pro (40 jobs at once, since Nov 2026): more crawl jobs at once; the same sites at the same polite pace, each host in one job. scripts/shards.sh falls back to the sizes above when the account is full (the plan ended).",
+      "night_shards": 12,
+      "crawl_shards": 10,
+      "backfill_shards": 8
+    }
   }
 }

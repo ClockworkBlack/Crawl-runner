@@ -1,7 +1,10 @@
 """How each legislator votes, added up to how the chamber votes (vote_model.json in the Electo bundle).
 
-Built at export from what `gacrawl legis update` stored (no requests): every member's Yea or Nay on every roll call
-read so far, and each bill's sponsors and committees.
+Built at export from what `gacrawl legis update` and `gacrawl legis legiscan` stored (no requests): every member's Yea
+or Nay on every roll call read so far, and each bill's sponsors and committees. legis.ga.gov's roll calls come first;
+LegiScan's fill the ones legis.ga.gov did not give or gave with a member list that did not add up to its own tally,
+and every roll call both have is compared (`sources`: how often the tallies and the member votes agree, and each
+disagreement).
 
   positions   one left-right number per member, fitted to their recorded votes on the roll calls that divided the
               chamber (a one-dimensional item-response model, the family NOMINATE scores come from). Higher = votes
@@ -54,6 +57,95 @@ def kind_of(caption: str) -> str:
 
 
 # ----------------------------------------------------------------------------- the records
+LEGISCAN = "ga:legiscan"
+MAX_DISAGREEMENTS = 60
+
+
+def _num(b: str) -> str:
+    return re.sub(r"\s+", "", (b or "").upper())
+
+
+def pick_roll_calls(store) -> tuple[list[dict], dict]:
+    """Every roll call to learn from, one per real roll call: legis.ga.gov's when its member list adds up to its own
+    tally (or was stored before that check existed), else LegiScan's copy of the same roll call; a roll call only
+    LegiScan has is taken from it. Both sources' copies of one roll call are compared, tally and member by member."""
+    def good(m):
+        return (m.get("check") or {}).get("ok", True)
+
+    legis_rc, bad_legis = [], []
+    for v in store.iter_query("kind='vote' AND source_id=?", (LEGIS,)):
+        m = dict(v["meta"], url=v.get("url") or "", src="legis.ga.gov")
+        if m.get("substantive") and re.match(r"\d{4}-\d\d-\d\d", m.get("date") or ""):
+            (legis_rc if good(m) else bad_legis).append(m)
+    ls_rc = []
+    for v in store.iter_query("kind='vote' AND source_id=?", (LEGISCAN,)):
+        m = dict(v["meta"], url=v.get("url") or "", src="LegiScan")
+        if m.get("substantive") and good(m) and re.match(r"\d{4}-\d\d-\d\d", m.get("date") or ""):
+            ls_rc.append(m)
+
+    def keys(m):
+        k = []
+        if m.get("legislation_id"):
+            k.append(("id", m["legislation_id"], m.get("chamber"), m.get("date")))
+        if m.get("bill"):
+            k.append(("no", _num(m["bill"]), m.get("chamber"), m.get("date")))
+        return k
+
+    def index(rows):
+        ix = defaultdict(list)
+        for i, m in enumerate(rows):
+            for k in keys(m):
+                ix[k].append(i)
+        return ix
+
+    def find(m, ix, rows):
+        cand = []
+        for k in keys(m):
+            cand += [i for i in ix.get(k, []) if i not in cand]
+        if len(cand) > 1:          # two roll calls on one bill the same day: the one with the same tally
+            same = [i for i in cand if (rows[i].get("yea"), rows[i].get("nay")) == (m.get("yea"), m.get("nay"))]
+            cand = same[:1] if same else []
+        return cand[0] if cand else None
+
+    ix_legis, ix_bad = index(legis_rc), index(bad_legis)
+    used = []
+    stats = {"legis_roll_calls": len(legis_rc), "legis_failed_check": len(bad_legis), "legiscan_roll_calls": len(ls_rc),
+             "compared": 0, "tallies_agree": 0, "member_votes_compared": 0, "member_votes_agree": 0,
+             "filled_from_legiscan": 0, "replaced_by_legiscan": 0, "disagreements": []}
+    taken = set()
+    for m in ls_rc:
+        i = find(m, ix_legis, legis_rc)
+        if i is not None:
+            if i in taken:
+                continue
+            taken.add(i)
+            a = legis_rc[i]
+            stats["compared"] += 1
+            same_tally = (int(a.get("yea") or 0), int(a.get("nay") or 0)) == (int(m.get("yea") or 0), int(m.get("nay") or 0))
+            stats["tallies_agree"] += same_tally
+            mine = {x.get("person_id"): x.get("vote") for x in a.get("votes") or [] if x.get("vote") in ("Yea", "Nay")}
+            theirs = {x.get("person_id"): x.get("vote") for x in m.get("votes") or [] if x.get("vote") in ("Yea", "Nay")}
+            both = [k for k in mine if k in theirs and not str(k).startswith("ls:")]
+            diff = [k for k in both if mine[k] != theirs[k]]
+            stats["member_votes_compared"] += len(both)
+            stats["member_votes_agree"] += len(both) - len(diff)
+            if (diff or not same_tally) and len(stats["disagreements"]) < MAX_DISAGREEMENTS:
+                names = {x.get("person_id"): x.get("person") for x in a.get("votes") or []}
+                stats["disagreements"].append({"bill": a.get("bill"), "date": a.get("date"), "chamber": a.get("chamber"), "u": a.get("url"),
+                                               "legiscan_u": m.get("url"), "tally": [[a.get("yea"), a.get("nay")], [m.get("yea"), m.get("nay")]],
+                                               "members": [{"name": names.get(k), "legis": mine[k], "legiscan": theirs[k]} for k in diff[:10]]})
+            continue
+        if find(m, ix_bad, bad_legis) is not None:
+            stats["replaced_by_legiscan"] += 1
+        else:
+            stats["filled_from_legiscan"] += 1
+        used.append(m)
+    for k in ("tallies_agree", "member_votes_agree"):
+        base = stats["compared"] if k == "tallies_agree" else stats["member_votes_compared"]
+        stats[k.replace("agree", "agree_share")] = round(stats[k] / base, 4) if base else None
+    return legis_rc + used, stats
+
+
 def load(store):
     """Roll calls with every member's Yea/Nay, and what is known of each bill before any vote on it."""
     import numpy as np
@@ -61,11 +153,9 @@ def load(store):
     ids: dict = {}
     names, party_of, chamber_of = {}, {}, {}
     rcs = []
-    for v in store.iter_query("kind='vote' AND source_id=?", (LEGIS,)):
-        m = v["meta"]
+    picked, source_stats = pick_roll_calls(store)
+    for m in picked:
         date = m.get("date") or ""
-        if not m.get("substantive") or not re.match(r"\d{4}-\d\d-\d\d", date):
-            continue
         mem, yes = [], []
         for r in m.get("votes") or []:
             pid = r.get("person_id")
@@ -79,12 +169,13 @@ def load(store):
             yes.append(1.0 if r["vote"] == "Yea" else 0.0)
         if len(mem) < 10:
             continue
-        rcs.append({"id": m.get("VoteId"), "legid": m.get("legislation_id"), "date": date, "year": int(date[:4]),
+        rcs.append({"id": m.get("VoteId") or m.get("roll_call_id"), "legid": m.get("legislation_id") or ("no", _num(m.get("bill"))),
+                    "date": date, "year": int(date[:4]),
                     "ch": "S" if (m.get("chamber") or "").startswith("S") else "H", "bill": m.get("bill") or "",
                     "session": m.get("session_name") or "", "cap": f"{m.get('vote_name') or ''} {m.get('vote_caption') or ''}".strip(),
-                    "kind": kind_of(m.get("vote_caption") or m.get("vote_name") or ""), "url": v.get("url") or "",
+                    "kind": kind_of(m.get("vote_caption") or m.get("vote_name") or ""), "url": m.get("url") or "", "src": m.get("src"),
                     "m": np.array(mem, dtype=np.int64), "y": np.array(yes, dtype=np.float32)})
-    rcs.sort(key=lambda r: (r["date"], r["legid"] or 0, r["id"] or 0))
+    rcs.sort(key=lambda r: (r["date"], str(r["legid"]), str(r["id"])))
     for j, r in enumerate(rcs):
         r["j"] = j
     n = len(ids)
@@ -97,7 +188,7 @@ def load(store):
         bills[m.get("legislation_id")] = {"sponsors": sp, "local": 1.0 if re.search(r"\blocal\b", com, re.I) else 0.0,
                                           "resolution": 1.0 if re.match(r"[HS]R\b", m.get("number") or "") else 0.0}
     members = [{"id": pid, "name": names.get(i, ""), "chamber": chamber_of.get(i, "")} for pid, i in sorted(ids.items(), key=lambda t: t[1])]
-    return members, party, rcs, bills
+    return members, party, rcs, bills, source_stats
 
 
 def contested(r) -> bool:
@@ -329,7 +420,7 @@ def _table(y, P, X, groups):
 def build(store, log=print) -> dict:
     import numpy as np
 
-    members, party, rcs, bills = load(store)
+    members, party, rcs, bills, source_stats = load(store)
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     divided = [r for r in rcs if contested(r)]
     out = {"v": 1, "built": now,
@@ -341,7 +432,10 @@ def build(store, log=print) -> dict:
            "built_from": {"roll_calls": len(rcs), "divided_roll_calls": len(divided), "votes": int(sum(len(r["m"]) for r in rcs)),
                           "members": len(members), "bills": len({r["legid"] for r in rcs}),
                           "years": sorted({r["year"] for r in rcs})},
-           "members": [], "test": None, "macro": None}
+           "members": [], "test": None, "macro": None,
+           "sources": {**source_stats, "used": {"legis.ga.gov": sum(1 for r in rcs if r.get("src") == "legis.ga.gov"),
+                                                "LegiScan": sum(1 for r in rcs if r.get("src") == "LegiScan")},
+                       "credit": "Roll calls from legis.ga.gov; any marked LegiScan are from LegiScan (legiscan.com), CC BY 4.0."}}
     if not rcs:
         out["status"] = "no roll calls read yet"
         return out
@@ -415,7 +509,7 @@ def build(store, log=print) -> dict:
             continue
         k, exp, act = int(sel.sum()), float(P[sel].sum()), int(y[sel].sum())
         pr = party[mem[sel]] > 0
-        rows.append({"bill": r["bill"], "session": r["session"], "date": r["date"], "vote": r["cap"][:120], "u": r["url"], "voting": k,
+        rows.append({"bill": r["bill"], "session": r["session"], "date": r["date"], "vote": r["cap"][:120], "u": r["url"], "src": r.get("src"), "voting": k,
                      "yea": act, "expected_yea": round(exp, 1), "carried": act > k / 2, "called": exp > k / 2,
                      "first": not bool(has_prev[sel][0]), "divided": contested(r),
                      "R": [int(y[sel][pr].sum()), round(float(P[sel][pr].sum()), 1)],

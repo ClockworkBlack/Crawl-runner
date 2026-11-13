@@ -226,6 +226,7 @@ class Legis:
                               "party": PARTY.get(m.get("party"), ""), "district": m.get("districtNumber")})
             chamber = "Senate" if (v.get("name") or "").startswith("Senate") else "House"
             yea, nay = v.get("yea") or 0, v.get("nay") or 0
+            check = check_roll_call({"yea": yea, "nay": nay, "not_voting": v.get("notVoting"), "excused": v.get("excused")}, votes, chamber)
             out.append(Record(SOURCE, "vote", f"{SITE}/legislation/{lid}", title=f"{number} — {v.get('name')}: {v.get('caption') or ''}"[:300],
                               text=f"{number} ({session_name}) {caption}\n{v.get('name')} {v.get('caption')}: {yea}-{nay}",
                               published=_d10(v.get("date")), channel="api", jurisdiction="ga", evidence="primary",
@@ -235,8 +236,40 @@ class Legis:
                                     "EventBodyName": f"Georgia {chamber}", "chamber": chamber, "date": _d10(v.get("date")),
                                     "yea": yea, "nay": nay, "not_voting": v.get("notVoting"), "excused": v.get("excused"),
                                     "result": "passed" if yea > nay else "failed", "substantive": _substantive(v.get("caption") or ""),
-                                    "votes": votes, "opened": True, "opened_url": f"{API}Vote/detail/{v['id']}"}))
+                                    "votes": votes, "check": check, "opened": True, "opened_url": f"{API}Vote/detail/{v['id']}"}))
         return out
+
+
+SEATS = {"House": 180, "Senate": 56}
+CHECK_TRIES = 3          # a bill whose roll calls fail the check is read again on later runs, this many times at most
+
+
+def check_roll_call(reported: dict, votes: list[dict], chamber: str) -> dict:
+    """Whether a roll call's member-by-member list is whole and agrees with the tally the site reports beside it:
+    Yea and Nay counted from the list equal the reported Yea and Nay, the members who did not vote (excused or not
+    voting, taken together) equal the reported ones, nobody is listed twice, and no more members than the chamber has
+    seats. A list that fails is kept but marked, read again later, and left out of the vote model."""
+    from collections import Counter
+
+    c = Counter(v.get("vote") for v in votes)
+    issues = []
+    for label, field in (("Yea", "yea"), ("Nay", "nay")):
+        if c.get(label, 0) != int(reported.get(field) or 0):
+            issues.append(f"{label}: {c.get(label, 0)} listed, {int(reported.get(field) or 0)} reported")
+    others = c.get("Not voting", 0) + c.get("Excused", 0)
+    rep_others = int(reported.get("not_voting") or 0) + int(reported.get("excused") or 0)
+    if others != rep_others:
+        issues.append(f"not voting or excused: {others} listed, {rep_others} reported")
+    ids = [v.get("person_id") for v in votes if v.get("person_id") is not None]
+    if len(ids) != len(set(ids)):
+        issues.append(f"{len(ids) - len(set(ids))} member(s) listed twice")
+    seats = SEATS.get(chamber)
+    if seats and len(votes) > seats:
+        issues.append(f"{len(votes)} members listed; the {chamber} has {seats} seats")
+    unknown = sum(1 for v in votes if not v.get("party"))
+    if votes and unknown > max(2, len(votes) // 20):
+        issues.append(f"{unknown} voters not on the session's member list")
+    return {"ok": not issues, "listed": len(votes), "issues": issues}
 
 
 def _substantive(caption: str) -> bool:
@@ -263,8 +296,67 @@ def load_config(root) -> dict:
     return yaml.load(p.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) if p.exists() else {}
 
 
-def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, log=print, max_bills: int | None = None) -> dict:
-    """Members, legislation and roll calls, incrementally, within the deadline."""
+def _read_already(store: Store, b: dict, current: list) -> bool:
+    prev = store.kv_get(f"legis:votes:{b['meta']['legislation_id']}")
+    return bool(prev) and (prev >= (b["meta"].get("status_date") or "") or b["meta"].get("session") not in current)
+
+
+def votes_todo(store: Store, cfg: dict, current: list, history: list) -> list[tuple[int, int, dict]]:
+    """The bills whose roll calls are wanted, in reading order: landmark bills, the current sessions' passed bills,
+    then every other bill of a followed session that reached a floor vote, newest session first, and last the past
+    bills LegiScan already gave in full (the site reading them is the cross-check) (no requests)."""
+    votes_cfg = cfg.get("votes") or {}
+    wanted = {(int(kb["session"]), kb["bill"]) for kb in votes_cfg.get("key_bills") or []}
+    passed_current = votes_cfg.get("all_passed_in_current", True)
+    every_floor = votes_cfg.get("all_floor_votes", True)
+    followed = set(current) | set(history)
+    covered = legiscan_covered(store)
+    todo = []
+    for b in store.iter_query("source_id=? AND kind='bill'", (SOURCE,)):
+        m = b["meta"]
+        sid = m.get("session")
+        if (sid, m.get("number")) in wanted:
+            todo.append((1, 0, b))
+        elif passed_current and sid in current and (PASSED_RX.search(m.get("status") or "") or m.get("enacted")):
+            todo.append((2, 0, b))
+        elif every_floor and sid in followed and reached_floor(m):
+            # LegiScan first: a past bill whose every roll call LegiScan already gave, each adding up to its own tally,
+            # is in the vote model already; the site's reading of it is the cross-check, so it waits behind the bills
+            # no source has given yet
+            todo.append((4 if m.get("legislation_id") in covered else 3, -int(sid or 0), b))
+    return sorted(todo, key=lambda t: t[:2])
+
+
+def legiscan_covered(store: Store) -> set:
+    """legis.ga.gov legislation ids whose LegiScan roll calls are all on file and all pass check_roll_call (no requests)."""
+    ok, bad = set(), set()
+    for v in store.iter_query("source_id='ga:legiscan' AND kind='vote'"):
+        m = v.get("meta") or {}
+        lid = m.get("legislation_id")
+        if lid is None:
+            continue
+        (ok if (m.get("check") or {}).get("ok") else bad).add(lid)
+    return ok - bad
+
+
+def votes_waiting(store: Store, root) -> int:
+    """How many bills' roll calls are still to read (no requests): the nightly job ends at once when this is 0."""
+    from .. import legis_sessions
+
+    S = legis_sessions.load(root, store)
+    seen, n = set(), 0
+    for _, _, b in votes_todo(store, load_config(root), S["current"], S["history"]):
+        lid = b["meta"]["legislation_id"]
+        if lid not in seen:
+            seen.add(lid)
+            n += not _read_already(store, b, S["current"])
+    return n
+
+
+def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, log=print, max_bills: int | None = None,
+           votes_only: bool = False) -> dict:
+    """Members, legislation and roll calls, incrementally, within the deadline. votes_only: roll calls alone (the
+    nightly legis-votes job; the crawl keeps members and bill lists current)."""
     from .. import legis_sessions
 
     cfg = load_config(root)
@@ -281,7 +373,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
 
     try:
         # 0. the legislature's own list of sessions: a session newer than the config's is followed from now on
-        if not timed_out():
+        if not timed_out() and not votes_only:
             try:
                 legis_sessions.save(store, api.call("sessions"))
             except (Blocked, Disallowed, TokenRefused):
@@ -294,7 +386,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                 log(f"  sessions the legislature lists beyond config/legislature.yaml, now followed: {S['new']}")
         # 1. members: current sessions every run; past sessions once. A member's detail (which lists every
         #    session they served) is read once per recheck period, however many session lists name them.
-        order = sorted(set(current) | set(history), key=lambda s: (s in current, s), reverse=True)
+        order = [] if votes_only else sorted(set(current) | set(history), key=lambda s: (s in current, s), reverse=True)
         for sid in order:
             if timed_out():
                 break
@@ -327,7 +419,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
             out["sessions"].append(sid)
         store.flush()
         # 2. legislation: current sessions every run; past sessions once
-        for sid in current + [s for s in history if s not in current]:
+        for sid in ([] if votes_only else current + [s for s in history if s not in current]):
             if timed_out():
                 break
             done_key = f"legis:legislation:{sid}"
@@ -343,23 +435,8 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
             store.flush()
         # 3. roll calls: landmark bills first, then what passed in the current sessions, then every other bill that
         #    reached a floor vote, newest session first (budgeted; a closed session's bill is read once)
-        votes_cfg = cfg.get("votes") or {}
-        budget = max_bills if max_bills is not None else int(votes_cfg.get("max_bills_per_run", 40))
-        todo: list[tuple[int, dict]] = []
-        # one pass over the stored bills (instead of a filtered scan per landmark bill)
-        wanted = {(int(kb["session"]), kb["bill"]) for kb in votes_cfg.get("key_bills") or []}
-        passed_current = votes_cfg.get("all_passed_in_current", True)
-        every_floor = votes_cfg.get("all_floor_votes", True)
-        followed = set(current) | set(history)
-        for b in store.iter_query("source_id=? AND kind='bill'", (SOURCE,)):
-            m = b["meta"]
-            sid = m.get("session")
-            if (sid, m.get("number")) in wanted:
-                todo.append((1, 0, b))
-            elif passed_current and sid in current and (PASSED_RX.search(m.get("status") or "") or m.get("enacted")):
-                todo.append((2, 0, b))
-            elif every_floor and sid in followed and reached_floor(m):
-                todo.append((3, -int(sid or 0), b))
+        budget = max_bills if max_bills is not None else int((cfg.get("votes") or {}).get("max_bills_per_run", 40))
+        todo = votes_todo(store, cfg, current, history)
         seen_ids = set()
         fetched = 0
         waiting = 0
@@ -368,10 +445,9 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
             if lid in seen_ids:
                 continue
             seen_ids.add(lid)
-            mark = f"legis:votes:{lid}"
-            prev = store.kv_get(mark)
-            if prev and (prev >= (b["meta"].get("status_date") or "") or b["meta"]["session"] not in current):
+            if _read_already(store, b, current):
                 continue  # fetched since the bill last moved
+            mark = f"legis:votes:{lid}"
             if timed_out() or fetched >= budget:
                 waiting += 1   # counted, so each run says how many bills' roll calls are still to read
                 continue
@@ -383,9 +459,18 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                 log(f"  votes {lid}: {type(exc).__name__}: {exc}"[:200])
                 continue
             fetched += 1
+            bad = 0
             for r in recs:
+                bad += not (r.meta.get("check") or {}).get("ok", True)
                 if store.add(r):
                     out["votes"] += 1
+            if bad:
+                # a list that does not add up to its own tally: read again on a later run, CHECK_TRIES times at most
+                tries = int(store.kv_get(f"legis:votes_try:{lid}") or 0) + 1
+                store.kv_set(f"legis:votes_try:{lid}", str(tries))
+                out["failed_check"] = out.get("failed_check", 0) + bad
+                if tries < CHECK_TRIES:
+                    continue
             store.kv_set(mark, dt.date.today().isoformat())
         out["vote_bills"], out["vote_bills_waiting"] = fetched, waiting
         store.flush()

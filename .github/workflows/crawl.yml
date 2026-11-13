@@ -123,22 +123,25 @@ jobs:
           eval "$(python -m gacrawl.backfill plan | sed 's/^/BF_/')"
           echo "backfill: active=$BF_active go=$BF_go ($BF_why)"
           [ -n "$BF_crawl_shards" ] && N=$BF_crawl_shards     # public runner: more parallel crawl jobs
+          PN=${BF_pro_crawl_shards:-}                          # the same on GitHub Pro (config/backfill.json runner.pro)
           echo "police_news=$BF_police_news_minutes" >> "$GITHUB_OUTPUT"
           JOB="${{ inputs.job || '' }}"
           CRAWL=false; RESEARCH=false; SKIP=false
           if [ "$JOB" = "" ] || [ "$JOB" = "crawl" ] || [ "$JOB" = "all" ]; then CRAWL=true; fi
           if [ "$WEEKLY" = "true" ] || [ "$JOB" = "candidates" ] || [ "$JOB" = "all" ]; then RESEARCH=true; fi
           if [ "$BACKFILL" = "true" ]; then
-            if [ "$BF_go" = "true" ]; then CRAWL=true; RESEARCH=true; N=$BF_backfill_shards; MIN=$BF_crawl_minutes; else CRAWL=false; SKIP=true; fi
+            if [ "$BF_go" = "true" ]; then CRAWL=true; RESEARCH=true; N=$BF_backfill_shards; PN=${BF_pro_backfill_shards:-}; MIN=$BF_crawl_minutes; else CRAWL=false; SKIP=true; fi
           elif [ "$NIGHTLY" = "true" ] && [ "$BF_active" = "true" ]; then
-            N=$BF_night_shards; MIN=$BF_night_minutes    # more council minutes and roll calls inside the off-peak window
+            N=$BF_night_shards; PN=${BF_pro_night_shards:-}; MIN=$BF_night_minutes    # more council minutes and roll calls inside the off-peak window
           fi
           if [ "$BF_free" = "True" ] && [ "$BACKFILL" != "true" ]; then
-            N=$BF_free_shards; MIN=$BF_free_minutes      # free mode: inside GitHub's included minutes
+            N=$BF_free_shards; PN=""; MIN=$BF_free_minutes      # free mode: inside GitHub's included minutes
             echo "free mode: $N x $MIN minutes"
             if [ "$NIGHTLY" = "true" ] && [ "$BF_free_today" != "True" ]; then CRAWL=false; RESEARCH=false; SKIP=true; echo "free mode: not a crawl night"; fi
           fi
           echo "free=$BF_free" >> "$GITHUB_OUTPUT"
+          # GitHub Pro (40 jobs at once): the larger size, unless the account is full right now (scripts/shards.sh)
+          if [ -n "${PN:-}" ] && [ "$PUBLIC_RUNNER" = "true" ]; then N=$(RUNNER_TOKEN="${{ github.token }}" SHARDS_PLAN="${{ vars.SHARDS_PLAN || 'auto' }}" bash scripts/shards.sh "$PN" "$N"); echo "crawl jobs: $N"; fi
           if [ "$IS_MAIN" != "true" ]; then
             N=1; MIN=${{ vars.DEV_CRAWL_MINUTES || '8' }}; BF_research_minutes=10; BF_finance_minutes=5
             echo "test run from ${{ github.ref_name }}: 1 shard x $MIN minutes, writes to $DATA_TAG only"
@@ -356,6 +359,9 @@ jobs:
             # the hand-off is deleted only once the database holding it is stored (the next step that stores it):
             # a run that dies before then leaves it for the next run instead of losing it
           else echo "no parallel FEC re-read waiting"; fi
+      - name: Apply the nightly legislature votes (legis-votes workflow), before the legislature step and the export
+        continue-on-error: true
+        run: bash scripts/legis_handoff.sh apply
       - name: Apply the parallel Georgia money read (ga-money workflow), before the Georgia step links its donors
         continue-on-error: true
         run: |
@@ -404,6 +410,7 @@ jobs:
         timeout-minutes: 20
         run: |
           bash scripts/ci_db.sh push
+          [ "$IS_MAIN" = "true" ] && { bash scripts/legis_handoff.sh cleanup || true; }
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then
             REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
             NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)
@@ -740,6 +747,7 @@ jobs:
         timeout-minutes: 20
         run: |
           bash scripts/ci_db.sh push
+          [ "$IS_MAIN" = "true" ] && { bash scripts/legis_handoff.sh cleanup || true; }
           if [ -f fecd/applied ] && [ "$IS_MAIN" = "true" ]; then        # the FEC hand-off is in the stored database now
             REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
             NOW=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '[.assets[] | select(.name=="fec-delta.db.zst" or .name=="fec-kv.json") | "\(.name)=\(.id)=\(.updated_at)"] | join(" ")' 2>/dev/null || true)

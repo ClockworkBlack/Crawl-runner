@@ -32,8 +32,8 @@ BILLS = [{"legislationId": 69281, "actVetoNumber": "123", "caption": "Pediatric 
          {"legislationId": 70000, "actVetoNumber": "", "caption": "Income tax; reduce rate", "documentType": 1, "chamberType": 1, "number": 111, "suffix": "",
           "session": {"id": 1033, "description": "2025-2026 Regular Session"}, "status": "House Second Readers", "statusDate": "01/20/2025",
           "sponsors": [{"memberId": 77, "name": "Post, Kim ", "sequence": 1, "sponsorType": 1, "chamber": 1, "district": "7th"}], "houseCommittee": None, "senateCommittee": None}]
-VOTES = {69281: {"detail": {"id": 69281, "votes": [{"id": 12265, "number": 80, "caption": "PASSAGE", "date": "2025-03-05T11:51:00", "name": "House Vote #80", "yea": 150, "nay": 20, "notVoting": 5, "excused": 5},
-                                                   {"id": 12266, "number": 81, "caption": "MOTION TO ENGROSS", "date": "2025-03-05T10:00:00", "name": "House Vote #81", "yea": 90, "nay": 80}]},
+VOTES = {69281: {"detail": {"id": 69281, "votes": [{"id": 12265, "number": 80, "caption": "PASSAGE", "date": "2025-03-05T11:51:00", "name": "House Vote #80", "yea": 1, "nay": 1, "notVoting": 0, "excused": 0},
+                                                   {"id": 12266, "number": 81, "caption": "MOTION TO ENGROSS", "date": "2025-03-05T10:00:00", "name": "House Vote #81", "yea": 0, "nay": 1}]},
                  "rolls": {12265: [{"member": {"id": 5025, "name": "LOCAL, 43RD"}, "memberVoted": 0}, {"member": {"id": 77, "name": "POST, 7TH"}, "memberVoted": 1}],
                            12266: [{"member": {"id": 5025, "name": "LOCAL, 43RD"}, "memberVoted": 1}]}}}
 CALLS = []
@@ -135,7 +135,7 @@ def test_legislature_update_and_people(server, fetcher, tmp_path, monkeypatch):
     assert pl["member"]["chamber"] == "House" and pl["member"]["district"] == 43 and len(pl["member"]["terms"]) == 2
     assert pl["member"]["terms"][1]["from"] == "2023-01-01" and pl["committees"][0]["name"] == "Governmental Affairs"
     assert pl["votes"] == [{"bill": "HB 1", "session": "2025-2026", "title": "Pediatric Health Safe Storage Act; enact", "vote": "Yea", "d": "2025-03-05",
-                            "stage": "House Vote #80 Passage (150-20)", "u": server.replace(server, "https://www.legis.ga.gov") + "/legislation/69281", "basis": "roll call", "src": []}]
+                            "stage": "House Vote #80 Passage (1-1)", "u": server.replace(server, "https://www.legis.ga.gov") + "/legislation/69281", "basis": "roll call", "src": []}]
     assert pl["bills"][0]["number"] == "HB 1" and pl["bills"][0]["role"] == "lead sponsor" and pl["bills"][0]["enacted"]
     kp = people["KIM POST"]
     assert {b["role"] for b in kp["bills"]} == {"lead sponsor", "Senate sponsor"} and kp["votes"][0]["vote"] == "Nay"
@@ -213,3 +213,44 @@ def test_an_unreachable_site_gets_the_second_try_too(tmp_path, monkeypatch):
     monkeypatch.setattr(legis, "update", lambda *a, **k: {"votes": 0, "error": "robots.txt disallows /api/"})   # not a passing fault
     cli.cmd_legis(cfg, args)
     assert not marker.exists()
+
+
+def test_check_roll_call():
+    ok = [{"person_id": 1, "vote": "Yea", "party": "R"}, {"person_id": 2, "vote": "Nay", "party": "D"}, {"person_id": 3, "vote": "Excused", "party": "D"}]
+    c = legis.check_roll_call({"yea": 1, "nay": 1, "not_voting": 1, "excused": 0}, ok, "House")
+    assert c == {"ok": True, "listed": 3, "issues": []}                     # excused and not voting are taken together
+    short = legis.check_roll_call({"yea": 150, "nay": 20, "not_voting": 0, "excused": 0}, ok[:2], "House")
+    assert not short["ok"] and "Yea: 1 listed, 150 reported" in short["issues"]
+    twice = legis.check_roll_call({"yea": 2, "nay": 0}, [ok[0], ok[0]], "Senate")
+    assert not twice["ok"] and any("twice" in i for i in twice["issues"])
+    big = legis.check_roll_call({"yea": 60}, [{"person_id": i, "vote": "Yea", "party": "R"} for i in range(60)], "Senate")
+    assert not big["ok"] and any("56 seats" in i for i in big["issues"])
+
+
+def test_a_roll_call_that_does_not_add_up_is_kept_marked_and_read_again(server, fetcher, tmp_path, monkeypatch):
+    import yaml
+    from gacrawl.store import Record
+
+    monkeypatch.setattr(legis, "API", server + "/api/")
+    root = tmp_path / "proj"
+    (root / "config").mkdir(parents=True)
+    cfg = {"sessions": {"current": [1033], "history": [1031, 1033], "names": {1031: "2023-2024", 1033: "2025-2026"},
+                        "years": {1031: [2023, 2024], 1033: [2025, 2026]}},
+           "votes": {"key_bills": [], "all_passed_in_current": False, "all_floor_votes": True, "max_bills_per_run": 5},
+           "members": {"recheck_days": 30}}
+    (root / "config" / "legislature.yaml").write_text(yaml.safe_dump(cfg))
+    store = Store(root / "data")
+    store.add(Record(legis.SOURCE, "bill", "https://www.legis.ga.gov/legislation/558", title="HB 40", key=f"{legis.SOURCE}|bill|558",
+                     meta={"legislation_id": 558, "number": "HB 40", "session": 1031, "session_name": "2023-2024", "caption": "x",
+                           "status": "Senate Passed/Adopted", "status_date": "2024-03-01", "chamber": "House", "sponsors": []}))
+    store.flush()
+    monkeypatch.setitem(VOTES, 558, {"detail": {"id": 558, "votes": [{"id": 901, "caption": "PASSAGE", "date": "2024-02-20T10:00:00",
+                                                                     "name": "House Vote #6", "yea": 150, "nay": 20}]},
+                                     "rolls": {901: [{"member": {"id": 5025, "name": "LOCAL, 43RD"}, "memberVoted": 0}]}})
+    assert legis.votes_waiting(store, root) == 1
+    outs = [legis.update(fetcher, store, root, log=lambda *_: None, votes_only=True) for _ in range(4)]
+    v = store.query("kind='vote'")
+    assert len(v) == 1 and v[0]["meta"]["check"]["ok"] is False and "Yea: 1 listed, 150 reported" in v[0]["meta"]["check"]["issues"]
+    assert [o.get("failed_check", 0) for o in outs] == [1, 1, 1, 0]           # read three times, then left alone
+    assert legis.votes_waiting(store, root) == 0 and store.kv_get("legis:votes_try:558") == "3"
+    assert all(o["members"] == 0 and o["bills"] == 0 for o in outs)          # votes only: no member or bill lists read

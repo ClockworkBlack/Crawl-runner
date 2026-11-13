@@ -1,0 +1,103 @@
+name: legis-votes
+# Every General Assembly roll call, member by member, read overnight and by day beside the crawl rather than inside it.
+#
+# The crawl gives the legislature 30 minutes a run, and at the site's pace (one request every 2 s at night, 4 s by day:
+# 1 s drew token refusals after ~25 minutes on Nov 9) that is 100-200 bills, so the roll calls of the ~5,000 bills
+# since 2015 that reached a floor vote would take weeks. This job reads them for about 2.5 hours a night in the public
+# runner (free minutes), at the same pace, between the crawl's night runs, newest session first:
+#   1. LegiScan's weekly Georgia datasets, first: one download per session holds every roll call with every member's
+#      vote, so the whole history reaches the vote model in a night (a roll call the site has not given, or gave with a
+#      member list that did not add up to its own tally, is taken from LegiScan; every roll call both have is compared).
+#      Past bills LegiScan gave in full wait behind the rest in step 2, where the site's reading is the cross-check.
+#      Needs the LEGISCAN_API_KEY secret (a free key); without it this step says so and the rest goes ahead.
+#   2. legis.ga.gov roll calls (gacrawl legis update --votes-only), every member list checked against its tally.
+#   3. the hand-off: what it read goes to the crawl's next merge (scripts/legis_handoff.sh; legis-delta.db.zst and
+#      legis-kv.json in the private crawl-data release), which applies it and deletes it once stored.
+# With no bill left to read it ends within minutes (LegiScan's one call a night still runs: the datasets change weekly).
+# An unreachable site leaves what was read handed over; the next night carries on.
+on:
+  schedule:
+    - cron: "13 4 * * *"          # 11:13 PM Eastern: after the crawl's ~02:20 UTC run reads the legislature, ends before its ~07:00 run
+    # by day too (Nov 12): three more runs of up to 2.5 hours, 7:13 AM to about 4:45 PM Eastern. By day the fetcher
+    # spaces legis.ga.gov at 4 s (settings.yaml slower_by), so even with the crawl's own legislature step reading at
+    # the same moment the site sees about one request every 2 s, the night pace it has taken without refusals; the
+    # runs end before 02:00 UTC, when the crawl's evening runs reach the legislature at the night pace.
+    - cron: "13 12 * * *"
+    - cron: "43 15 * * *"
+    - cron: "13 19 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes of roll-call reading (default 150: ends before the crawl's ~07:00 UTC run reaches the legislature)"
+        required: false
+        default: "150"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legis-votes
+  cancel-in-progress: false
+
+env:
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  PYTHONUNBUFFERED: "1"
+  DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+  DATA_TAG: crawl-data
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  votes:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 195
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner mode and state
+        run: |
+          bash scripts/ci_runner.sh mode
+          set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
+          bash scripts/ci_runner.sh pull-state
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: A copy of the crawl database (and a hand-off still waiting for the crawl, carried)
+        run: bash scripts/legis_handoff.sh carry
+      - name: Bills whose roll calls are still to read
+        id: left
+        run: |
+          n=$(gacrawl legis waiting | tail -1)
+          echo "bills whose roll calls are still to read: $n"; echo "n=$n" >> "$GITHUB_OUTPUT"
+      - name: LegiScan (the backup source and the cross-check; one call unless a weekly dataset changed)
+        env:
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+        run: |
+          if [ -z "$LEGISCAN_API_KEY" ]; then
+            echo "::warning title=LegiScan::No LEGISCAN_API_KEY secret in this repository: LegiScan is not read (no backup source, no cross-check). A free key: https://legiscan.com/legiscan"
+            exit 0
+          fi
+          timeout -s INT -k 2m 25m gacrawl legis legiscan --max-minutes 20 | tail -c 1500 || echo "LegiScan stopped; the next night carries on"
+      - name: Roll calls from legis.ga.gov (newest session first, at the site's pace, each member list checked)
+        if: steps.left.outputs.n != '0'
+        run: |
+          # an unreachable site or a refused token stops a try; the job waits 15 minutes and tries again while it has
+          # time (Nov 10 and 12: the site timed out for a while and answered again later the same night)
+          END=$(( $(date +%s) + ${{ inputs.minutes || '150' }} * 60 )); try=0
+          while :; do
+            M=$(( (END - $(date +%s)) / 60 )); [ "$M" -ge 5 ] || break
+            try=$((try + 1))
+            timeout -s INT -k 3m "$((M + 10))m" gacrawl legis update --votes-only --max-minutes "$M" --max-bills 100000 > try.json \
+              || echo "try $try stopped after $((M + 10)) minutes; what was read is kept"
+            tail -c 1200 try.json || true
+            if grep -qE '"(refused|error)":' try.json && grep -qiE 'unreachable|refused|token' try.json; then
+              [ $(( END - $(date +%s) )) -gt 1500 ] || { echo "legis.ga.gov did not answer and too little time is left; the next night carries on"; break; }
+              echo "legis.ga.gov did not answer (try $try): waiting 15 minutes"; sleep 900; continue
+            fi
+            break
+          done
+          echo "still to read: $(gacrawl legis waiting | tail -1)"
+      - name: Hand it to the crawl
+        if: always() && env.IS_MAIN == 'true'
+        run: bash scripts/legis_handoff.sh upload
