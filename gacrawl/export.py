@@ -32,6 +32,8 @@ dist/electo/
   rumor_mill_video.json         Rumor Mill - Video: meeting videos from channels not confirmed as official accounts
   state_meetings.json           state boards' and commissions' meetings (their own pages) and the General
                                 Assembly's committee meetings (the legislature's schedule)
+  meeting_summaries.json        what each meeting took up and decided: the open model's checked reading of its
+                                minutes or its recording's captions
   blocked.json                  hosts that refused the crawler and the suggested manual route
 
 Every record carries a stable `id` (hash of its natural key: same id when the
@@ -393,6 +395,10 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
 
     state_meetings_counts = export_state_meetings(store, root, out / "state_meetings.json")
     log(f"state meetings: {state_meetings_counts}")
+    from .meeting_summaries import export_summaries
+
+    summaries_counts = export_summaries(store, out / "meeting_summaries.json")
+    log(f"meeting summaries: {summaries_counts}")
     (out / "schema.md").write_text(SCHEMA_MD.format(version=SCHEMA_VERSION), encoding="utf-8")
 
     manifest = {
@@ -406,7 +412,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         "rumor_mill": dict(Counter(r["status"] for r in rumors)), "blocked_hosts": len(blocked),
         "screenshots": {k: len(v) for k, v in box.items()}, "code_acts": n_code_acts, "rumor_mill_videos": len(rumor_videos), "legislation": n_legislation,
         "schools": schools_counts, "open_records": n_orr,
-        "state_meetings": state_meetings_counts,
+        "state_meetings": state_meetings_counts, "meeting_summaries": summaries_counts,
         "policing": policing_counts,
         "bill_reasons": reasons_counts,
         "vote_model": vote_model_counts,

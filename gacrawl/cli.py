@@ -1139,6 +1139,23 @@ def cmd_video_ai(cfg, args):
         store.close()
 
 
+def cmd_minutes_ai(cfg, args):
+    """Opened minutes files read by the open model: what each meeting took up and decided (gacrawl/meeting_summaries.py)."""
+    import sys
+
+    from .meeting_summaries import export_summaries, minutes_run
+
+    store = config.make_store(cfg)
+    try:
+        if getattr(args, "file", None):
+            print(json.dumps(export_summaries(store, Path(args.file))))
+            return
+        print(json.dumps(minutes_run(store, config.ROOT, time.monotonic() + float(args.max_minutes or 10) * 60,
+                                     log=lambda *a: print(*a, file=sys.stderr, flush=True))))
+    finally:
+        store.close()
+
+
 def cmd_channel_ai(cfg, args):
     """The open model's reading of unconfirmed meeting-video channels, taught by the owner's channel decisions."""
     from .channel_ai import run
@@ -1435,6 +1452,9 @@ def build_parser() -> argparse.ArgumentParser:
     vai = sub.add_parser("video-ai", help="official meeting videos' captions as transcripts, read by the open model")
     vai.add_argument("--max-minutes", type=float, default=20)
     vai.add_argument("--captions-only", action="store_true", help="transcripts only, no model")
+    mai = sub.add_parser("minutes-ai", help="opened minutes files read by the open model: what each meeting took up and decided")
+    mai.add_argument("--max-minutes", type=float, default=10)
+    mai.add_argument("--file", help="write meeting_summaries.json here from what is stored (no model)")
     cai = sub.add_parser("channel-ai", help="the open model's reading of unconfirmed meeting channels (taught by the owner's decisions)")
     cai.add_argument("--max-minutes", type=float, default=5)
     fbp = sub.add_parser("federal-bills", help="U.S. House and Senate bills since 2015 (GovInfo Bill Status bulk data)")
@@ -1565,7 +1585,7 @@ def main(argv=None):
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records, "elections": cmd_elections, "agencies": cmd_agencies,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
-     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "minutes-ai": cmd_minutes_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

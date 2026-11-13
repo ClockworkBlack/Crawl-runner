@@ -95,7 +95,7 @@ def test_legislators():
     assert set(profiles) == {"Y000028", "T000035", "A000001"}
     assert len(profiles["T000035"]["terms"]) == 2
     got = {(c["y"], c["office"], c["dist"]): c for c in contests}
-    assert set(got) == {(1972, "U.S. House", "5"), (1968, "U.S. Senate", "")}      # Jan. 14 start and the appointment are not general-election seats
+    assert set(got) == {(1972, "U.S. House", "5"), (1974, "U.S. House", "5"), (1968, "U.S. Senate", "")}      # the 94th Congress met Jan. 14, 1975; an appointment is not a general-election seat
     assert got[(1968, "U.S. Senate", "")]["o"] == [["Herman Talmadge", "D", None, 0, "won"]] and got[(1968, "U.S. Senate", "")]["basis"] == "seated"
 
 
@@ -128,6 +128,11 @@ def test_openelections():
     assert gov["D"]["o"][0][4] == "led" and gov["D"]["tot"] == 195            # 46 percent: no majority
     assert any(c["office"] == "State House" and c["o"][0][4] == "unopposed" for c in cs)
     assert not any("Registered" in c["office"] for c in cs)
+    split = "county,office,district,party,candidate,election_day_votes,advanced_votes,absentee_by_mail_votes,provisional_votes\nCobb,Governor,,REP,NATHAN DEAL,10,5,3,1\nCobb,Governor,,DEM,JASON CARTER,8,4,2,0\nCobb,Governor,,,Over Votes,1,0,0,0\n"
+    by_way = list(oe_contests([split], "2014-11-04", "general", "", 0, "u"))
+    assert by_way[0]["tot"] == 33 and by_way[0]["o"][0][:3] == ["Nathan Deal", "R", 19] and len(by_way[0]["o"]) == 2
+    old_mac = list(oe_contests([OE_GEN.replace("\n", "\r")], "1996-11-05", "general", "", 0, "u"))
+    assert old_mac[0]["o"][0][:3] == ["Max Cleland", "D", 489]
 
 
 def _clarity(region, by, contests):
@@ -244,7 +249,7 @@ def test_run_build_verify(tmp_path, monkeypatch):
     routes = dict(sorted(routes.items(), key=lambda kv: -len(kv[0])))
     logs = []
     s = hrun.run(cfg, net=FakeNet(routes), log=logs.append)
-    assert s["by_source"]["medsl"]["read"] == 3 and s["by_source"]["legislators"]["contests"] == 2
+    assert s["by_source"]["medsl"]["read"] == 3 and s["by_source"]["legislators"]["contests"] == 3
     assert s["by_source"]["openelections"]["read"] == 3, logs                 # 2018 is Electo's already; the precinct file gives way to the statewide one
     assert s["by_source"]["sos_zip"]["contests"] == 1 and s["by_source"]["fec"]["contests"] >= 4
     assert s["by_source"]["sos_pdf"]["failed"] == 1 and s["by_source"]["clerk"]["failed"] == 1      # nothing to download here
@@ -270,7 +275,7 @@ def test_run_build_verify(tmp_path, monkeypatch):
     assert u68["elections"][0]["c"][0]["b"] == "seated" and u68["elections"][0]["c"][0]["tot"] is None
     k = "ANDREW YOUNG"
     ppl = json.loads((out / "people" / f"{shard(k, 64)}.json").read_text())
-    assert ppl[k]["b"] == "Y000028" and len(ppl[k]["r"]) == 2 and ppl[k]["r"][0][0] == "us1972gen"
+    assert ppl[k]["b"] == "Y000028" and len(ppl[k]["r"]) == 3 and ppl[k]["r"][0][0] == "us1972gen"
     prof = json.loads((out / "prof" / f"{shard('Y000028', 16)}.json").read_text())
     assert prof["Y000028"]["terms"][0]["st"] == "GA"
     sm = json.loads((out / "summary.json").read_text())

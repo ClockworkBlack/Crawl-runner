@@ -144,12 +144,23 @@ class Medsl:
         return out
 
     def read(self, net, item, work):
-        params = {"format": "original"} if item.meta.get("format") else None
-        text = net.bytes(item.url, params=params).decode("utf-8-sig", errors="replace")
+        # the file as its publisher uploaded it; a file Dataverse did not convert has no "original" form (HTTP 400)
+        tries = [{"format": "original"}, None] if item.meta.get("format") else [None, {"format": "original"}]
+        raw, err = None, None
+        for params in tries:
+            try:
+                raw = net.bytes(item.url, params=params)
+                break
+            except IOError as exc:
+                err = exc
+        if raw is None:
+            raise err
+        text = raw.decode("utf-8-sig", errors="replace")
         yield from medsl_contests(text, item.meta["kind"], "https://doi.org/" + item.meta["doi"].split(":", 1)[1])
 
 
 def medsl_contests(text: str, kind: str, src_url: str):
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     head = text.split("\n", 1)[0]
     rd = csv.DictReader(io.StringIO(text), delimiter="\t" if head.count("\t") > head.count(",") else ",")
     groups: dict = defaultdict(lambda: {"rows": defaultdict(lambda: {"v": 0, "parties": []}), "tot": None})
@@ -255,7 +266,7 @@ def legislators_read(people: list, src_url: str):
                          "terms": tl, "fec": ids.get("fec") or [], "src": src}
         for t in terms:
             start = str(t.get("start") or "")
-            if t.get("how") or not re.fullmatch(r"19(69|71|73|75)-01-0[1-9]", start):
+            if t.get("how") or not re.fullmatch(r"19(69|71|73|75)-01-\d\d", start):
                 continue                                   # appointed or elected at a special election: not that November's winner
             y = int(start[:4]) - 1
             ch = "U.S. Senate" if t.get("type") == "sen" else "U.S. House"
@@ -484,18 +495,39 @@ def county_name(c: str) -> str:
     return {"Dekalb": "DeKalb", "Mcduffie": "McDuffie", "Mcintosh": "McIntosh", "Jeff Davis": "Jeff Davis", "Ben Hill": "Ben Hill"}.get(c, c)
 
 
+_OE_PARTS = ("election_day_votes", "advanced_votes", "absentee_by_mail_votes", "provisional_votes", "election_day", "absentee",
+             "early_voting", "provisional", "absentee_by_mail", "advance_in_person", "advance_voting", "mail", "early_votes",
+             "absentee_votes", "election_day_vote", "advance_votes", "mail_votes")
+
+
+def _oe_votes(r: dict):
+    """A row's votes: its total column, else the sum of the ways of voting the file breaks it into (2012 on)."""
+    for k in ("votes", "total_votes", "total"):
+        v = _int(r.get(k))
+        if v is not None:
+            return v
+    parts = [_int(r.get(k)) for k in _OE_PARTS if r.get(k) not in (None, "")]
+    parts = [x for x in parts if x is not None]
+    if parts:
+        return sum(parts)
+    extra = [_int(v) for k, v in r.items() if k and ("vote" in k or k in ("absentee", "provisional", "early", "mail")) and k != "votes"]
+    extra = [x for x in extra if x is not None]
+    return sum(extra) if extra else None
+
+
 def oe_contests(texts: list[str], date: str, stage: str, file_party: str, sp: int, src_url: str):
     y = int(date[:4])
+    texts = [t.replace("\r\n", "\n").replace("\r", "\n") for t in texts]      # some files end their lines the old Mac way
     src = {"t": "OpenElections, Georgia: county results transcribed from the Georgia Secretary of State's certified returns", "u": src_url}
     G: dict = {}
     for text in texts:
         for r in csv.DictReader(io.StringIO(text)):
             r = {(k or "").strip().lower(): (v or "").strip() for k, v in r.items()}
             office, cand = r.get("office") or "", r.get("candidate") or ""
-            v = _int(r.get("votes"))
+            v = _oe_votes(r)
             if not office or not cand or v is None:
                 continue
-            if re.search(r"registered voters|ballots cast|turnout|straight party", office, re.I):
+            if re.search(r"registered voters|ballots cast|turnout|straight party", office, re.I) or is_writein_bucket(cand):
                 continue
             lvl, off, dist, title = ga_office(office, r.get("district") or "")
             county = county_name(r.get("county"))
@@ -680,7 +712,16 @@ class _Pdfs:
 
     def discover(self, net):
         out, seen = [], set()
-        for u, text in _links(net.text(self.INDEX), self.INDEX):
+        html, err = None, None
+        for index in (self.INDEX,) + tuple(getattr(self, "ALSO", ())):      # the same list, kept on a second site
+            try:
+                html, self.INDEX = net.text(index), index
+                break
+            except Exception as exc:
+                err = err or exc
+        if html is None:
+            raise err
+        for u, text in _links(html, self.INDEX):
             w = self.wanted(u, text)
             if not w or u in seen:
                 continue
@@ -739,9 +780,10 @@ class Clerk(_Pdfs):
     before the MEDSL files begin."""
     name = "clerk"
     INDEX = "https://history.house.gov/Institution/Election-Statistics/Election-Statistics/"
+    ALSO = ("https://clerk.house.gov/Members/ViewElectionInformation",)
 
     def wanted(self, url, text):
-        m = re.search(r"/(19\d\d)election/?$", urlsplit(url).path) or re.search(r"^(19\d\d) Election Statistics", text)
+        m = re.search(r"/(19\d\d)election(?:\.pdf)?/?$", urlsplit(url).path) or re.search(r"^(19\d\d)(?: Election Statistics)?$", text.strip())
         if not m or not (FIRST_YEAR <= int(m.group(1)) <= 1974):
             return None
         return {"date": m.group(1), "stage": "general"}

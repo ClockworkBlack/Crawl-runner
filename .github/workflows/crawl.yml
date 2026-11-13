@@ -676,6 +676,15 @@ jobs:
           else
             timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --captions-only --max-minutes "$M" || echo "captions stopped after $((M + 6)) minutes"
           fi
+      - name: Minutes read by the open model (what each meeting took up and decided)
+        continue-on-error: true
+        run: |
+          # gacrawl/meeting_summaries.py: opened minutes files, newest first; each line it keeps is in the minutes word
+          # for word. With the recordings' readings above, they are the export's meeting_summaries.json
+          M=${{ vars.MINUTES_AI_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=1
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed; no minutes read this run"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl minutes-ai --max-minutes "$M" || echo "minutes readings stopped after $((M + 5)) minutes"
       - name: Open records requests (replies, follow-ups, new batch)
         env:
           ORR_SMTP_HOST: ${{ secrets.ORR_SMTP_HOST }}

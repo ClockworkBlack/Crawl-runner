@@ -129,12 +129,15 @@ def captions(url: str, workdir: Path) -> tuple[list[tuple[float, str]] | None, s
 
 
 # ----------------------------------------------------------------------------- the model's reading
-def analyze(text: str, title: str, date: str, llm, log_path: str) -> dict | None:
-    parts = [text[i:i + PART] for i in range(0, len(text), PART)][:MAX_PARTS]
+def analyze(text: str, title: str, date: str, llm, log_path: str, ask: str = ASK, system: str = SYSTEM,
+            sum_ask: str = SUM_ASK, task: str = "video", max_parts: int = MAX_PARTS) -> dict | None:
+    """What a meeting's transcript (or, with the minutes' own prompts, its written minutes) records: lines copied from
+    it and kept only when they are in it word for word, then two or three sentences written from the kept lines."""
+    parts = [text[i:i + PART] for i in range(0, len(text), PART)][:max_parts]
     items, seen = [], set()
     for i, part in enumerate(parts):
-        msgs = [{"role": "system", "content": SYSTEM},
-                {"role": "user", "content": ASK.format(title=title, date=date, i=i + 1, n=len(parts), text=part)}]
+        msgs = [{"role": "system", "content": system},
+                {"role": "user", "content": ask.format(title=title, date=date, i=i + 1, n=len(parts), text=part)}]
         t0 = time.time()
         out = llm.chat(msgs, max_tokens=600)
         kept, why = [], []
@@ -146,17 +149,17 @@ def analyze(text: str, title: str, date: str, llm, log_path: str) -> dict | None
             elif w:
                 why.append(w)
         items += kept
-        llm.log(log_path, {"task": "video_items", "title": title, "part": i + 1, "input": msgs, "output": out,
+        llm.log(log_path, {"task": f"{task}_items", "title": title, "part": i + 1, "input": msgs, "output": out,
                            "kept": len(kept), "dropped": why[:8], "seconds": round(time.time() - t0, 1)})
     if not items:
         return None
     lines = "\n".join(f"- {it['type']}: {it['text']}" for it in items[:30])
-    msgs = [{"role": "system", "content": SYSTEM.replace("You answer with JSON lines only.", "")},
-            {"role": "user", "content": SUM_ASK.format(title=title, date=date, lines=lines)}]
+    msgs = [{"role": "system", "content": system.replace("You answer with JSON lines only.", "")},
+            {"role": "user", "content": sum_ask.format(title=title, date=date, lines=lines)}]
     out = llm.chat(msgs, max_tokens=160)
     summary = " ".join(out.split())
     fails = llm.check(summary, lines + " " + title, max_words=80, allow=(title,))
-    llm.log(log_path, {"task": "video_summary", "title": title, "input": msgs, "output": out, "kept": not fails, "why": fails})
+    llm.log(log_path, {"task": f"{task}_summary", "title": title, "input": msgs, "output": out, "kept": not fails, "why": fails})
     return {"v": VERSION, "m": llm.model_name(), "at": dt.date.today().isoformat(), "items": items[:60],
             "summary": "" if fails else summary}
 
