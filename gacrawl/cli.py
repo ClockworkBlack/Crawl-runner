@@ -555,6 +555,28 @@ def cmd_rumor(cfg, args):
         print(json.dumps(row, indent=2) if row else f"no rumor {args.id}")
 
 
+def cmd_agencies(cfg, args):
+    """State boards' and commissions' meetings (config/agencies.yaml -> meeting records; gacrawl/agencies.py)."""
+    import sys
+
+    from .agencies import run
+
+    store = config.make_store(cfg)
+    try:
+        deadline = time.monotonic() + float(args.max_minutes or 10) * 60
+        if getattr(args, "file", None):
+            # the bundle's state_meetings.json alone, from what is stored (no requests)
+            from .agencies import export_state_meetings
+
+            print(json.dumps(export_state_meetings(store, config.ROOT, Path(args.file))))
+            return
+        out = run(_fetcher(cfg, deadline), store, config.ROOT, deadline, only=[x for x in (args.only or "").split(",") if x] or None,
+                  dry_run=args.dry_run, log=lambda *a: print(*a, file=sys.stderr, flush=True))
+        print(json.dumps(out, indent=1))
+    finally:
+        store.close()
+
+
 def cmd_elections(cfg, args):
     """County election reports for the city seats the state's results system does not hold (gacrawl/election_reports.py)."""
     import sys
@@ -928,6 +950,14 @@ def cmd_legis(cfg, args):
                     from .legis_video import hearings
 
                     out["hearings"] = hearings(_fetcher(cfg, deadline), store, cfg, deadline, log=log)
+        if args.action == "meetings":
+            # the committee meeting schedule (the legislature's data service: any time, a handful of requests)
+            import sys
+
+            from .legis_meetings import run as meetings_run
+
+            out["meetings"] = meetings_run(_fetcher(cfg, deadline), store, deadline, dry_run=getattr(args, "dry_run", False),
+                                           log=lambda *x: print(*x, file=sys.stderr, flush=True))
         if args.action == "votemodel":
             # every member's recorded votes -> positions, a tested vote model, expected counts (no requests)
             from .vote_model import export_vote_model
@@ -1483,8 +1513,9 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--reread-only", action="store_true", help="only the FEC re-read of lines kept before the FEC's fields were (nothing when none remain)")
     sp = sub.add_parser("sponsors"); sp.add_argument("--max-minutes", type=float); sp.add_argument("--limit", type=int)
     pf = sub.add_parser("profiles"); pf.add_argument("--candidate"); pf.add_argument("--out")
-    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "votemodel", "all"])
+    lg = sub.add_parser("legis"); lg.add_argument("action", nargs="?", default="all", choices=["update", "people", "reasons", "vetoes", "video", "histories", "hearings", "votemodel", "meetings", "all"])
     lg.add_argument("--max-minutes", type=float); lg.add_argument("--max-bills", type=int)
+    lg.add_argument("--dry-run", action="store_true", help="meetings: read and report; keep nothing")
     lg.add_argument("--no-pages", action="store_true", help="video: channels' APIs only, not the legislature's pages")
     lg.add_argument("--with-hearings", action="store_true", help="video: then read the linked hearings' caption files")
     lg.add_argument("--if-refused", action="store_true",
@@ -1502,6 +1533,9 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--repo", help="owner/name: count the month's Actions minutes of every run in it (needs GH_TOKEN)")
     cx = sub.add_parser("codeacts"); cx.add_argument("--max-minutes", type=float); cx.add_argument("--limit", type=int)
     cx.add_argument("--only", help="comma list of legislation ids")
+    ag = sub.add_parser("agencies"); ag.add_argument("--only", help="these agency ids only (comma-separated)")
+    ag.add_argument("--max-minutes", type=float); ag.add_argument("--dry-run", action="store_true")
+    ag.add_argument("--file", help="write state_meetings.json here from what is stored (no requests)")
     el = sub.add_parser("elections"); el.add_argument("action", choices=["reports"])
     el.add_argument("--counties", help="reports: these county ids only (comma-separated)")
     el.add_argument("--cap", type=int, default=100, help="reports: web searches this run")
@@ -1528,7 +1562,7 @@ def main(argv=None):
     {"window": cmd_window, "seed": cmd_seed, "status": cmd_status, "discover": cmd_discover, "run": cmd_run,
      "delta": cmd_delta, "merge": cmd_merge, "search": cmd_search, "tasks": cmd_tasks, "blocked": cmd_blocked,
      "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "ordinances": cmd_ordinances, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
-     "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records, "elections": cmd_elections,
+     "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records, "elections": cmd_elections, "agencies": cmd_agencies,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
      "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
      "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)

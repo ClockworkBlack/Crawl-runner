@@ -1,0 +1,48 @@
+name: dry-run
+# A reader run without storing anything, its findings printed to the log: for checking a new or changed reader
+# against the live sites before the nightly crawl uses it. Private repository only (kept out of the public copy).
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "which reader"
+        type: choice
+        options: [agencies, legis-meetings, state-file]
+        required: true
+      only:
+        description: "agencies: only these ids, comma-separated (empty: all)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - env:
+          WHAT: ${{ inputs.what }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ "$WHAT" = agencies ]; then
+            gacrawl agencies --dry-run --max-minutes 15 --only "$ONLY"
+          elif [ "$WHAT" = state-file ]; then
+            # both readers for real into this run's own empty database, then the bundle's file from it (an artifact
+            # for a day): the site's first copy of the state meetings before the nightly crawl has run them
+            gacrawl agencies --max-minutes 10 > /tmp/ag.json
+            gacrawl legis meetings --max-minutes 8 > /tmp/lm.json
+            python3 -c "import json;d=json.load(open('/tmp/lm.json'))['meetings'];print({k:v for k,v in d.items() if k not in ('sample','raw_sample')})"
+            gacrawl agencies --file state_meetings.json
+          else
+            gacrawl legis meetings --dry-run --max-minutes 10
+          fi
+      - if: ${{ inputs.what == 'state-file' }}
+        uses: actions/upload-artifact@v4
+        with: {name: state-meetings, path: state_meetings.json, retention-days: 1}

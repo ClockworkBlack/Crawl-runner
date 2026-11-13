@@ -40,12 +40,12 @@ jobs:
             --exclude .git --exclude state/ --exclude data/ --exclude imports/ --exclude config/private/ --exclude logs/ \
             --exclude .github/workflows/records-send.yml --exclude .github/workflows/records-test.yml \
             --exclude .github/workflows/probe.yml --exclude .github/workflows/ordinances.yml --exclude .github/workflows/code-finder.yml \
-            --exclude outbox/ --exclude .github/workflows/mail-send.yml --exclude .github/workflows/qbe-discover.yml --exclude .github/workflows/election-reports-check.yml \
+            --exclude outbox/ --exclude .github/workflows/mail-send.yml --exclude .github/workflows/qbe-discover.yml --exclude .github/workflows/election-reports-check.yml --exclude .github/workflows/dry-run.yml \
             src/ pub/
           # excluded paths are also never kept here (rsync --delete leaves excluded paths alone, so remove them)
           rm -rf pub/state pub/data pub/imports pub/config/private pub/logs \
                  pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml pub/.github/workflows/ordinances.yml pub/.github/workflows/code-finder.yml \
-                 pub/outbox pub/.github/workflows/mail-send.yml pub/.github/workflows/qbe-discover.yml pub/.github/workflows/election-reports-check.yml
+                 pub/outbox pub/.github/workflows/mail-send.yml pub/.github/workflows/qbe-discover.yml pub/.github/workflows/election-reports-check.yml pub/.github/workflows/dry-run.yml
           if grep -rIlE "Humble Servant|ORR_PASSWORD=|@gmail\.com" pub --exclude-dir=.git --exclude=sync-code.yml >/dev/null 2>&1; then
             echo "::error::private text found in the copy; nothing pushed"; grep -rIlE "Humble Servant|@gmail\.com" pub --exclude-dir=.git; exit 1
           fi

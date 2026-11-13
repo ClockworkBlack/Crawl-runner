@@ -30,6 +30,8 @@ dist/electo/
   federal_bills/                U.S. House and Senate bills since 2015 by Congress (gacrawl/federal_bills.py), with outlooks
   rumor_mill.json               unverified items, kept apart, each with status + corroboration trail
   rumor_mill_video.json         Rumor Mill - Video: meeting videos from channels not confirmed as official accounts
+  state_meetings.json           state boards' and commissions' meetings (their own pages) and the General
+                                Assembly's committee meetings (the legislature's schedule)
   blocked.json                  hosts that refused the crawler and the suggested manual route
 
 Every record carries a stable `id` (hash of its natural key: same id when the
@@ -387,6 +389,10 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     blocked = BlockList(root / "state" / "blocked.json").data
     (out / "blocked.json").write_text(json.dumps(blocked, ensure_ascii=False, indent=1), encoding="utf-8")
     n_orr = export_open_records(root, out / "open_records.json")
+    from .agencies import export_state_meetings
+
+    state_meetings_counts = export_state_meetings(store, root, out / "state_meetings.json")
+    log(f"state meetings: {state_meetings_counts}")
     (out / "schema.md").write_text(SCHEMA_MD.format(version=SCHEMA_VERSION), encoding="utf-8")
 
     manifest = {
@@ -400,6 +406,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         "rumor_mill": dict(Counter(r["status"] for r in rumors)), "blocked_hosts": len(blocked),
         "screenshots": {k: len(v) for k, v in box.items()}, "code_acts": n_code_acts, "rumor_mill_videos": len(rumor_videos), "legislation": n_legislation,
         "schools": schools_counts, "open_records": n_orr,
+        "state_meetings": state_meetings_counts,
         "policing": policing_counts,
         "bill_reasons": reasons_counts,
         "vote_model": vote_model_counts,

@@ -225,6 +225,34 @@ def election_reports(store) -> str:
     return "\n".join(L) + "\n"
 
 
+def state_meetings(store) -> str:
+    """State boards' meetings on file (gacrawl agencies) and the General Assembly's committee schedule (gacrawl legis
+    meetings): per board how many, how many carry minutes, and the newest date; a board with none is named."""
+    try:
+        from .agencies import load
+        from .config import ROOT
+
+        L = ["", "## State meetings (boards' own pages; the legislature's schedule)", ""]
+        none = []
+        for ag in load(ROOT):
+            rows = [(r.get("meta") or {}) for r in store.read(f"ga-agency:{ag['id']}", "meeting")]
+            if not rows:
+                none.append(ag["name"])
+                continue
+            days = sorted(str(m.get("EventDate") or "")[:10] for m in rows)
+            L.append(f"- {ag['name']}: **{len(rows)}** meetings ({sum(1 for m in rows if m.get('EventMinutesFile'))} with minutes, "
+                     f"{sum(1 for m in rows if m.get('EventAgendaFile'))} with an agenda), {days[0]} to {days[-1]}")
+        if none:
+            L.append(f"- nothing on file yet: {', '.join(none)}")
+        leg = store.read("ga:legis", "meeting")
+        L.append(f"- General Assembly committee schedule: **{len(leg)}** meetings on file" +
+                 (f", last read {store.kv_get('legis:meetings:read')}" if store.kv_get("legis:meetings:read") else
+                  " (the schedule service has not answered yet)"))
+        return "\n".join(L) + "\n"
+    except Exception as exc:  # noqa: BLE001
+        return f"\n## State meetings\n\n- not counted: {type(exc).__name__}\n"
+
+
 def money_checks(store) -> str:
     """Campaign money that cannot be trusted yet: federal candidates the FEC lookup could not match (their money is
     missing), FEC lines read before the FEC's own fields were kept (not counted until re-read), committees whose
@@ -357,7 +385,7 @@ def run(root: Path, store, state_path: Path | None = None, out_path: Path | None
         checks = pipeline_checks(root, store)
     except Exception as e:  # noqa: BLE001 — the report is written whatever one check does
         checks = f"\n## Pipeline checks\n\n- could not be measured: {type(e).__name__}: {str(e)[:200]}\n"
-    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + election_reports(store) + checks, encoding="utf-8")
+    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + election_reports(store) + state_meetings(store) + checks, encoding="utf-8")
     hist = (prev.get("history") or [])[-47:] + [{"as_of": when, **{k: now[k] for k in ("roll_calls", "board_members", "incidents",
                                                                                           "milestones", "budget_docs", "district_sites_read")}}]
     write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist}, indent=1)

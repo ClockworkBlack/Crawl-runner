@@ -1,0 +1,92 @@
+# Georgia state boards and commissions whose public meetings Electo lists (Committee Meetings tab -> Agencies).
+# Read by gacrawl/agencies.py (gacrawl agencies), nightly. Each page was opened during research on Nov. 12, 2026:
+# the body's own page of meeting dates, agendas or minutes. Nothing here is a built URL.
+#   id      short id (stays the same: Electo remembers which agencies a reader picked)
+#   name    the body that meets            agency  the department it governs (shown beside it)
+#   pages   the body's own pages that list its meetings: dates with agenda / minutes links
+#   follow  (optional) links on those pages to follow one level, by the words in the link's address or text
+# Not listed: the State Election Board (seb.georgia.gov forbids crawlers in robots.txt).
+agencies:
+  - id: regents
+    name: Board of Regents
+    agency: University System of Georgia
+    pages:
+      - https://www.usg.edu/regents/meetings/
+    follow: ["/regents/meetings/date/"]
+  - id: sboe
+    name: State Board of Education
+    agency: Georgia Department of Education
+    pages:
+      - https://gadoe.org/state-board/board-schedule/
+    # the department's agenda and minutes pages hold no files: both send the reader to the board's meeting system
+    # (Simbli), which is shown as a link and not read
+    links:
+      - {t: "Agendas and minutes (the board's meeting system)", u: "https://simbli.eboardsolutions.com/SB_Meetings/SB_MeetingListing.aspx?S=1262"}
+  - id: psc
+    name: Public Service Commission
+    agency: Public Service Commission
+    pages:
+      - https://psc.ga.gov/agendas-calendars/commission-calendar/
+    # the calendar names each session in a link ("Administrative Session 11-17-2026"); last month and next month are
+    # one link away (the calendar's own arrows)
+    event_links: "/agendas-calendars/commission-calendar/"
+    follow: ["commission-calendar/?c=1&m="]
+  - id: transportation
+    name: State Transportation Board
+    agency: Georgia Department of Transportation
+    pages:
+      - https://www.dot.ga.gov/GDOT/Pages/BoardMeetings.aspx
+      - http://www.dot.ga.gov/GDOT/Pages/BoardPresentations.aspx
+  - id: community-health
+    name: Board of Community Health
+    agency: Georgia Department of Community Health
+    pages:
+      - https://dch.georgia.gov/meetings-notices
+    follow: ["board-meeting-schedule", "board-meeting", "/meetings-notices/"]
+  - id: natural-resources
+    name: Board of Natural Resources
+    agency: Georgia Department of Natural Resources
+    pages:
+      - http://gadnr.org/board
+      - http://gadnr.org/minutes
+  - id: community-affairs
+    name: Board of Community Affairs
+    agency: Georgia Department of Community Affairs
+    pages:
+      - https://dca.georgia.gov/organization/about-department-community-affairs/our-people/dca-board
+    follow: ["/events/"]
+  - id: behavioral-health
+    name: Board of Behavioral Health and Developmental Disabilities
+    agency: Georgia Department of Behavioral Health and Developmental Disabilities
+    pages:
+      - https://dbhdd.georgia.gov/organization/be-informed/dbhdd-board-councils/board-behavioral-health-developmental-disabilities-0
+      - https://dbhdd.georgia.gov/past-meetings-archive
+  - id: technical-colleges
+    name: State Board of the Technical College System of Georgia
+    agency: Technical College System of Georgia
+    pages:
+      - https://www.tcsg.edu/about-tcsg/state-board/
+      - https://www.tcsg.edu/about-tcsg/state-board/approved-meeting-minutes/
+  - id: public-safety
+    name: Board of Public Safety
+    agency: Georgia Department of Public Safety
+    pages:
+      - https://dps.georgia.gov/meeting-dates
+      - https://dps.georgia.gov/organization/about-dps/georgia-board-public-safety/board-minutes
+    # the dates are in one PDF a year ("2026 Board of Public Safety Meeting Dates"); the minutes on a page a year
+    follow: ["board-minutes"]
+  - id: corrections
+    name: Board of Corrections
+    agency: Georgia Department of Corrections
+    pages:
+      - https://gdc.georgia.gov/organization/about-gdc/board-corrections/board-meeting-minutes
+    follow: ["board-meeting-minutes/"]
+
+# Bodies whose meetings are not read, and why (shown on the site beside the list of boards)
+not_read:
+  - name: State Election Board
+    why: its site's robots.txt tells crawlers to keep out
+    u: https://seb.georgia.gov/
+  - name: State Ethics Commission
+    why: its meetings page is closed to crawlers by the site's robots.txt
+    u: https://ethics.ga.gov/category/commission-meetings/

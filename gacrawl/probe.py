@@ -67,6 +67,13 @@ def probe(fetcher: Fetcher, urls: list[str], out: Path, browser: bool = False, l
                 text = r.content.decode("utf-8", "replace")
                 rx = re.compile(grep, re.I)
                 row["matches"] = [text[max(0, m.start() - 160):m.end() + 240] for m in rx.finditer(text)][:60]
+            if grep and html:
+                # a page: each match with the markup around it (how a listing is built: table, list, heading, link)
+                rx = re.compile(grep, re.I)
+                # scripts are code and are left out, except the data a page ships for its own rendering (a Next.js
+                # page's whole content is in its __NEXT_DATA__ script, not in the markup)
+                flat = re.sub(r"\s+", " ", re.sub(r"(?is)<style\b.*?</style>|<script\b(?![^>]*(?:__NEXT_DATA__|application/(?:ld\+)?json))[^>]*>.*?</script>", " ", html))
+                row["matches"] = [flat[max(0, m.start() - 220):m.end() + 320] for m in rx.finditer(flat)][:30]
             if "spreadsheetml" in r.content_type or "ms-excel" in r.content_type or r.url.lower().endswith((".xlsx", ".xls")):
                 try:                                 # a spreadsheet: its sheets and first rows
                     import io

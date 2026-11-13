@@ -440,6 +440,19 @@ jobs:
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left for election reports; the next run does them"; exit 0; }
           timeout -s INT -k 2m "$((M + 5))m" gacrawl elections reports --max-minutes "$M" --cap 90 > /tmp/er.json || echo "stopped after $((M + 5)) minutes"
           python3 -c "import json;d=json.load(open('/tmp/er.json'));print({k:d.get(k) for k in ('searched','found','stored','not_found','skipped')});[print(' ',x) for x in d.get('kept',[])];print({k:{a:b for a,b in v.items() if a!='missing'} for k,v in (d.get('status') or {}).items()})" 2>/dev/null || true
+      - name: State meetings (state boards' own pages; the General Assembly's committee schedule)
+        continue-on-error: true      # a board's page that does not answer is read on the next run; the export goes on
+        timeout-minutes: 20
+        run: |
+          # each state board's and commission's meetings from its own pages (config/agencies.yaml, gacrawl/agencies.py)
+          # and the legislature's committee meeting schedule from its data service (gacrawl/legis_meetings.py): stored
+          # for the export's state_meetings.json, which Electo's Committee Meetings tab reads
+          M=${{ vars.STATE_MEETINGS_MINUTES || '8' }}; [ "$IS_MAIN" != "true" ] && M=2
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left for state meetings; the next run reads them"; exit 0; }
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl agencies --max-minutes "$M" > /tmp/ag.json || echo "agencies stopped after $((M + 4)) minutes"
+          python3 -c "import json;d=json.load(open('/tmp/ag.json'));print({k:d.get(k) for k in ('agencies','pages','meetings','new')});[print(' ',k,v) for k,v in d.get('by',{}).items()];[print('  error:',e) for e in d.get('errors',[])]" || true
+          timeout -s INT -k 1m 7m gacrawl legis meetings --max-minutes 5 > /tmp/lm.json || echo "the legislature's schedule stopped after 7 minutes"
+          python3 -c "import json;print(json.load(open('/tmp/lm.json')).get('meetings'))" || true
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
         continue-on-error: true      # an error here leaves last run's derived data; it must not stop the export and the site
         timeout-minutes: 20
