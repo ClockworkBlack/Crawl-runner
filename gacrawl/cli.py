@@ -1150,8 +1150,10 @@ def cmd_minutes_ai(cfg, args):
         if getattr(args, "file", None):
             print(json.dumps(export_summaries(store, Path(args.file))))
             return
+        from .shard import parse_shard
+
         print(json.dumps(minutes_run(store, config.ROOT, time.monotonic() + float(args.max_minutes or 10) * 60,
-                                     log=lambda *a: print(*a, file=sys.stderr, flush=True))))
+                                     log=lambda *a: print(*a, file=sys.stderr, flush=True), shard=parse_shard(args.shard))))
     finally:
         store.close()
 
@@ -1457,6 +1459,7 @@ def build_parser() -> argparse.ArgumentParser:
     mai = sub.add_parser("minutes-ai", help="opened minutes files read by the open model: what each meeting took up and decided")
     mai.add_argument("--max-minutes", type=float, default=10)
     mai.add_argument("--file", help="write meeting_summaries.json here from what is stored (no model)")
+    mai.add_argument("--shard", help="i/N: only the meetings whose address hashes to shard i of N (meeting-summaries.yml)")
     cai = sub.add_parser("channel-ai", help="the open model's reading of unconfirmed meeting channels (taught by the owner's decisions)")
     cai.add_argument("--max-minutes", type=float, default=5)
     fbp = sub.add_parser("federal-bills", help="U.S. House and Senate bills since 2015 (GovInfo Bill Status bulk data)")

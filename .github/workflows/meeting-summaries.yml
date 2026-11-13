@@ -1,13 +1,21 @@
 name: meeting-summaries
 # What each meeting took up and decided, written by the open model (Qwen3-8B, 4-bit, CPU) from its minutes or its
-# recording's captions (gacrawl/meeting_summaries.py), on a runner of its own: city, county and school board minutes,
-# the state boards' minutes, and the General Assembly's committee hearings. It runs beside model-work (donor
-# backgrounds, Rumor Mill readings, federal bills), so the backlog of minutes costs those nothing.
+# recording's captions (gacrawl/meeting_summaries.py): city, county and school board minutes, the state boards'
+# minutes, and the General Assembly's committee hearings. It runs beside model-work (donor backgrounds, Rumor Mill
+# readings, federal bills), so the backlog of minutes costs those nothing.
 #
-# It works on a copy of the crawl database; what it wrote travels as meetings-handoff.json in the private crawl-data
-# release (gacrawl/model_handoff.py: meeting_summary records and the training log only), which the crawl's merge job
-# applies before its export and deletes only once the database holding it is stored. A hand-off still waiting is
-# carried into the next run's. Every 6 hours, between model-work's runs.
+# Sharded: the model is held back by one runner's CPU and asks no website for anything, so N runners read N times
+# as many meetings. Each shard reads the meetings whose address hashes to it (gacrawl minutes-ai --shard i/N), so
+# none is read twice. How many shards: the plan job counts the jobs already running on the account and leaves room
+# for the others' bursts (the crawl, the AI jobs' own shards) under the account's limit on jobs at once:
+#   N = ACCOUNT_JOB_LIMIT (20, GitHub's free plan) - jobs running now - JOB_RESERVE (6), between 1 and
+#   MEETING_SUMMARY_MAX_SHARDS (8). Variables of this repository change any of the three.
+# Once the backlog is read, each shard finds nothing to do and ends within minutes.
+#
+# Each shard works on its own copy of the crawl database, with every hand-off still waiting applied first, and hands
+# over meetings-handoff-<i>.json in the private crawl-data release (gacrawl/model_handoff.py: meeting_summary records
+# and the training log only), carrying its own waiting one. The crawl's merge job applies every meetings-handoff*.json
+# before its export and deletes each only once the database holding it is stored. Every 6 hours.
 on:
   schedule:
     - cron: "40 5,11,17,23 * * *"
@@ -20,6 +28,7 @@ on:
 
 permissions:
   contents: read
+  actions: read          # the plan job counts the jobs running on the account
 
 concurrency:
   group: meeting-summaries
@@ -33,10 +42,47 @@ env:
   IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
 
 jobs:
+  plan:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.n.outputs.shards }}
+    steps:
+      - name: How many shards
+        id: n
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIMIT: ${{ vars.ACCOUNT_JOB_LIMIT || '20' }}
+          RESERVE: ${{ vars.JOB_RESERVE || '6' }}
+          MAX: ${{ vars.MEETING_SUMMARY_MAX_SHARDS || '8' }}
+          DATA_REPO: ${{ vars.DATA_REPO || 'ClockworkBlack/Crawl' }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          # jobs running now in this repository and in the private one (the token may not see the private one: then 0)
+          running() {
+            local repo=$1 n=0 c
+            for id in $(gh api "repos/$repo/actions/runs?status=in_progress&per_page=100" --jq '.workflow_runs[].id' 2>/dev/null); do
+              c=$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+              n=$((n + c))
+            done
+            echo $n
+          }
+          HERE=$(running "$GITHUB_REPOSITORY")
+          THERE=$( [ -n "$DATA_TOKEN" ] && GH_TOKEN="$DATA_TOKEN" running "$DATA_REPO" || echo 0)
+          BUSY=$(( HERE + THERE - 1 ))        # less this job itself
+          N=$(( LIMIT - BUSY - RESERVE )); [ "$N" -gt "$MAX" ] && N=$MAX; [ "$N" -lt 1 ] && N=1
+          echo "jobs running: $HERE here, $THERE in $DATA_REPO; limit $LIMIT, reserve $RESERVE, at most $MAX -> $N shards"
+          echo "shards=$(python3 -c "import json;print(json.dumps([f'{i}/$N' for i in range($N)]))")" >> "$GITHUB_OUTPUT"
   write:
+    needs: plan
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,17 +95,21 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
-      - name: Is the last hand-off still waiting for the crawl? (then it is carried, not waited for)
+      - name: Hand-offs still waiting for the crawl (all applied to this copy; this shard's own carried)
         id: need
         run: |
-          # a hand-off the crawl has not applied yet is applied to this job's copy of the database and handed over
-          # again with this job's work (one file, both runs' writing): the model no longer sits out a run waiting
+          # every meetings hand-off the crawl has not applied yet is applied to this shard's copy of the database, so no
+          # meeting is read again; this shard's own (meetings-handoff-<i>.json) is handed over again with its new work
           echo "go=true" >> "$GITHUB_OUTPUT"
+          I=${{ strategy.job-index }}
+          echo "SHARD_I=$I" >> "$GITHUB_ENV"
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-          ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="meetings-handoff.json") | .id' 2>/dev/null || true)
-          if [ -n "$ID" ]; then
-            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
-          fi
+          mkdir -p waiting
+          gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name|test("^meetings-handoff(-[0-9]+)?\\.json$")) | "\(.id) \(.name)"' 2>/dev/null |
+          while read -r ID NAME; do
+            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > "waiting/$NAME" && echo "waiting: $NAME (asset $ID)"
+          done
+          if [ -s "waiting/meetings-handoff-$I.json" ]; then cp "waiting/meetings-handoff-$I.json" waiting.json; echo "this shard's own is carried"; fi
       - name: The open model (Qwen3-8B, 4-bit; kept between runs)
         if: steps.need.outputs.go == 'true'
         uses: actions/cache@v4
@@ -75,25 +125,29 @@ jobs:
         if: steps.need.outputs.go == 'true'
         run: |
           bash scripts/ci_db.sh pull
-          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
+          for f in waiting/*.json; do
+            [ -s "$f" ] || continue
+            gacrawl model-handoff apply --in "$f" > /dev/null || { echo "$f could not be applied here; it stays for the crawl"; [ "$(basename "$f")" = "meetings-handoff-$SHARD_I.json" ] && rm -f waiting.json; }
+          done
           gacrawl model-handoff mark --out mark.json
           echo "MW_T0=$(date +%s)" >> "$GITHUB_ENV"
-      - name: Minutes and committee hearings read (the parser's lines first, newest first)
+      - name: Minutes and committee hearings read (shard ${{ matrix.shard }}; the parser's lines first, newest first)
         if: steps.need.outputs.go == 'true'
         run: |
           M=${{ inputs.minutes || '290' }}
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" || echo "meeting summaries stopped after $((M + 8)) minutes"
-      - name: Hand it to the crawl (meetings-handoff.json in the private release)
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" --shard "${{ matrix.shard }}" > read.json || echo "meeting summaries stopped after $((M + 8)) minutes"
+          cat read.json 2>/dev/null || true
+      - name: Hand it to the crawl (meetings-handoff-<i>.json in the private release)
         if: always() && steps.need.outputs.go == 'true'
         run: |
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
           # only this job's own writing travels: the readings and their training log
           if [ -s waiting.json ]; then
-            gacrawl model-handoff export --mark mark.json --out meetings-handoff.json --only records,train --kinds meeting_summary --carry waiting.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "meetings-handoff-$SHARD_I.json" --only records,train --kinds meeting_summary --carry waiting.json | tee export.json
           else
-            gacrawl model-handoff export --mark mark.json --out meetings-handoff.json --only records,train --kinds meeting_summary | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "meetings-handoff-$SHARD_I.json" --only records,train --kinds meeting_summary | tee export.json
           fi
           if grep -q '"has_work": true' export.json; then :
           else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
-          gh release upload "$DATA_TAG" meetings-handoff.json --clobber
-          echo "uploaded $(du -h meetings-handoff.json | cut -f1) for the crawl's next merge"
+          gh release upload "$DATA_TAG" "meetings-handoff-$SHARD_I.json" --clobber
+          echo "uploaded meetings-handoff-$SHARD_I.json, $(du -h "meetings-handoff-$SHARD_I.json" | cut -f1), for the crawl's next merge"

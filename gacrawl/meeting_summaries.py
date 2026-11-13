@@ -92,7 +92,18 @@ def _spread(text: str, n: int, size: int = 6000) -> tuple[str, float]:
     return "".join(text[int(i * step):int(i * step) + size] for i in range(n)), round(n * size / len(text), 2)
 
 
-def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run: int = 100000) -> dict:
+def in_slice(url: str, shard: tuple[int, int] | None) -> bool:
+    """Whether a meeting belongs to shard i of n: by a fixed hash of its file's or video's address, so every runner
+    of a sharded job reads its own meetings and no two read the same one."""
+    if not shard:
+        return True
+    import zlib
+
+    return zlib.crc32((url or "").encode()) % shard[1] == shard[0]
+
+
+def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run: int = 100000,
+                shard: tuple[int, int] | None = None) -> dict:
     """Read minutes and hearings not read yet until the time is up: first the minutes the parser already drew lines
     from (one short call each), newest first; then, in the last quarter of the time, the rest and the hearings (the
     full reading). One record a reading; a file nothing checkable came from is kept as an empty reading and not read
@@ -108,9 +119,9 @@ def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run
     have = {_meta(r).get("of_url") for r in store.iter_query("kind='meeting_summary'") if _meta(r).get("v") == VERSION}
     parsed = parsed_lines(store)
     docs = [r for r in store.iter_query("kind='document' AND meta LIKE '%\"doc_type\": \"minutes\"%'")
-            if r["url"] not in have and len(r.get("text") or "") >= MIN_CHARS and (r.get("evidence") or "primary") == "primary"]
+            if in_slice(r["url"], shard) and r["url"] not in have and len(r.get("text") or "") >= MIN_CHARS and (r.get("evidence") or "primary") == "primary"]
     hear = [r for r in store.iter_query("kind='transcript' AND source_id=?", (HEARINGS,))
-            if r["url"] not in have and len(r.get("text") or "") >= MIN_CHARS]
+            if in_slice(r["url"], shard) and r["url"] not in have and len(r.get("text") or "") >= MIN_CHARS]
     day = lambda r: (r.get("published") or "")[:10]
     cheap = sorted([r for r in docs if len(parsed.get(r["url"]) or []) >= 2], key=day, reverse=True)
     rest = sorted([r for r in docs if len(parsed.get(r["url"]) or []) < 2] + hear, key=day, reverse=True)
@@ -168,7 +179,12 @@ def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run
             done += 1
     except Exception as e:  # noqa: BLE001 - the model failing ends this run's readings, not the job
         log(f"minutes ai: the model failed: {type(e).__name__}: {str(e)[:150]}")
+    except KeyboardInterrupt:       # stopped (the step's time limit, a cancelled run): what was read is kept
+        log("minutes ai: stopped; keeping what was read")
     st["left"] = st["waiting"] - done
+    st["seconds_each"] = round((time.monotonic() - t0) / done, 1) if done else None
+    if shard:
+        st["shard"] = f"{shard[0]}/{shard[1]}"
     store.flush()
     log(f"minutes ai: {st}")
     return st

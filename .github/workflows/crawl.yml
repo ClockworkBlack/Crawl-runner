@@ -384,7 +384,9 @@ jobs:
           # its own runner, its articles, leads, Rumor Mill items and news progress, handed over the same way
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           rm -f modeld/applied
-          for NAME in model-handoff.json news-handoff.json meetings-handoff.json; do
+          # the meeting-summaries job's shards hand over one file each (meetings-handoff-<i>.json); every one waiting is applied
+          MEET=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[].name' 2>/dev/null | grep -E '^meetings-handoff(-[0-9]+)?\.json$' | sort || true)
+          for NAME in model-handoff.json news-handoff.json $MEET; do
             ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$NAME\") | \"\(.id) \(.updated_at)\"" 2>/dev/null || true)
             if [ -n "$ID" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${ID%% *}" > "modeld/$NAME" 2>/dev/null && [ -s "modeld/$NAME" ]; then
               gacrawl model-handoff apply --in "modeld/$NAME" && echo "$NAME $ID" >> modeld/applied && echo "$NAME applied"

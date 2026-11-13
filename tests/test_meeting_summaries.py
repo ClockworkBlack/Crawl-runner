@@ -133,3 +133,19 @@ def test_the_jobs_hand_off_carries_its_readings_and_nothing_it_did_not_write(tmp
     assert mh.apply(other, tmp_path, h)["records"] == 1 and len(other.read("example:site", "meeting_summary")) == 1
     other.close()
     s.close()
+
+
+def test_shards_split_the_meetings_with_none_read_twice_and_none_left_out(tmp_path):
+    s = _store(tmp_path)
+    for k in range(40):
+        s.add(Record("example:site", "document", f"https://example.gov/minutes/{k}.pdf", title=f"Minutes {k}", text=MINUTES,
+                     published=f"2026-0{1 + k % 9}-10", jurisdiction="example", evidence="primary", meta={"doc_type": "minutes"}))
+    s.flush()
+    got = []
+    for i in range(4):
+        st = MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=FakeLLM(), log=lambda *a: None, shard=(i, 4))
+        got.append(st["waiting"])
+        assert st["shard"] == f"{i}/4" and st["full_readings"] == st["waiting"]
+    assert sum(got) == 41 and all(n > 0 for n in got)          # 40 here and the one in _store, each in exactly one shard
+    assert len(s.read("example:site", "meeting_summary")) == 41
+    s.close()
