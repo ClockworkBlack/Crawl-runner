@@ -50,13 +50,54 @@ def _store(tmp_path):
 def test_minutes_are_read_once_and_only_lines_in_the_minutes_are_kept(tmp_path):
     s, llm = _store(tmp_path), FakeLLM()
     st = MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=llm, log=lambda *a: None)
-    assert st["minutes"] == 1 and st["read"] == 1 and st["summaries"] == 1          # the agenda and the unread scan are not minutes to read
+    assert st["waiting"] == 1 and st["full_readings"] == 1 and st["summaries"] == 1   # the agenda and the unread scan are not minutes to read
     rec = s.read("example:site", "meeting_summary")[0]
     texts = [it["text"] for it in rec["meta"]["items"]]
     assert "The council voted to raise taxes by ten percent." not in texts and len(texts) == 3
-    assert rec["meta"]["of_url"].endswith("2026-10-05.pdf") and rec["meta"]["summary"].startswith("The council approved")
+    assert rec["meta"]["of_url"].endswith("2026-10-05.pdf") and rec["meta"]["summary"].startswith("The council approved") and rec["meta"]["by"] == "model"
     calls = llm.calls
-    assert MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=llm, log=lambda *a: None)["minutes"] == 0 and llm.calls == calls
+    assert MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=llm, log=lambda *a: None)["waiting"] == 0 and llm.calls == calls
+    s.close()
+
+
+def _motions(s, url):
+    for i, (what, meta) in enumerate([("approve the rezoning of 12 Oak Street from R-1 to C-2", {"result": "passed", "tally": "4-1", "mover": "Lee"}),
+                                      ("table the sign ordinance", {"result": "", "tally": ""}),
+                                      ("adjourn", {"result": "passed", "procedural": True})]):
+        s.add(Record("example:site", "agenda_item", url, title=what, text=what, published="2026-10-05", channel="derived",
+                     jurisdiction="example", key=f"example:site|minutes|{url}|{i}|item", meta={"from": "minutes", "procedural": False, **meta}))
+    s.flush()
+
+
+def test_minutes_the_parser_already_read_take_one_short_call_and_show_before_any_model_runs(tmp_path):
+    s, llm = _store(tmp_path), FakeLLM()
+    url = "https://example.gov/minutes/2026-10-05.pdf"
+    _motions(s, url)
+    before = MS.export_summaries(s, tmp_path / "m.json")                      # no model has run: the parser's lines are there already
+    row = json.loads((tmp_path / "m.json").read_text())["summaries"][0]
+    assert before["lines_by_parser"] == 1 and row["s"] == "" and row["by"] == "parser"
+    assert row["i"] == [["vote", "Lee", "approve the rezoning of 12 Oak Street from R-1 to C-2 (passed 4-1)"], ["motion", "", "table the sign ordinance"]]
+    st = MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=llm, log=lambda *a: None)
+    assert st["from_parsed_lines"] == 1 and st["full_readings"] == 0 and llm.calls == 1 and st["summaries"] == 1
+    after = MS.export_summaries(s, tmp_path / "m.json")
+    row = json.loads((tmp_path / "m.json").read_text())["summaries"][0]
+    assert after["summaries"] == 1 and row["s"].startswith("The council approved") and row["by"] == "parser"
+    s.close()
+
+
+def test_a_committee_hearing_is_read_from_parts_spread_over_its_whole_length(tmp_path):
+    s, llm = _store(tmp_path), FakeLLM()
+    long = (MINUTES + " ") * 60
+    s.add(Record(MS.HEARINGS, "transcript", "https://vimeo.com/123", title="02.10.26 Judiciary", text=long, published="2026-02-10",
+                 jurisdiction="ga", evidence="primary", meta={"committee": "Judiciary", "platform": "vimeo"}))
+    s.flush()
+    text, cover = MS._spread(long, 6)
+    assert len(text) == 36000 and 0 < cover < 1 and text.endswith(long[-200:])
+    st = MS.minutes_run(s, tmp_path, time.monotonic() + 60, llm=llm, log=lambda *a: None)
+    assert st["hearings"] == 1
+    MS.export_summaries(s, tmp_path / "m.json")
+    h = [x for x in json.loads((tmp_path / "m.json").read_text())["summaries"] if x["k"] == "hearing"][0]
+    assert h["u"] == "https://vimeo.com/123" and h["c"] == "Judiciary" and h["cov"] == cover and h["s"]
     s.close()
 
 
@@ -72,7 +113,7 @@ def test_the_bundle_file_carries_checked_lines_and_leaves_statements_and_routine
     s.flush()
     counts = MS.export_summaries(s, tmp_path / "meeting_summaries.json")
     d = json.loads((tmp_path / "meeting_summaries.json").read_text())
-    assert counts == {"summaries": 2, "from_minutes": 1, "from_recordings": 1, "with_summary": 1}
+    assert (counts["summaries"], counts["from_minutes"], counts["from_recordings"], counts["with_summary"]) == (2, 1, 1, 1)
     rec, mins = d["summaries"]
     assert rec["k"] == "recording" and rec["i"] == [["vote", "", "the budget is adopted five to zero"]] and rec["u"].endswith("v=abc")
     assert mins["k"] == "minutes" and mins["s"] == "" and [x[0] for x in mins["i"]] == ["vote", "motion"]     # the call to order is routine

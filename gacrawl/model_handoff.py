@@ -36,7 +36,7 @@ import json
 from pathlib import Path
 
 KV_KEYS = ("donor_about", "federal_bill_ai", "orgs", "irs_bmf", "ga_registry")
-RECORD_KINDS = ("organization",)
+RECORD_KINDS = ("organization", "meeting_summary")     # meeting_summary: the readings of minutes and hearings
 NEWS_KINDS = ("article", "lead")       # the news lane's (GDELT), only of a candidate's source (cand:<id>)
 TEXT_KEYS = ("text", "text_url", "text_tried", "text_error")
 ROW_KEYS = ("candidate_id", "url", "claim", "origin", "author", "first_seen", "opened")

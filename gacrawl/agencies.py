@@ -241,8 +241,43 @@ def load(root: Path) -> list[dict]:
     return (yaml.safe_load(p.read_text()) or {}).get("agencies") or [] if p.exists() else []
 
 
+def open_minutes(fetcher, store, ag: dict, found: dict, deadline: float | None, cap: int, log=print) -> int:
+    """Open a board's minutes files not opened yet, newest first (at most `cap`), and keep each as a document
+    (doc_type "minutes") so the minutes reader (gacrawl/meeting_summaries.py) can say what the meeting decided."""
+    from .ingest import pdf_to_record
+
+    n = 0
+    for d in sorted((d for d, m in found.items() if m.get("minutes")), reverse=True):
+        if n >= cap or (deadline is not None and time.monotonic() > deadline - 30):
+            break
+        u = found[d]["minutes"]
+        if store.url_seen(u):                     # opened before (or refused before): once is enough for a posted file
+            continue
+        try:
+            r = fetcher.get(u, use_cache=False)
+        except Exception as exc:  # noqa: BLE001 - a file that refuses is left; the meeting keeps its link
+            store.mark_url(u, 0, f"ga-agency:{ag['id']}")
+            log(f"agencies: {ag['id']} minutes {d}: {type(exc).__name__}")
+            continue
+        store.mark_url(u, r.status, f"ga-agency:{ag['id']}", r.content_type)
+        if r.status != 200 or r.content[:5] != b"%PDF-":
+            continue
+        try:
+            rec = pdf_to_record(r.content, source_id=f"ga-agency:{ag['id']}", kind="document", url=u, title=f"{ag['name']} minutes, {d}",
+                                meta={"doc_type": "minutes", "opened": True, "agency": ag["id"], "found_on": found[d].get("page") or ""},
+                                ocr_max_pages=0)
+        except Exception as exc:  # noqa: BLE001
+            log(f"agencies: {ag['id']} minutes {d}: unreadable ({type(exc).__name__})")
+            continue
+        rec.published, rec.jurisdiction, rec.evidence = d, "ga", "primary"
+        rec.key = f"ga-agency:{ag['id']}|minutes|{u}"
+        store.add(rec)
+        n += 1
+    return n
+
+
 def run(fetcher, store, root, deadline: float | None = None, only: list[str] | None = None, dry_run: bool = False,
-        log=print) -> dict:
+        log=print, minutes_cap: int = 6) -> dict:
     """Each body's pages (and the pages they link, one level, where `follow` says so) read into meeting records."""
     from .store import Record
 
@@ -325,7 +360,9 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
                                "EventAgendaFile": m["agenda"], "EventMinutesFile": m["minutes"], "docs": m["docs"],
                                "what": m.get("what") or "", "location": m["where"], "found_on": m["page"], "opened": True})
             out["new"] += store.add(rec)
-        log(f"agencies: {ag['name']}: {len(found)} meetings ({out['by'][ag['id']]['with_minutes']} with minutes)")
+        opened = open_minutes(fetcher, store, ag, found, deadline, minutes_cap, log=log) if minutes_cap else 0
+        out["minutes_opened"] = out.get("minutes_opened", 0) + opened
+        log(f"agencies: {ag['name']}: {len(found)} meetings ({out['by'][ag['id']]['with_minutes']} with minutes; {opened} minutes files opened now)")
     if not dry_run:
         store.flush()
     return out

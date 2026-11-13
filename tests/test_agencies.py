@@ -92,3 +92,31 @@ def test_a_page_drawn_in_the_browser_is_read_from_its_data_script():
             '</script></body></html>')
     ms = agencies.meetings_on(html, "https://gadoe.org/state-board/board-schedule/")
     assert [(m["date"], m["what"]) for m in ms] == [("2026-01-15", "Committee of the Whole and Regular Meeting"), ("2026-01-14", "Committee Meetings")]
+
+
+def test_a_boards_minutes_files_are_opened_once_newest_first(tmp_path, monkeypatch):
+    from gacrawl import ingest
+    from gacrawl.store import Record, Store
+
+    class R:
+        status, content, content_type, url = 200, b"%PDF-1.4 fake", "application/pdf", ""
+
+    class F:
+        got = []
+
+        def get(self, u, use_cache=False):
+            self.got.append(u)
+            return R()
+
+    monkeypatch.setattr(ingest, "pdf_to_record", lambda content, **k: Record(k["source_id"], k["kind"], k["url"], title=k["title"],
+                                                                             text="The board approved the budget. " * 40, meta=k["meta"]))
+    store = Store(tmp_path / "data")
+    found = {"2026-10-01": {"minutes": "https://b.example/m-oct.pdf", "page": "https://b.example/"},
+             "2026-09-01": {"minutes": "https://b.example/m-sep.pdf"}, "2026-11-01": {"minutes": ""}}
+    ag = {"id": "regents", "name": "Board of Regents"}
+    assert agencies.open_minutes(F(), store, ag, found, None, cap=1) == 1 and F.got == ["https://b.example/m-oct.pdf"]
+    assert agencies.open_minutes(F(), store, ag, found, None, cap=5) == 1 and F.got[-1] == "https://b.example/m-sep.pdf"
+    assert agencies.open_minutes(F(), store, ag, found, None, cap=5) == 0
+    docs = store.read("ga-agency:regents", "document")
+    assert len(docs) == 2 and docs[0]["meta"]["doc_type"] == "minutes" and docs[0]["jurisdiction"] == "ga" and docs[0]["published"][:10] == "2026-10-01"
+    store.close()

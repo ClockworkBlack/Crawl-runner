@@ -88,6 +88,13 @@ jobs:
           # gacrawl/registries.py: the registries' bulk files and searches, so the model has a registration to write
           # from for every organization and committee in them (only 17 had one when lookups waited for a name search)
           timeout -s INT -k 2m 48m gacrawl finance orgs --max-minutes 40 || echo "organization lookups stopped after 48 minutes"
+      - name: Meeting summaries (minutes and committee hearings; the parser's lines first)
+        if: steps.need.outputs.go == 'true'
+        run: |
+          # gacrawl/meeting_summaries.py: a third of the time left (MEETING_SUMMARY_SHARE, percent). Minutes the crawler's
+          # parser already drew motions from take one short call each; the readings travel in the hand-off
+          ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( (ALL - USED) * ${{ vars.MEETING_SUMMARY_SHARE || '35' }} / 100 )); [ "$M" -lt 5 ] && M=5
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" || echo "meeting summaries stopped after $((M + 8)) minutes"
       - name: Donor backgrounds (organizations and PACs, biggest donors first)
         if: steps.need.outputs.go == 'true'
         run: |
