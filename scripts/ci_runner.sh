@@ -52,8 +52,8 @@ case "$cmd" in
     rm -rf .data
     git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data
     git -C .data sparse-checkout set --no-cone /state/ /imports/screens/ /data/openrecords/ /data/verified/ /data/rumor_mill/ \
-      /data/manual_tasks.md /data/seed_gaps.md /data/seed_review.md /data/train/ /config/private/
-    for p in config/private state imports/screens data/openrecords data/verified data/rumor_mill data/manual_tasks.md data/seed_gaps.md data/seed_review.md data/train; do
+      /data/manual_tasks.md /data/seed_gaps.md /data/seed_review.md /data/train/ /config/private/ /imports/history/
+    for p in config/private state imports/screens imports/history data/openrecords data/verified data/rumor_mill data/manual_tasks.md data/seed_gaps.md data/seed_review.md data/train; do
       if [ -e ".data/$p" ]; then mkdir -p "$(dirname "$p")"; rm -rf "$p"; cp -r ".data/$p" "$p"; fi
     done
     rm -rf .data

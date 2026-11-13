@@ -73,6 +73,8 @@ def test_medsl():
     assert ny["o"][0][:3] == ["Otis G. Pike", "D", 110000]          # one candidate on two party lines: votes added
     sen = list(medsl_contests(SENATE, "senate", "u"))
     assert sen[0]["office"] == "U.S. Senate" and sen[0]["o"][0][0] == "David A. Perdue" and sen[0]["o"][2][1] == "L"
+    odd = SENATE.replace("DEMOCRAT\tFALSE\t2374519\t4952175\tDEMOCRAT", "DEMOCRAT\tFALSE\t2374519\t4952175\tOTHER")
+    assert list(medsl_contests(odd, "senate", "u"))[0]["o"][1][:2] == ["Jon Ossoff", "D"]
     pr = list(medsl_contests(PRES, "president", "u"))
     assert pr[0]["t"] == "President · Georgia" and pr[0]["o"][0][0] == "Jimmy Carter"
 
@@ -193,6 +195,8 @@ def test_fec():
     assert k[("CA", "U.S. House", "12", "primary", "")]["tot"] == 150           # top-two: one primary for every party
     assert k[("GA", "U.S. Senate", "", "primary", "D")]["o"][0][4] == "unopposed"
     assert rp["ids"]["Chris West"] == {"fec": "H2GA02999"}
+    gen = k[("GA", "U.S. House", "2", "general", "")]
+    assert gen["date"] == "2022-11-08" and gen["o"][0][:5] == ["Sanford D. Bishop Jr.", "D", 132675, 1, "won"] and gen["tot"] == 241340
 
 
 class FakeNet:

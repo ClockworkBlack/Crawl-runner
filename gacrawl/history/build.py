@@ -23,7 +23,7 @@ from .model import STATES, is_writein_bucket, pkey, seat_key, shard
 from .run import iter_contests, load_state, paths
 
 PEOPLE_SHARDS, PROF_SHARDS = 64, 16
-PRIORITY = {"sos_zip": 5, "openelections": 4, "medsl": 5, "fec": 4, "legislators": 1}
+PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "medsl": 5, "fec": 4, "legislators": 1}
 STAGE_CODE = {"general": "gen", "primary": "pri", "primary runoff": "prirun", "general runoff": "genrun", "special": "spec",
               "special runoff": "specrun", "special primary": "specpri", "special primary runoff": "specprirun"}
 STAGE_TITLE = {"general": "General Election", "primary": "Primary Election", "primary runoff": "Primary Runoff",
@@ -300,13 +300,18 @@ def _coverage(summary: dict, cs: list[dict]) -> str:
         ys = sorted({c["y"] for c in cs if c["scope"] == scope and pred(c)})
         return f"{ys[0]}–{ys[-1]}" if ys else "none yet"
     parts = [
-        "Federal offices in every state: general elections " + span("us", lambda c: c["stage"] == "general" and c.get("tot"))
-        + " with vote counts (the members seated after the 1968–1974 elections are listed without counts until the Clerk of the "
-          "House's statistics are read in); primaries " + span("us", lambda c: "primary" in c["stage"]) + ".",
+        "Federal offices in every state, general elections with vote counts: President by state "
+        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "President") + ", U.S. Senate "
+        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "U.S. Senate") + ", U.S. House "
+        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "U.S. House")
+        + ". For earlier House and Senate elections back to 1968 the member seated is shown without a vote count. Federal primaries "
+        + span("us", lambda c: "primary" in c["stage"]) + ".",
         "Georgia before 2016: " + span("ga", lambda c: True) + " (statewide, federal, legislative and judicial contests and ballot "
         "questions by county, with primaries and runoffs; county and city contests where the state's archive holds them).",
-        "Georgia's own results for 1988–1999 and its earlier years are documents still being read in; city-run elections were never "
-        "reported to the state and are added as each city's or county's own records are found.",
+        "Not on file yet: Georgia's results before 2000 (the Secretary of State's site turns crawlers away, so its 1988–2015 "
+        "files are read when downloaded by hand; earlier years exist only in printed registers), presidential results by state "
+        "for 1968 and 1972, and city-run elections, which were never reported to the state and are added as each city's or "
+        "county's own records are found.",
     ]
     return " ".join(parts)
 

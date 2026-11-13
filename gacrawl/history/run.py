@@ -14,9 +14,9 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"medsl": 1, "legislators": 2, "fec": 1, "openelections": 2, "sos_zip": 1, "sos_pdf": 1, "clerk": 1}
+READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 2, "openelections": 2, "sos_zip": 1, "sos_pdf": 1, "clerk": 1}
 # a failed item is tried again by the next run (three tries, then every three days)
-ORDER = ["legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
+ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
 # block list apply to them as to every host; robots.txt, written for page crawlers, is not what governs an API
 API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections"]

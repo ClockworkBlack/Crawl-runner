@@ -191,7 +191,9 @@ def medsl_contests(text: str, kind: str, src_url: str):
         v = _int(r.get("candidatevotes")) or 0
         row["v"] += v
         row["name"] = cand
-        row["parties"].append((v, r.get("party_simplified") or r.get("party") or r.get("party_detailed") or ""))
+        # the short party column is sometimes "OTHER" or empty where the long one says DEMOCRAT (Illinois and Maryland, 2022)
+        labels = [r.get("party_simplified") or "", r.get("party") or "", r.get("party_detailed") or ""]
+        row["parties"].append((v, next((x for x in labels if party_code(x) in ("D", "R")), next((x for x in labels if x and x.upper() != "OTHER"), ""))))
     for (y, st, dist, stage, special, runoff), g in sorted(groups.items(), key=lambda kv: [str(x) for x in kv[0]]):
         o = []
         for row in g["rows"].values():
@@ -221,8 +223,8 @@ def medsl_contests(text: str, kind: str, src_url: str):
 
 # ---------------------------------------------------------------- members of Congress (unitedstates/congress-legislators)
 class Legislators:
-    """Who was seated: the winners of the 1968-1974 elections (no vote count on file yet), and a profile for every
-    member of Congress who has served since January 1969."""
+    """Who was seated after each general election since 1968 (the winner, with no vote count: shown only where no
+    counted result is on file for the seat), and a profile for every member of Congress who has served since 1969."""
     name = "legislators"
     FILES = (("historical", "https://unitedstates.github.io/congress-legislators/legislators-historical.json"),
              ("current", "https://unitedstates.github.io/congress-legislators/legislators-current.json"))
@@ -266,7 +268,7 @@ def legislators_read(people: list, src_url: str):
                          "terms": tl, "fec": ids.get("fec") or [], "src": src}
         for t in terms:
             start = str(t.get("start") or "")
-            if t.get("how") or not re.fullmatch(r"19(69|71|73|75)-01-\d\d", start):
+            if t.get("how") or not re.fullmatch(r"(19[67]\d|19[89]\d|20\d\d)-01-\d\d", start) or int(start[:4]) % 2 == 0 or int(start[:4]) < 1969:
                 continue                                   # appointed or elected at a special election: not that November's winner
             y = int(start[:4]) - 1
             ch = "U.S. Senate" if t.get("type") == "sen" else "U.S. House"
@@ -363,8 +365,9 @@ def fec_contests(sheets, year: int, url: str):
         ci = {"st": col(r"^STATE ABBREVIATION$", r"^STATE$"), "d": col(r"^(D|DISTRICT)$"), "fec": col(r"FEC ID"),
               "inc": col(r"^\(I\)$", r"INCUMBENT"), "name": col(r"^CANDIDATE NAME$", r"^CANDIDATE NAME \(LAST, FIRST\)$", r"LAST NAME, *FIRST", r"CANDIDATE NAME"),
               "party": col(r"^PARTY$"), "pri": col(r"^PRIMARY( VOTES| RESULTS)?$"), "ro": col(r"^RUNOFF( VOTES| RESULTS)?$"),
-              "pdate": col(r"^PRIMARY DATE$"), "rdate": col(r"^RUNOFF DATE$")}
-        if ci["st"] is None or ci["name"] is None or ci["pri"] is None:
+              "pdate": col(r"^PRIMARY DATE$"), "rdate": col(r"^RUNOFF DATE$"),
+              "gen": col(r"^GENERAL( VOTES| RESULTS)?$"), "win": col(r"GE WINNER"), "gdate": col(r"^GENERAL ELECTION DATE$")}
+        if ci["st"] is None or ci["name"] is None or (ci["pri"] is None and ci["gen"] is None):
             continue
         sl = sname.lower()
         sheet_office = "President" if "pres" in sl else "U.S. Senate" if "senate" in sl and "house" not in sl else \
@@ -389,22 +392,27 @@ def fec_contests(sheets, year: int, url: str):
                 if dv.startswith("H") or not m:
                     continue
                 dist = "AL" if int(m.group(1)) == 0 else str(int(m.group(1)))
+            if re.search(r"combined", str(g("party") or ""), re.I):
+                continue                               # the sum of a candidate's party lines: the lines themselves are added
             pc = party_code(g("party"))
             inc = 1 if str(g("inc") or "").strip() else 0
             fid = str(g("fec") or "").strip()
-            for stage, vk, dk in (("primary", "pri", "pdate"), ("primary runoff", "ro", "rdate")):
+            for stage, vk, dk in (("primary", "pri", "pdate"), ("primary runoff", "ro", "rdate"), ("general", "gen", "gdate")):
                 raw_v = g(vk)
                 v = _int(raw_v)
                 unopp = bool(re.search(r"unopposed", str(raw_v or ""), re.I))
                 if v is None and not unopp:
                     continue
                 since = TOP_TWO.get(st)
-                p = "" if (since and year >= since) or st == "LA" else pc
+                p = "" if stage == "general" or (since and year >= since) or st == "LA" else pc
                 d = g(dk)
                 date = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else (_date_in(str(d or "")) or str(year))
                 if not date.startswith(str(year)):
                     date = str(year)
-                groups[(st, office, dist, stage, p, sp)].append(([nice_name(name), pc, v, inc, "unopposed" if unopp and v is None else ""], date, fid))
+                if stage == "general" and date == str(year) and not sp:
+                    date = general_day(year)
+                won = "won" if stage == "general" and re.match(r"W", str(g("win") or "").strip(), re.I) else ""
+                groups[(st, office, dist, stage, p, sp)].append(([nice_name(name), pc, v, inc, "unopposed" if unopp and v is None else won], date, fid))
     for (st, office, dist, stage, p, sp), rows in sorted(groups.items(), key=lambda kv: [str(x) for x in kv[0]]):
         merged: dict = {}
         for o, date, fid in rows:                     # a candidate listed once per party line: one row, votes added
@@ -419,10 +427,10 @@ def fec_contests(sheets, year: int, url: str):
         tot = sum(x[2] or 0 for x in o) or None
         where = STATES[st] + ((" At Large" if dist == "AL" else " District " + dist) if office == "U.S. House" else "")
         c = {"scope": "us", "y": year, "date": dates[0] if len(dates) == 1 else str(year), "stage": stage, "st": st, "office": office,
-             "dist": dist, "lvl": "federal", "p": p if p in ("D", "R", "L", "G") else "", "j": "", "t": f"{office} · {where}",
+             "dist": dist, "lvl": "federal", "p": p if p in ("D", "R", "L", "G") and stage != "general" else "", "j": "", "t": f"{office} · {where}",
              "tot": tot, "o": o, "src": src, "basis": "official",
              "ids": {x[0][0]: {"fec": x[2]} for x in merged.values() if x[2]}}
-        if p and p not in ("D", "R", "L", "G"):
+        if stage != "general" and p and p not in ("D", "R", "L", "G"):
             continue                                   # minor-party and independent lines are not primaries
         if sp:
             c["sp"] = 1
@@ -789,4 +797,53 @@ class Clerk(_Pdfs):
         return {"date": m.group(1), "stage": "general"}
 
 
-SOURCES = {s.name: s for s in (Legislators(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk())}
+class Manual:
+    """Result files downloaded by hand into imports/history/ in the private repository, for publishers the crawler
+    may not fetch from (a site that answers crawlers with a bot check, a dataset behind a sign-in form): the state's
+    archives (.zip, named with the election's date and kind as the state names them), the MEDSL files (house, senate
+    or president in the name; .tab or .csv), and results documents (.pdf, kept as text). Read once per file."""
+    name = "manual"
+
+    def discover(self, net):
+        from .. import config
+        d = config.ROOT / "imports" / "history"
+        out = []
+        for p in sorted(d.rglob("*")) if d.exists() else []:
+            if p.is_file() and p.suffix.lower() in (".zip", ".tab", ".csv", ".tsv", ".pdf"):
+                out.append(Item(id=f"manual:{p.relative_to(d).as_posix()}:{p.stat().st_size}", url=str(p), title=p.name, meta={}))
+        return out
+
+    def read(self, net, item, work):
+        p = Path(item.url)
+        low, words = p.name.lower(), re.sub(r"[_\-]+", " ", p.stem)
+        src_u = "https://sos.ga.gov/page/historical-elections-results"
+        if p.suffix.lower() in (".tab", ".csv", ".tsv"):
+            kind = next((k for k in ("house", "senate", "president") if k in low), None)
+            if not kind:
+                raise Skip("a .tab or .csv file needs house, senate or president in its name")
+            doi = dict(Medsl.DATASETS)[kind]
+            yield from medsl_contests(p.read_bytes().decode("utf-8-sig", errors="replace"), kind, "https://doi.org/" + doi.split(":", 1)[1])
+        elif p.suffix.lower() == ".zip":
+            date = _date_in(words)
+            if not date:
+                raise Skip("the file name needs the election's date, as the state names its archives (november_4_2014_-_general_election.zip)")
+            docs, names = [], []
+            _walk_zip(p.read_bytes(), docs, names, depth=0)
+            title = re.sub(r"\s+", " ", words).strip().title()
+            n = 0
+            for c in clarity_contests(docs, date, _stage_of(words), title, src_u):
+                n += 1
+                yield c
+            if not n:
+                raise Skip(f"no results file this reader knows among {len(names)} files: " + ", ".join(names[:12]))
+        else:
+            import pdfplumber
+            d = Path(work) / "text" / "manual"
+            d.mkdir(parents=True, exist_ok=True)
+            with pdfplumber.open(str(p)) as pdf:
+                pages = [(pg.extract_text() or "") for pg in pdf.pages]
+            (d / (re.sub(r"[^a-z0-9]+", "_", p.stem.lower()) + ".json")).write_text(json.dumps({"title": p.name, "pages": pages}, ensure_ascii=False), encoding="utf-8")
+            raise Skip(f"kept as text: {len(pages)} pages, {sum(len(x) for x in pages)} characters (the reader for these pages comes next)")
+
+
+SOURCES = {s.name: s for s in (Manual(), Legislators(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk())}
