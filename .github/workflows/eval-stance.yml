@@ -87,6 +87,8 @@ jobs:
           for p in 1 2; do python3 -I tools/eval/run_stance.py --merge "../runs/eval-$p-*/run.json" --out "../run$p.json"; done
           python3 -I tools/eval/eval_score.py --run "prompt 1=../run1.json" --run "prompt 2=../run2.json" | tee ../report.md
           sed -n '/^# Accuracy report/,/^## Lines written/p' ../report.md >> "$GITHUB_STEP_SUMMARY"
+          # the table also as a note on the run (readable through the API after the log is moved)
+          python3 -c "import sys; L=open(sys.argv[1]).read().split('## Lines written')[0].splitlines(); print('::notice title=eval-stance::' + '%0A'.join(l.replace('%','%25').replace(':','%3A') for l in L if l.strip())[:60000])" ../report.md
       - name: Remove this run's attachments
         if: always()
         env:
