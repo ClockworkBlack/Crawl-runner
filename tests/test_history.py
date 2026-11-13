@@ -39,6 +39,7 @@ def test_names_and_keys():
     assert nice_name("Carter, Earl L. \"Buddy\"") == "Earl L. \"Buddy\" Carter"
     assert nice_name("DON MCDONALD") == "Don McDonald"
     assert pkey("Earl “Buddy” Carter, Jr.") == "EARL BUDDY CARTER"
+    assert party_code("DEM/WF") == "D" and party_code("W(R)") == "R" and party_code("R*") == "R" and party_code("N/A") == ""
     assert party_code("DEMOCRATIC-FARMER-LABOR") == "D" and party_code("Rep") == "R" and party_code("LIBERAL") == "O" and party_code("") == ""
     assert general_day(1968) == "1968-11-05" and general_day(2024) == "2024-11-05" and general_day(1976) == "1976-11-02"
     assert 0 <= shard("PARK CANNON", 64) < 64
@@ -212,6 +213,14 @@ class FakeNet:
     def text(self, url, params=None):
         return self.bytes(url, params).decode()
 
+    via = {}
+
+    def note(self, url):
+        return ""
+
+    def captures(self, url, newest=4):
+        return []
+
     def json(self, url, params=None):
         return json.loads(self.bytes(url, params))
 
@@ -286,6 +295,20 @@ def test_run_build_verify(tmp_path, monkeypatch):
     assert sm["us"]["1976"]["U.S. House"]["seats"] == {"D": 2, "R": 1} and sm["ga"]["2014"]["statewide"]["Governor"]["w"] == "Nathan Deal"
     assert res["people"] > 10
 
+    au = json.loads((out / "audit.json").read_text())
+    assert idx["audit"]["checked"] == au["checked"] and "1976" in au["seats"]
+    # two sources for one seat: the FEC's general election agrees with a made-up second count, then does not
+    from gacrawl.history.build import choose
+    mk = lambda item, w, v, tot: {"scope": "us", "y": 2022, "date": "2022-11-08", "stage": "general", "st": "GA", "office": "U.S. House", "dist": "2",  # noqa: E731
+                                  "lvl": "federal", "p": "", "j": "", "t": "U.S. House · Georgia District 2", "tot": tot, "o": [[w, "D", v, 0, "won"], ["Other One", "R", tot - v, 0, ""]],
+                                  "src": {"t": "x", "u": "u"}, "basis": "official", "item": item}
+    a1 = {}
+    kept = choose([mk("fec:a", "Sanford D. Bishop Jr.", 132675, 241340), mk("medsl:b", "SANFORD BISHOP", 132670, 241300)], a1)
+    assert a1["agree"] == 1 and kept[0]["chk"] == "agree" and kept[0]["item"] == "medsl:b"
+    a2 = {}
+    kept = choose([mk("fec:a", "Sanford D. Bishop Jr.", 132675, 241340), mk("medsl:b", "Chris West", 150000, 241300)], a2)
+    assert kept[0]["chk"] == "differ" and a2["differ"][0]["why"] == "winner"
+
     electo = tmp_path / "electo" / "hist"
     assert hbuild.verify(out, electo)["ok"] is False
     import shutil
@@ -293,3 +316,43 @@ def test_run_build_verify(tmp_path, monkeypatch):
     assert hbuild.verify(out, electo)["ok"] is True
     (electo / "ga_2006.json").write_text("{}")
     assert hbuild.verify(out, electo)["differ"] == ["ga_2006.json"]
+
+
+def test_archive_fallback(tmp_path):
+    """A file its publisher's site will not serve a crawler is read from the Internet Archive's capture, with the date kept."""
+    from gacrawl.history.run import Net
+
+    class R:
+        def __init__(self, status, content=b"", js=None):
+            self.status, self.content, self._js = status, content, js
+
+        def json(self):
+            return self._js
+
+    class F:
+        max_bytes = max_doc_bytes = 0
+        api_endpoints = []
+        calls = []
+
+        def get(self, url, params=None, use_cache=True):
+            F.calls.append(url)
+            if url.startswith("https://sos.ga.gov/"):
+                from gacrawl.blocked import Blocked
+                raise Blocked("sos.ga.gov", "robots.txt: HTTP 403 bot-protection challenge")
+            if "cdx" in url:
+                return R(200, js=[["timestamp", "statuscode", "digest"], ["20230105000000", "200", "A"], ["20240210120000", "200", "B"]])
+            if url == "https://web.archive.org/web/20240210120000id_/https://sos.ga.gov/sites/default/files/x.pdf":
+                return R(200, b"%PDF-1.4 x")
+            if url.startswith("https://example.org/"):
+                return R(404)
+            return R(404)
+
+    net = Net.__new__(Net)
+    net.f, net.requests, net.via, net.archive_off, net._refused = F(), 0, {}, "", set()
+    u = "https://sos.ga.gov/sites/default/files/x.pdf"
+    assert net.bytes(u) == b"%PDF-1.4 x" and net.note(u) == " (read from the Internet Archive's copy of 2024-02-10)"
+    n = len(F.calls)
+    net.bytes(u)
+    assert not any(c.startswith("https://sos.ga.gov/") for c in F.calls[n:])          # the site that refused is not asked again
+    with pytest.raises(IOError):
+        net.bytes("https://example.org/a.csv")                                         # any other host: no archive

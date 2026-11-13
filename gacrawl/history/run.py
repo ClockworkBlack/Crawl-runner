@@ -14,16 +14,25 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 2, "openelections": 2, "sos_zip": 1, "sos_pdf": 1, "clerk": 1}
+READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 3, "openelections": 2, "sos_zip": 2, "sos_pdf": 2, "clerk": 2}
 # a failed item is tried again by the next run (three tries, then every three days)
 ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
 # block list apply to them as to every host; robots.txt, written for page crawlers, is not what governs an API
-API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections"]
+API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections", "web.archive.org/cdx/search/cdx"]
 
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Official election results are public records. Where the publisher's own site will not serve them to a crawler
+# (sos.ga.gov answers with a bot check; history.house.gov's robots.txt disallows the statistics pages), the file is
+# read from the Internet Archive's capture of it instead, at the owner's direction (Nov. 12, 2026): the publisher's
+# site is not asked again and nothing about it is worked around; the capture's date is kept with the source. Only for
+# these hosts and only in this lane (the candidate-research lane's rule for closed pages, gacrawl/wayback.py, stands).
+ARCHIVE_HOSTS = ("sos.ga.gov", "history.house.gov", "clerk.house.gov")
+CDX = "https://web.archive.org/cdx/search/cdx"
 
 
 class Net:
@@ -32,13 +41,72 @@ class Net:
         self.f.max_bytes = self.f.max_doc_bytes = 600_000_000        # result files: one CSV of every House race is 30 MB
         self.f.api_endpoints = list(self.f.api_endpoints) + API_ENDPOINTS
         self.requests = 0
+        self.via: dict = {}            # url -> the archive capture it was read from ("20240131120000")
+        self.archive_off = ""          # why the archive is not asked again this run (a 429, a refusal)
+        self._refused: set = set()     # hosts that refused this run: straight to the archive
 
-    def bytes(self, url: str, params: dict | None = None) -> bytes:
+    def _direct(self, url: str, params: dict | None = None) -> bytes:
         self.requests += 1
         r = self.f.get(url, params=params, use_cache=False)
         if r.status != 200:
             raise IOError(f"HTTP {r.status} from {url}")
         return r.content
+
+    def captures(self, url: str, newest: int = 4) -> list[str]:
+        """Timestamps of the archive's good captures of a file or page, newest first."""
+        if self.archive_off:
+            return []
+        try:
+            r = self.f.get(CDX, params=[("url", url), ("output", "json"), ("fl", "timestamp,statuscode,digest"),
+                                        ("filter", "statuscode:200"), ("collapse", "digest"), ("limit", f"-{newest}")], use_cache=False)
+        except Exception as exc:  # noqa: BLE001
+            self.archive_off = f"{type(exc).__name__}: {str(exc)[:120]}"
+            return []
+        if r.status != 200:
+            if r.status == 429 or r.status >= 500:
+                self.archive_off = f"HTTP {r.status} from the capture index"
+            return []
+        try:
+            rows = r.json()
+        except ValueError:
+            return []
+        return [row[0] for row in rows[1:]][::-1] if rows else []
+
+    def from_archive(self, url: str, ts: str | None = None) -> bytes:
+        for t in ([ts] if ts else self.captures(url)):
+            try:
+                r = self.f.get(f"https://web.archive.org/web/{t}id_/{url}", use_cache=False)
+            except Exception as exc:  # noqa: BLE001
+                self.archive_off = self.archive_off or f"{type(exc).__name__}: {str(exc)[:120]}"
+                break
+            if r.status == 429 or r.status >= 500:
+                self.archive_off = f"HTTP {r.status} from the archive"
+                break
+            if r.status == 200 and r.content:
+                self.via[url] = t
+                return r.content
+        raise IOError(f"not served by its site, and no usable capture in the Internet Archive: {url}"
+                      + (f" (archive off this run: {self.archive_off})" if self.archive_off else ""))
+
+    def bytes(self, url: str, params: dict | None = None) -> bytes:
+        from urllib.parse import urlsplit
+        host = urlsplit(url).netloc.lower()
+        ok = any(host == h or host.endswith("." + h) for h in ARCHIVE_HOSTS) and not params
+        if ok and host in self._refused:
+            return self.from_archive(url)
+        try:
+            return self._direct(url, params)
+        except Exception as exc:  # noqa: BLE001
+            refused = type(exc).__name__ in ("Blocked", "Disallowed") or "HTTP 403" in str(exc) or "HTTP 401" in str(exc)
+            if not ok or not (refused or "HTTP 404" in str(exc)):
+                raise
+            if refused:
+                self._refused.add(host)
+            return self.from_archive(url)
+
+    def note(self, url: str) -> str:
+        t = self.via.get(url)
+        return f" (read from the Internet Archive's copy of {t[:4]}-{t[4:6]}-{t[6:8]})" if t else ""
 
     def text(self, url: str, params: dict | None = None) -> str:
         return self.bytes(url, params).decode("utf-8", errors="replace")

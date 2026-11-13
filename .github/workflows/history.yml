@@ -11,6 +11,8 @@ name: history
 #   - after every round the work (data/history/: the contests read so far, documents kept as text) is saved to the
 #     private crawl-data release as history-work.tar.zst, so a run that is cancelled, times out or loses its runner
 #     resumes from the last round;
+#   - the first pages of documents kept as text go to data/history_samples/ in the private repository, where the
+#     author of their reader can see them;
 #   - the bundle for Electo is first saved to the same release (history-bundle.tar.zst, the hand-off copy), then
 #     committed to Electo, then checked there file by file against its manifest (python -m gacrawl.history verify);
 #     only after that check passes is the hand-off copy deleted. If Electo does not take it, the copy stays and the
@@ -83,7 +85,7 @@ jobs:
             tar -cf - data/history | zstd -q -T0 -6 -o history-work.tar.zst
             if [ "$IS_MAIN" = "true" ]; then
               for i in 1 2 3; do gh release upload "$DATA_TAG" history-work.tar.zst --clobber && break || sleep $((i * 10)); done
-              bash scripts/ci_runner.sh push-state "Election history: progress $(date -u +%Y-%m-%dT%H:%MZ)" state/history.json || echo "::warning::progress not kept this round; the next round keeps it"
+              bash scripts/ci_runner.sh push-state "Election history: progress $(date -u +%Y-%m-%dT%H:%MZ)" state/history.json data/history_samples || echo "::warning::progress not kept this round; the next round keeps it"
             fi
             echo "saved: $(du -h history-work.tar.zst | cut -f1)"; rm -f history-work.tar.zst
           }
@@ -163,7 +165,7 @@ jobs:
           [ -d data/history ] || exit 0
           tar -cf - data/history | zstd -q -T0 -6 -o history-work.tar.zst
           [ "$IS_MAIN" = "true" ] && gh release upload "$DATA_TAG" history-work.tar.zst --clobber || true
-          [ "$IS_MAIN" = "true" ] && bash scripts/ci_runner.sh push-state "Election history: progress (run ended early)" state/history.json || true
+          [ "$IS_MAIN" = "true" ] && bash scripts/ci_runner.sh push-state "Election history: progress (run ended early)" state/history.json data/history_samples || true
       - name: Summary
         if: always()
         run: |

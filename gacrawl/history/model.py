@@ -67,7 +67,13 @@ _PARTY = (
 
 def party_code(p: str | None) -> str:
     """D, R, L, G, I, or O (any other named party); "" when the source names none."""
-    s = re.sub(r"\s+", " ", str(p or "").strip().upper().strip("()[]*"))
+    s = re.sub(r"\s+", " ", str(p or "").strip().upper())
+    m = re.match(r"^W\s*\(([A-Z/ ]+)\)", s)          # the FEC's "W(R)": a write-in candidate of that party
+    if m:
+        s = m.group(1)
+    if "/" in s and not re.match(r"^(N/A|W/I)$", s):  # "DEM/WF", "R/CRV/IDP": several lines, the first is the candidate's own
+        s = s.split("/")[0]
+    s = s.strip(" ()[]*#")
     if not s or s in ("NAN", "NONE", "N/A", "W", "W/I", "WRITE-IN", "WRITEIN"):
         return ""
     for rx, code in _PARTY:

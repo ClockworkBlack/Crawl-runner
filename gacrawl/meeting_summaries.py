@@ -143,6 +143,7 @@ def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run
                                **({"committee": m.get("committee")} if m.get("committee") else {})}))
         st["summaries"] += bool((a or {}).get("summary"))
         st["nothing"] += not items
+        store.flush()             # kept at once: a runner stopped by its time limit loses nothing it read
 
     try:
         for r in cheap:
@@ -160,10 +161,15 @@ def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run
             keep(r, "minutes", {"summary": "" if fails else summary}, lines, "parser")
             st["from_parsed_lines"] += 1
             done += 1
+        per_part = 100.0          # seconds a part of a full reading takes; learned from this run's own readings
         for r in rest:
             if time.monotonic() > deadline or done >= per_run:
                 break
             hearing = r["source_id"] == HEARINGS
+            parts = HEARING_PARTS if hearing else min(MAX_PARTS, -(-len(r["text"]) // 6000))
+            if deadline - time.monotonic() < parts * per_part:
+                continue          # not started when it could not finish: a shorter one may still fit
+            t1 = time.monotonic()
             title = re.sub(r"\s+", " ", r.get("title") or "")[:140] or ("Hearing" if hearing else "Minutes")
             if hearing:
                 text, cover = _spread(r["text"], HEARING_PARTS)
@@ -175,6 +181,7 @@ def minutes_run(store, root: Path, deadline: float, llm=None, log=print, per_run
                             max_parts=MAX_PARTS)
             items = [it for it in (a or {}).get("items", []) if it["type"] != "statement"]
             keep(r, "hearing" if hearing else "minutes", {**(a or {}), "cover": cover}, items, "model")
+            per_part = 0.5 * per_part + 0.5 * (time.monotonic() - t1) / max(1, parts)
             st["hearings" if hearing else "full_readings"] += 1
             done += 1
     except Exception as e:  # noqa: BLE001 - the model failing ends this run's readings, not the job

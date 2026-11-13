@@ -52,6 +52,29 @@ def _links(html: str, base: str):
         yield urljoin(base, a["href"].strip()), re.sub(r"\s+", " ", a.get_text(" ", strip=True))
 
 
+def _index_pages(net, url: str, more: int = 4):
+    """An index page; when it was read from the Internet Archive, its earlier captures too (an older capture links
+    the files under the addresses they had then, which are the ones the archive holds)."""
+    yield net.text(url)
+    if url in getattr(net, "via", {}):
+        for ts in net.captures(url, newest=more + 1)[1:]:
+            try:
+                yield net.from_archive(url, ts).decode("utf-8", errors="replace")
+            except IOError:
+                break
+
+
+def _sample(work, source: str, name: str, pages: list[str]) -> None:
+    """The first pages of a document kept as text, where the reader's author can see them (data/history_samples/ in
+    the private repository): at most 14 documents a source, 60,000 characters each."""
+    d = Path(work).parent / "history_samples" / source
+    d.mkdir(parents=True, exist_ok=True)
+    if len(list(d.glob("*.txt"))) >= 14:
+        return
+    pick = pages[:4] + (pages[len(pages) // 2:len(pages) // 2 + 2] if len(pages) > 8 else [])
+    (d / (name[:80] + ".txt")).write_text(("\n\n=== page ===\n".join(pick))[:60000], encoding="utf-8")
+
+
 _MONTHS = {m: i + 1 for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
                                             "september", "october", "november", "december"])}
 
@@ -577,15 +600,19 @@ class SosZip:
     INDEX = "https://sos.ga.gov/page/historical-elections-results"
 
     def discover(self, net):
-        out, seen = [], set()
-        for u, text in _links(net.text(self.INDEX), self.INDEX):
+        out, seen, dates = [], set(), set()
+        links = [(u, t) for html in _index_pages(net, self.INDEX) for u, t in _links(html, self.INDEX)]
+        for u, text in links:
             if not re.search(r"\.zip$", urlsplit(u).path, re.I) or u in seen:
                 continue
             seen.add(u)
-            date = _date_in(text)
+            date = _date_in(text) or _date_in(re.sub(r"[_\-]+", " ", urlsplit(u).path.rsplit("/", 1)[-1]))
             if not date or int(date[:4]) >= 2016 or re.search(r"recount", text, re.I):
                 continue
-            title = re.sub(r"\s*\.zip.*$|\s*>+\s*$", "", text, flags=re.I).strip()
+            title = re.sub(r"\s*\.zip.*$|\s*>+\s*$", "", text, flags=re.I).strip() or re.sub(r"[_\-]+", " ", urlsplit(u).path.rsplit("/", 1)[-1][:-4]).title()
+            if (date, _stage_of(title)) in dates and net.captures(u, newest=1) == []:
+                continue                                 # the same election under an address the archive does not hold
+            dates.add((date, _stage_of(title)))
             out.append(Item(id="sos_zip:" + urlsplit(u).path.rsplit("/", 1)[-1].lower(), url=u, title=title,
                             meta={"date": date, "stage": _stage_of(title)}))
         return out
@@ -598,7 +625,7 @@ class SosZip:
         (Path(work) / "inventory" / (re.sub(r"[^a-z0-9]+", "_", item.id.lower()) + ".json")).write_text(
             json.dumps({"url": item.url, "title": item.title, "files": names[:4000]}, indent=0), encoding="utf-8")
         n = 0
-        for c in clarity_contests(docs, item.meta["date"], item.meta["stage"], item.title, item.url):
+        for c in clarity_contests(docs, item.meta["date"], item.meta["stage"], item.title + net.note(item.url), item.url):
             n += 1
             yield c
         if not n:
@@ -729,7 +756,14 @@ class _Pdfs:
                 err = err or exc
         if html is None:
             raise err
-        for u, text in _links(html, self.INDEX):
+        pages = [html]
+        if self.INDEX in getattr(net, "via", {}):
+            for ts in net.captures(self.INDEX, newest=4)[1:]:
+                try:
+                    pages.append(net.from_archive(self.INDEX, ts).decode("utf-8", errors="replace"))
+                except IOError:
+                    break
+        for u, text in [x for pg in pages for x in _links(pg, self.INDEX)]:
             w = self.wanted(u, text)
             if not w or u in seen:
                 continue
@@ -761,11 +795,21 @@ class _Pdfs:
                 pg.flush_cache()
         chars = sum(len(p) for p in pages)
         (d / (item.id.split(":", 1)[1] + ".json")).write_text(json.dumps(
-            {"url": item.url, "title": item.title, "meta": item.meta, "pages": pages}, ensure_ascii=False), encoding="utf-8")
+            {"url": item.url, "title": item.title + net.note(item.url), "meta": item.meta, "pages": pages}, ensure_ascii=False), encoding="utf-8")
+        _sample(work, self.name, item.id.split(":", 1)[1], pages)
+        n = 0
+        for c in self.contests(pages, item, net):
+            n += 1
+            yield c
+        if n:
+            return
         if chars < 200 * max(1, len(pages)) // 4:
             raise Skip(f"kept, but the pages are images ({len(pages)} pages, {chars} characters of text): needs OCR")
         raise Skip(f"kept as text: {len(pages)} pages, {chars} characters (the reader for these pages comes next)")
-        yield  # pragma: no cover
+
+    def contests(self, pages, item, net):
+        """Contests read from the document's text (a source that has a reader for its pages overrides this)."""
+        return ()
 
 
 class SosPdf(_Pdfs):
@@ -784,15 +828,15 @@ class SosPdf(_Pdfs):
 
 
 class Clerk(_Pdfs):
-    """The Clerk of the House's "Statistics of the Congressional (and Presidential) Election": 1968-1974, the years
-    before the MEDSL files begin."""
+    """The Clerk of the House's "Statistics of the Congressional (and Presidential) Election", 1968-2000: the vote
+    counts for House and Senate elections before the FEC's files begin, and for President by state in 1968 and 1972."""
     name = "clerk"
     INDEX = "https://history.house.gov/Institution/Election-Statistics/Election-Statistics/"
     ALSO = ("https://clerk.house.gov/Members/ViewElectionInformation",)
 
     def wanted(self, url, text):
         m = re.search(r"/(19\d\d)election(?:\.pdf)?/?$", urlsplit(url).path) or re.search(r"^(19\d\d)(?: Election Statistics)?$", text.strip())
-        if not m or not (FIRST_YEAR <= int(m.group(1)) <= 1974):
+        if not m or not (FIRST_YEAR <= int(m.group(1)) <= 2000):       # the FEC's files carry the general elections from 2002
             return None
         return {"date": m.group(1), "stage": "general"}
 

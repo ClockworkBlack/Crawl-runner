@@ -43,15 +43,53 @@ def _long_date(d: str) -> str:
     return f"{MONTHS[int(d[5:7]) - 1]} {int(d[8:10])}, {d[:4]}" if len(d) == 10 else d
 
 
-def choose(contests) -> list[dict]:
-    """One contest per seat and election: the source ranked highest; a "seated" record only where nothing else is."""
-    best: dict = {}
+def _lead(c: dict):
+    real = sorted((x for x in c["o"] if not is_writein_bucket(x[0]) and x[2] is not None), key=lambda x: -x[2])
+    won = next((x for x in c["o"] if x[4] in ("won", "unopposed")), None) or (real[0] if real else None)
+    return won, real
+
+
+def choose(contests, audit: dict | None = None) -> list[dict]:
+    """One contest per seat and election: the source ranked highest; a "seated" record only where nothing else is.
+    Where two sources report the same seat they are compared (winner by surname, total within 1 percent, the winner's
+    own votes within 1 percent): the kept contest is marked chk "agree" or "differ", and every difference is listed
+    in audit (the bundle's audit.json), so a wrong number shows instead of hiding."""
+    seats: dict = defaultdict(list)
     for c in contests:
-        k = seat_key(c)
-        pr = PRIORITY.get(c.get("item", "").split(":", 1)[0], 0)
-        if k not in best or pr > best[k][0] or (pr == best[k][0] and (c.get("tot") or 0) > (best[k][1].get("tot") or 0)):
-            best[k] = (pr, c)
-    return [v[1] for v in best.values()]
+        seats[seat_key(c)].append(c)
+    out = []
+    A = audit if audit is not None else {}
+    A.setdefault("checked", 0); A.setdefault("agree", 0); A.setdefault("differ", []); A.setdefault("seated_differs", [])
+    for k, lst in seats.items():
+        lst.sort(key=lambda c: (-PRIORITY.get(c.get("item", "").split(":", 1)[0], 0), -(c.get("tot") or 0)))
+        best = lst[0]
+        bw, _ = _lead(best)
+        for other in lst[1:]:
+            if other.get("item", "").split(":", 1)[0] == best.get("item", "").split(":", 1)[0]:
+                continue
+            ow, _ = _lead(other)
+            if not bw or not ow:
+                continue
+            same_w = pkey(bw[0]).split(" ")[-1:] == pkey(ow[0]).split(" ")[-1:] or pkey(bw[0]).split(" ")[-1] in pkey(ow[0]).split(" ")
+            rec = {"y": best["y"], "race": best["t"], "stage": best["stage"], "p": best.get("p") or "",
+                   "kept": {"src": best.get("item", "").split(":", 1)[0], "winner": bw[0], "votes": bw[2], "total": best.get("tot")},
+                   "other": {"src": other.get("item", "").split(":", 1)[0], "winner": ow[0], "votes": ow[2], "total": other.get("tot")}}
+            if other.get("basis") == "seated" or best.get("basis") == "seated":
+                if not same_w:
+                    A["seated_differs"].append(rec)     # usually a death, a resignation or a contested seat: worth a look
+                    best["chk"] = "seated differs"
+                continue
+            A["checked"] += 1
+            near = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.01 * max(a, b, 1)   # noqa: E731
+            if same_w and near(bw[2], ow[2]) and (near(best.get("tot"), other.get("tot")) or not other.get("tot") or not best.get("tot")):
+                A["agree"] += 1
+                best.setdefault("chk", "agree")
+            else:
+                rec["why"] = "winner" if not same_w else "winner's votes" if not near(bw[2], ow[2]) else "total"
+                A["differ"].append(rec)
+                best["chk"] = "differ"
+        out.append(best)
+    return out
 
 
 def link_runoffs(cs: list[dict]) -> None:
@@ -110,7 +148,8 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    cs = choose(iter_contests(work))
+    audit: dict = {}
+    cs = choose(iter_contests(work), audit)
     by_year = defaultdict(list)
     for c in cs:
         by_year[c["y"]].append(c)
@@ -171,6 +210,8 @@ def build(cfg: dict, out: Path, log=print) -> dict:
                         oc["sp"] = 1
                     if c.get("ro_date"):
                         oc["ro"] = ["", c["ro_date"]]
+                    if c.get("chk"):
+                        oc["chk"] = c["chk"]
                     ids = {}
                     for x in c["o"]:
                         if c["lvl"] == "question" or is_writein_bucket(x[0]):
@@ -236,9 +277,18 @@ def build(cfg: dict, out: Path, log=print) -> dict:
         "sources": [{"id": k, "n": n, "t": src_urls[k]["t"], "u": src_urls[k]["u"]} for k, n in sources.most_common() if k in src_urls],
         "pending": {k: v[:60] for k, v in held.items()},
         "coverage": _coverage(summary, cs),
+        "audit": {"checked": audit["checked"], "agree": audit["agree"], "differ": len(audit["differ"]),
+                  "seated_differs": len(audit["seated_differs"]), "seats": _seat_check(summary)},
     }
     _dump(out / "index.json", index)
     _dump(out / "summary.json", summary)
+    audit["differ"].sort(key=lambda r: (-r["y"], r["race"]))
+    audit["seated_differs"].sort(key=lambda r: (-r["y"], r["race"]))
+    _dump(out / "audit.json", {"checked": audit["checked"], "agree": audit["agree"], "differ": audit["differ"][:3000],
+                               "seated_differs": audit["seated_differs"][:1500], "seats": _seat_check(summary),
+                               "how": "Where two sources report the same contest they are compared: the winner (by surname), the "
+                                      "winner's votes and the total, each within 1 percent. 'seats' counts the U.S. House and Senate "
+                                      "general-election contests on file each year against the seats there were."})
     man = {}
     for p in sorted(out.rglob("*.json")):
         b = p.read_bytes()
@@ -249,6 +299,23 @@ def build(cfg: dict, out: Path, log=print) -> dict:
            "us_years": us_years[:1] + us_years[-1:]}
     log(json.dumps(res))
     return res
+
+
+def _seat_check(summary: dict) -> dict:
+    """U.S. House general elections on file each year against the 435 voting seats (plus the delegates' seats, which the
+    sources also list), and Senate against the 33 or 34 regular seats: a year far off is a year to look at."""
+    out = {}
+    for y, s in sorted(summary.get("us", {}).items()):
+        if int(y) % 2:
+            continue
+        h, sn = s.get("U.S. House", {}).get("n", 0), s.get("U.S. Senate", {}).get("n", 0)
+        flag = []
+        if h and not 435 <= h <= 441:
+            flag.append("house")
+        if sn and not 32 <= sn <= 35:
+            flag.append("senate")
+        out[y] = {"house": h, "senate": sn, **({"look": flag} if flag else {})}
+    return out
 
 
 def _party_of(c: dict):
