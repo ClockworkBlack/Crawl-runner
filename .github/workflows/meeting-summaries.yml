@@ -8,8 +8,11 @@ name: meeting-summaries
 # as many meetings. Each shard reads the meetings whose address hashes to it (gacrawl minutes-ai --shard i/N), so
 # none is read twice. How many shards: the plan job counts the jobs already running on the account and leaves room
 # for the others' bursts (the crawl, the AI jobs' own shards) under the account's limit on jobs at once:
-#   N = ACCOUNT_JOB_LIMIT (20, GitHub's free plan) - jobs running now - JOB_RESERVE (6), between 1 and
-#   MEETING_SUMMARY_MAX_SHARDS (8). Variables of this repository change any of the three.
+#   N = ACCOUNT_JOB_LIMIT - jobs running now - JOB_RESERVE (8), between 1 and MEETING_SUMMARY_MAX_SHARDS (16).
+# ACCOUNT_JOB_LIMIT is 40 (GitHub Pro, the account's plan since Nov 2026). When the plan ends the limit falls to 20:
+# jobs then wait in line for a slot, and a plan job that finds any job of this repository waiting more than three
+# minutes sizes the run for 20 instead, so the shards never crowd out the crawl. Variables of this repository change
+# any of the numbers.
 # Once the backlog is read, each shard finds nothing to do and ends within minutes.
 #
 # Each shard works on its own copy of the crawl database, with every hand-off still waiting applied first, and hands
@@ -53,9 +56,10 @@ jobs:
         id: n
         env:
           GH_TOKEN: ${{ github.token }}
-          LIMIT: ${{ vars.ACCOUNT_JOB_LIMIT || '20' }}
-          RESERVE: ${{ vars.JOB_RESERVE || '6' }}
-          MAX: ${{ vars.MEETING_SUMMARY_MAX_SHARDS || '8' }}
+          LIMIT: ${{ vars.ACCOUNT_JOB_LIMIT || '40' }}
+          FREE_LIMIT: "20"
+          RESERVE: ${{ vars.JOB_RESERVE || '8' }}
+          MAX: ${{ vars.MEETING_SUMMARY_MAX_SHARDS || '16' }}
           DATA_REPO: ${{ vars.DATA_REPO || 'ClockworkBlack/Crawl' }}
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: |
@@ -72,6 +76,24 @@ jobs:
             done
             echo $n
           }
+          # jobs waiting more than three minutes for a slot: the account is at its limit (the paid plan ended?)
+          waiting() {
+            local n=0 c id
+            for id in $( (gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=queued&per_page=100" --jq '.workflow_runs[].id';
+                          gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" --jq '.workflow_runs[].id') 2>/dev/null); do
+              [[ "$id" =~ ^[0-9]+$ ]] && [ "$id" != "$GITHUB_RUN_ID" ] || continue
+              c=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" --jq \
+                  '[.jobs[] | select(.status=="queued" and ((now - (.created_at | fromdateiso8601)) > 180))] | length' 2>/dev/null) || c=0
+              [[ "$c" =~ ^[0-9]+$ ]] || c=0
+              n=$((n + c))
+            done
+            echo $n
+          }
+          WAIT=$(waiting)
+          if [ "$WAIT" -gt 0 ] && [ "$LIMIT" -gt "$FREE_LIMIT" ]; then
+            echo "::warning::$WAIT job(s) waiting for a slot: sized for $FREE_LIMIT jobs at once, not $LIMIT"
+            LIMIT=$FREE_LIMIT
+          fi
           HERE=$(running "$GITHUB_REPOSITORY")
           THERE=$( [ -n "$DATA_TOKEN" ] && GH_TOKEN="$DATA_TOKEN" running "$DATA_REPO" || echo 0)
           BUSY=$(( HERE + THERE - 1 ))        # less this job itself
