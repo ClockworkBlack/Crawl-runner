@@ -6,6 +6,11 @@
 #   pages   the body's own pages that list its meetings: dates with agenda / minutes links
 #   follow  (optional) links on those pages to follow one level, by the words in the link's address or text
 # Not listed: the State Election Board (seb.georgia.gov forbids crawlers in robots.txt).
+#   kind    (optional) "authority" for a state authority (Committee Meetings -> Georgia Authorities); a board otherwise
+# Authorities added Nov. 13, 2026, each page opened that day: GEFA's past events (each meeting's own event page, one
+# level), the ATL board page, the Jekyll Island Authority board page, the Student Finance Commission's board meetings
+# (the same board meets as the Georgia Student Finance Authority and the Georgia Education Savings Authority) and
+# GSFIC's page of Georgia Higher Education Facilities Authority meeting summaries.
 agencies:
   - id: regents
     name: Board of Regents
@@ -81,6 +86,38 @@ agencies:
     pages:
       - https://gdc.georgia.gov/organization/about-gdc/board-corrections/board-meeting-minutes
     follow: ["board-meeting-minutes/"]
+
+  - id: gefa
+    kind: authority
+    name: Georgia Environmental Finance Authority
+    agency: Georgia Environmental Finance Authority
+    pages:
+      - https://gefa.georgia.gov/past-events
+    follow: ["/events/20"]
+  - id: atl-transit
+    kind: authority
+    name: Atlanta-region Transit Link Authority (ATL)
+    agency: Atlanta-region Transit Link Authority
+    pages:
+      - https://atltransit.ga.gov/the-atl-board/
+  - id: jekyll-island
+    kind: authority
+    name: Jekyll Island Authority
+    agency: Jekyll Island – State Park Authority
+    pages:
+      - https://www.jekyllisland.com/authority/board-directors/
+  - id: student-finance
+    kind: authority
+    name: Georgia Student Finance Authority
+    agency: Georgia Student Finance Commission (the same board also meets as the Georgia Education Savings Authority)
+    pages:
+      - https://gsfc.georgia.gov/node/1006
+  - id: ghefa
+    kind: authority
+    name: Georgia Higher Education Facilities Authority
+    agency: Georgia State Financing and Investment Commission
+    pages:
+      - https://gsfic.georgia.gov/agendas
 
 # Bodies whose meetings are not read, and why (shown on the site beside the list of boards)
 not_read:

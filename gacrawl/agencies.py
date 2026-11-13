@@ -372,7 +372,7 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
 def export_state_meetings(store, root: Path, path: Path, today: str | None = None) -> dict:
     """state_meetings.json: every state board's meetings kept here, and the General Assembly's committee meetings.
 
-    {"as_of", "note", "agencies": [{"id","name","agency","pages":[url], "links":[{t,u}], "meetings":[{d, n, a, m, p, w, x:[{t,u}]}]}],
+    {"as_of", "note", "agencies": [{"id","name","agency","kind" (board | authority),"pages":[url], "links":[{t,u}], "meetings":[{d, n, a, m, p, w, x:[{t,u}]}]}],
      "legislature": {"source", "meetings":[{d, t, c, b, w, a, v, n, x}]}}
     d date, n what the page calls the meeting, a agenda link, m minutes link, p the page it was listed on, w where, x other linked files; for the
     legislature t the clock time, c the chamber, b the committee or body, v the livestream link, n the notice's note,
@@ -396,7 +396,8 @@ def export_state_meetings(store, root: Path, path: Path, today: str | None = Non
                               "p": mt.get("found_on") or "", "w": mt.get("location") or "",
                               "x": [x for x in (mt.get("docs") or []) if isinstance(x, dict) and x.get("u")][:8]}))
         rows.sort(key=lambda x: x["d"], reverse=True)
-        ags.append({"id": ag["id"], "name": ag["name"], "agency": ag.get("agency") or "", "pages": list(ag.get("pages") or []),
+        ags.append({"id": ag["id"], "name": ag["name"], "agency": ag.get("agency") or "", "kind": ag.get("kind") or "board",
+                    "pages": list(ag.get("pages") or []),
                     "links": [x for x in (ag.get("links") or []) if isinstance(x, dict) and x.get("u")], "meetings": rows})
     leg = []
     for r in store.read("ga:legis", "meeting"):

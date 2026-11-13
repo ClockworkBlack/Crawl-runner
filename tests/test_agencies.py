@@ -120,3 +120,18 @@ def test_a_boards_minutes_files_are_opened_once_newest_first(tmp_path, monkeypat
     docs = store.read("ga-agency:regents", "document")
     assert len(docs) == 2 and docs[0]["meta"]["doc_type"] == "minutes" and docs[0]["jurisdiction"] == "ga" and docs[0]["published"][:10] == "2026-10-01"
     store.close()
+
+
+def test_every_listed_body_exports_its_kind(tmp_path):
+    """Committee Meetings shows state authorities apart from the boards: each listed body carries kind in the export,
+    and the authorities in config/agencies.yaml say so."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    listed = agencies.load(root)
+    assert any(a.get("kind") == "authority" for a in listed)
+    assert all((a.get("kind") or "board") in ("board", "authority") for a in listed)
+    out = tmp_path / "state_meetings.json"
+    agencies.export_state_meetings(Store(tmp_path / "data"), root, out, today="2026-11-13")
+    kinds = {a["id"]: a["kind"] for a in json.loads(out.read_text())["agencies"]}
+    assert kinds["regents"] == "board" and kinds["gefa"] == "authority"
