@@ -1,0 +1,88 @@
+name: grand-cross
+# Grand Cross (Electo's tab of how people and organizations are tied together) kept current without anyone: every six
+# hours, on Electo's newest main, ga/gc_build.py rebuilds each person's money (donors among the largest on file) and
+# everyone's strongest ties from the site's newest files: profiles the open models wrote, money the money jobs pushed,
+# councils, the legislature. The parts that need Crawl's bundle (every roll call on file, the records' other ties) are
+# rebuilt by the crawl's own import (Electo ga/crawl_import.py runs the same build at its end); this job keeps the rest
+# from waiting for the next crawl. It commits only when the money or the ties changed (ga/crawl/gc/; publish-site puts
+# them on the public site within 20 minutes).
+# Self-correcting: a part that would suddenly hold less than half of what the last build did (a source file cut short
+# upstream) is not written: the previous one stays, ga/crawl/gc/health.json records it, and this run fails, so the
+# watchdog restarts it and, still failing, reports it in its issue. ga/crawl/gc/health.json keeps each build's counts.
+# Audited: Electo's ga/gc_audit.py runs at the end of every build (privacy, identity, money, roll calls against the
+# legislature's own counts, pages, sources, sizes, build time); an error fails this run the same way.
+# The whole database is audited too (Electo tools/data_audit.py: format, allocation and accuracy of every incoming feed);
+# an error there fails the run the same way.
+# The tab itself is checked on the public site every day by grand-cross-check.yml. No Claude needed.
+# By hand: Actions -> grand-cross -> Run workflow ("force" writes a part that shrank on purpose).
+on:
+  schedule:
+    - cron: "19 1,7,13,19 * * *"
+  # and as soon as a job that brings data to Electo finishes: the crawl's import, the news, the election history,
+  # campaign money, profiles written by the open models (history, news and money don't run Electo's import)
+  workflow_run:
+    workflows: [crawl, news, history, fec-reread, ga-money, ai-write, ai-profiles, candidate-news, news-research, legis-votes]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "write every part even if it holds less than half of the last build (after a deliberate cut)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grand-cross
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    if: github.event.repository.private == false && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Rebuild on Electo's newest main; commit when the money or the ties changed
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          FORCE: ${{ inputs.force == true && '--force' || '' }}
+        run: |
+          set -uo pipefail
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          rc=0; done_ok=0
+          # a fresh clone each try: the crawl's merge, the money jobs and the open models' jobs push to Electo too
+          for i in 1 2 3 4 5; do
+            rm -rf "$RUNNER_TEMP/electo-gc"
+            git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$RUNNER_TEMP/electo-gc" || { sleep $((i * 10)); continue; }
+            cd "$RUNNER_TEMP/electo-gc"
+            git sparse-checkout set --no-cone /ga/gc_build.py /ga/gc_audit.py /ga/names.py /ga/profiles.json /ga/news.json /ga/pipeline_civics/legislature.json \
+              /ga/pipeline_archive/ /ga/crawl/ /tools/data_audit.py
+            if [ ! -f ga/gc_build.py ]; then echo "no Grand Cross builder in this Electo"; exit 0; fi
+            python3 -I ga/gc_build.py --no-bundle --only money,index $FORCE | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
+            [ "$rc" = 0 ] || [ "$rc" = 3 ] || { echo "::error title=Grand Cross::the build failed (exit $rc)"; exit 1; }
+            git add -A ga/crawl/gc
+            if git diff --cached --quiet -- ga/crawl/gc/money.json ga/crawl/gc/index.json ga/crawl/gc/prof.json ga/crawl/gc/votes.json; then
+              echo "Grand Cross already current" | tee -a "$GITHUB_STEP_SUMMARY"; done_ok=1; cd - > /dev/null; break
+            fi
+            git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+            git commit -qm "Grand Cross: money and strongest ties, $(date -u +%Y-%m-%dT%H:%MZ)"
+            if git push -q origin HEAD:main; then echo "Grand Cross on Electo ($(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"; done_ok=1; cd - > /dev/null; break; fi
+            cd - > /dev/null
+            echo "Electo's main moved while building; building again on its newest commit"; sleep $((i * 10))
+          done
+          [ "$done_ok" = 1 ] || { echo "::error title=Grand Cross::Electo did not take the rebuild after 5 tries"; exit 1; }
+          if [ "$rc" = 3 ]; then
+            echo "::error title=Grand Cross::the audit found an error (ga/crawl/gc/audit.json) or a part held less than half of the last build and the previous one was kept (ga/crawl/gc/health.json, 'kept'); the build's lines above say which"
+            exit 1
+          fi
+      - name: Audit the whole database (format, allocation, accuracy of every incoming feed)
+        if: always()
+        run: |
+          cd "$RUNNER_TEMP/electo-gc" 2>/dev/null || { echo "no copy of Electo"; exit 0; }
+          [ -f tools/data_audit.py ] || { echo "no database audit in this Electo yet"; exit 0; }
+          set -o pipefail
+          python3 -I tools/data_audit.py | tee -a "$GITHUB_STEP_SUMMARY" || { echo "::error title=Database audit::records came in wrong (ga/crawl/data_audit.json lists each failed check with examples)"; exit 1; }

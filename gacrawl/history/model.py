@@ -87,7 +87,10 @@ def nice_name(n: str) -> str:
     n = re.sub(r"\s+", " ", str(n or "").replace('\\"', '"').strip().strip(","))
     if not n:
         return n
-    if "," in n and not re.search(r",\s*(JR|SR|II|III|IV)\.?$", n, re.I):          # "LAST, FIRST M." -> "FIRST M. LAST"
+    m3 = re.fullmatch(r"([^,]+),\s*([^,]+),\s*(JR|SR|II|III|IV)\.?", n, re.I)      # "Cleaver, Emanuel, II" -> "Emanuel Cleaver II"
+    if m3:
+        n = f"{m3.group(2).strip()} {m3.group(1).strip()} {m3.group(3)}" + ("." if m3.group(3).upper() in ("JR", "SR") else "")
+    elif "," in n and not re.search(r",\s*(JR|SR|II|III|IV)\.?$", n, re.I):          # "LAST, FIRST M." -> "FIRST M. LAST"
         last, _, first = n.partition(",")
         first = first.strip()
         suf = ""
@@ -165,3 +168,52 @@ def seat_key(c: dict) -> tuple:
     """The same seat in the same election, whatever source reports it (for choosing between sources)."""
     return (c["scope"], c["y"], c["stage"], c.get("st") or "", c["office"], str(c.get("dist") or ""), c.get("p") or "",
             c.get("j") or "", 1 if c.get("sp") else 0)
+
+
+def fold(name: str) -> str:
+    """A name without accents, for comparing two sources' spellings (never for person keys: Electo's page keys names
+    exactly as pkey does)."""
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFKD", str(name or "")) if not unicodedata.combining(ch))
+
+
+def same_person(a: str, b: str) -> bool:
+    """Two sources' spellings of one candidate: the surnames match (accents and a letter or two aside), or one name's
+    words are all in the other's."""
+    import difflib
+    ka, kb = pkey(fold(a)).split(" "), pkey(fold(b)).split(" ")
+    ka = [x for x in ka if x not in ("II", "III", "IV")] or ka
+    kb = [x for x in kb if x not in ("II", "III", "IV")] or kb
+    if not ka or not kb or ka == [""] or kb == [""]:
+        return False
+    if ka[-1] == kb[-1] or ka[-1] in kb or kb[-1] in ka or set(ka) <= set(kb) or set(kb) <= set(ka):
+        return True
+    return difflib.SequenceMatcher(None, ka[-1], kb[-1]).ratio() >= 0.8
+
+
+def unify_names(rows: dict) -> dict:
+    """Candidates of one contest gathered from many counties' files, each spelling the names its own way
+    ("J. H. \"Jack\" Kingston", "J. H.\"jack\" Kingston", "D. Kendrick", "Darshun Nicole Kendrick"): {spelling: the
+    spelling to file it under}. Two spellings are one candidate when their person keys are equal, or they share a
+    surname and one's words are all in the other's and no other candidate in the contest has that surname."""
+    keys = {n: [x for x in pkey(n).split(" ") if x] for n in rows}
+    by_last: dict = {}
+    for n, k in keys.items():
+        if k:
+            by_last.setdefault(k[-1], []).append(n)
+    out = {}
+    for last, names in by_last.items():
+        names.sort(key=lambda n: (-rows[n], n))
+        groups: list[list[str]] = []
+        for n in names:
+            for g in groups:
+                if all(set(keys[n]) <= set(keys[m]) or set(keys[m]) <= set(keys[n]) for m in g):
+                    g.append(n)
+                    break
+            else:
+                groups.append([n])
+        for g in groups:
+            best = max(g, key=lambda n: (len(keys[n]), rows[n]))
+            for n in g:
+                out[n] = best
+    return out

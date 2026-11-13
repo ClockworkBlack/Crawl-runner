@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
-from .model import (STATE_BY_NAME, STATES, general_day, is_writein_bucket, nice_name, party_code, tag_outcomes)
+from .model import (STATE_BY_NAME, STATES, general_day, is_writein_bucket, nice_name, party_code, tag_outcomes, unify_names)
 
 FIRST_YEAR = 1968
 TRUE = {"TRUE", "T", "YES", "Y", "1"}
@@ -104,8 +104,9 @@ def _stage_of(title: str) -> str:
 _STATEWIDE = (
     (r"lieutenant governor|lt\.? governor", "Lieutenant Governor"), (r"^governor\b", "Governor"),
     (r"secretary of state", "Secretary of State"), (r"attorney general", "Attorney General"),
-    (r"agriculture", "Commissioner of Agriculture"), (r"insurance", "Commissioner of Insurance"),
-    (r"labor", "Commissioner of Labor"), (r"school superintendent|superintendent of schools", "State School Superintendent"),
+    (r"commissioner of agriculture|agriculture commissioner", "Commissioner of Agriculture"),
+    (r"commissioner of insurance|insurance commissioner|insurance and (safety )?fire", "Commissioner of Insurance"),
+    (r"commissioner of labor|labor commissioner", "Commissioner of Labor"), (r"state school superintendent", "State School Superintendent"),
     (r"public service comm", "Public Service Commission"),
 )
 
@@ -123,12 +124,15 @@ def ga_office(raw: str, district: str = "") -> tuple[str, str, str, str]:
             d = str(int(m.group(1)))
     if re.search(r"amendment|referendum|\bquestion\b|proposed|^shall\b|ballot (?:measure|question)|sunday sales|\bsplost\b|\bbond\b", sl):
         return "question", s, "", s
-    if re.search(r"\bpresident\b", sl) and "vice" not in sl.replace("president and vice", "") and "senate" not in sl:
+    if re.search(r"president of the united states|^president\b|^presidential|president and vice|\bu\.?s\.? president", sl) \
+            and not re.search(r"board|school|council|commission|senate|pro tem|education|city|county|chair", sl):
         return "federal", "President", "", "President of the United States"
     if re.search(r"u\.?\s?s\.?\s+senat|united states senat", sl):
         return "federal", "U.S. Senate", "", "U.S. Senate"
     if re.search(r"u\.?\s?s\.?\s+(house|rep)|united states rep|congress", sl):
         return "federal", "U.S. House", d, "U.S. House District " + d if d else "U.S. House"
+    if re.search(r"board of education|school board|\bboe\b|city council|county commission|\bmayor\b", sl):
+        return "local", s, d, s
     if re.search(r"state senat|^senat(e|or)\b|^state senator", sl):
         return "legislative", "State Senate", d, "State Senate District " + d if d else "State Senate"
     if re.search(r"state (house|rep)|^representative\b|house of representatives|general assembly", sl):
@@ -441,7 +445,11 @@ def fec_contests(sheets, year: int, url: str):
         for o, date, fid in rows:                     # a candidate listed once per party line: one row, votes added
             k = o[0].upper()
             if k in merged:
-                if o[2] is not None:
+                if o[2] is not None and o[1] == merged[k][0][1]:
+                    # the same line twice is two elections in one list (a full and an unexpired term, an election
+                    # and its runoff): the larger count is this election's, and they are never added together
+                    merged[k][0][2] = max(merged[k][0][2] or 0, o[2])
+                elif o[2] is not None:
                     merged[k][0][2] = (merged[k][0][2] or 0) + o[2]
             else:
                 merged[k] = (o, date, fid)
@@ -652,7 +660,8 @@ def _walk_zip(raw: bytes, docs: list, names: list, depth: int, prefix: str = "")
 def _clarity_party(text: str) -> tuple[str, str]:
     """A choice or contest label and the party written in it: "NATHAN DEAL (R)", "Governor - Rep", "REP - Governor"."""
     s = re.sub(r"\s+", " ", text or "").strip()
-    m = re.search(r"\s*\((REP|DEM|LIB|IND|R|D|L|I|GRN|G)\)\s*$", s, re.I) or re.search(r"\s+-\s+(REP|DEM|LIB|IND|R|D|L|I)\.?$", s, re.I) \
+    m = re.search(r"\s*\((REP|DEM|LIB|IND|R|D|L|I|GRN|G)\)?\s*$", s, re.I) or re.search(r"\s+-\s+(REP|DEM|LIB|IND|R|D|L|I)\.?$", s, re.I) \
+        or re.search(r"(?<=[a-z])\s+(R|D|L)\.$", s) \
         or re.search(r",\s+(REP|DEM|LIB|IND)\.?$", s, re.I)
     if m:
         return s[:m.start()].strip(), party_code(m.group(1))
@@ -695,8 +704,9 @@ def clarity_contests(docs, date: str, stage: str, title: str, url: str):
                 continue                                 # the state's file already has this contest whole
             j = cn_file if (lvl == "local" and not statewide_file) else ""
             key = (lvl, off, dist, p, j)
-            g = G.setdefault(key, {"title": t, "c": {}, "cty": defaultdict(lambda: defaultdict(int)), "seats": seats, "files": 0})
+            g = G.setdefault(key, {"title": t, "c": {}, "cty": defaultdict(lambda: defaultdict(int)), "seats": seats, "files": 0, "from": set()})
             g["files"] += 1
+            g["from"].add(cn_file or "*")
             for ch in ct.iter("Choice"):
                 nm_raw, chp = _clarity_party(ch.get("text") or "")
                 if not nm_raw:
@@ -717,6 +727,23 @@ def clarity_contests(docs, date: str, stage: str, title: str, url: str):
             if statewide_file:
                 state_seen.add((lvl, off, dist, p))
     for (lvl, off, dist, p, j), g in sorted(G.items(), key=lambda kv: [str(x) for x in kv[0]]):
+        if lvl != "question" and len(g["from"]) > 1:      # gathered from several counties' files: one row a candidate
+            to = unify_names({g["c"][k][0]: g["c"][k][2] for k in g["c"]})
+            merged: dict = {}
+            for k, row in g["c"].items():
+                kk = to.get(row[0], row[0]).upper()
+                if kk in merged and kk != k:
+                    merged[kk][2] += row[2]; merged[kk][3] = merged[kk][3] or row[3]; merged[kk][1] = merged[kk][1] or row[1]
+                elif kk in merged:
+                    pass
+                else:
+                    merged[kk] = [to.get(row[0], row[0]), row[1], row[2], row[3], ""] if kk != k else row
+                for cn in g["cty"]:
+                    if kk != k and k in g["cty"][cn]:
+                        g["cty"][cn][kk] += g["cty"][cn].pop(k)
+            g["c"] = merged
+        if lvl in ("federal", "statewide") and "*" not in g["from"] and len(g["from"]) < 3:
+            lvl, j = "local", sorted(g["from"])[0]         # one county's own contest under a statewide-sounding name
         keys = sorted(g["c"], key=lambda k: -g["c"][k][2])
         o = [g["c"][k] for k in keys]
         if not o:
@@ -773,6 +800,16 @@ class _Pdfs:
         return out
 
     def read(self, net, item, work):
+        kept = Path(work) / "text" / self.name / (item.id.split(":", 1)[1] + ".json")
+        if kept.exists():                               # read before: its text is on hand, the file is not fetched again
+            pages = json.loads(kept.read_text(encoding="utf-8")).get("pages") or []
+            n = 0
+            for c in self.contests(pages, item, net):
+                n += 1
+                yield c
+            if n:
+                return
+            raise Skip(f"kept as text: {len(pages)} pages, {sum(len(p) for p in pages)} characters (no reader for this layout yet)")
         raw = net.bytes(item.url)
         if raw[:4] != b"%PDF":
             html = raw.decode("utf-8", errors="replace")
@@ -796,7 +833,6 @@ class _Pdfs:
         chars = sum(len(p) for p in pages)
         (d / (item.id.split(":", 1)[1] + ".json")).write_text(json.dumps(
             {"url": item.url, "title": item.title + net.note(item.url), "meta": item.meta, "pages": pages}, ensure_ascii=False), encoding="utf-8")
-        _sample(work, self.name, item.id.split(":", 1)[1], pages)
         n = 0
         for c in self.contests(pages, item, net):
             n += 1
@@ -812,10 +848,109 @@ class _Pdfs:
         return ()
 
 
+_SUM_NOISE = re.compile(r"^(\d{1,2}/\d{1,2}/\d{2,4},? \d|https?://|=== page|Total Precincts|Election Day Voting|Early Voting|Absentee|Advance|% of$|"
+                        r"Candidates\b|Votes$|County Results|Georgia Election Results|Official Results|Unofficial|Last Updated|PPR\b|"
+                        r"Provisional|>$)", re.I)
+_SUM_ROW = re.compile(r"^(.+?)\s+(Republican|Democratic|Democrat|Libertarian|Non-?\s?Partisan|Independent|Green|Constitution|Reform|"
+                      r"Write-?In|\((?:R|D|L|I|NP)\))\s+([\d,]+)\s+([\d.]+)\s?%$", re.I)
+
+
+def sos_summary_contests(pages: list[str], date: str, stage: str, title: str, url: str):
+    """The state's "Summary" result pages as printed (2000s to mid-2012): an office heading, "N% of precincts
+    reporting", then one line a candidate (name, party, votes, share) and a "Totals" line. A contest is kept only when
+    its candidates' votes add up to its Totals line exactly; anything else is left for a person to look at."""
+    lines = [re.sub(r"\s+", " ", ln).strip() for pg in pages for ln in pg.split("\n")]
+    lines = [ln for ln in lines if ln]
+    for ln in lines[:12]:
+        d = _date_in(ln) if re.search(r"Official Results|Results of", ln, re.I) else ""
+        if d:
+            date = d
+            st2 = _stage_of(ln)
+            stage = st2 if ("runoff" in st2) == ("runoff" in stage) or not stage else stage
+            break
+    if len(date) != 10:
+        return
+    src = {"t": f"Georgia Secretary of State, official results: {title}", "u": url}
+    is_pri = "primary" in stage
+    head, party_head, rows, seen = "", "", [], set()
+    meaningful: list[str] = []
+
+    def close(total):
+        nonlocal rows
+        got, rows = rows, []
+        if not got or not head or total is None or sum(r[2] for r in got) != total:
+            return None
+        ctitle, cparty = _clarity_party(head)
+        lvl, off, dist, t = ga_office(ctitle)
+        parties = {r[1] for r in got}
+        p = (party_head or cparty or (next(iter(parties)) if len(parties) == 1 else "")) if is_pri else ""
+        p = p if p in ("D", "R") else ""
+        key = (lvl, off, dist, p)
+        if key in seen:
+            return None
+        seen.add(key)
+        o = [[nice_name(re.sub(r"\(I\)", " ", r[0])), "" if is_pri else r[1], r[2], 1 if "(I)" in r[0] else 0, ""] for r in sorted(got, key=lambda r: -r[2])]
+        c = {"scope": "ga", "y": int(date[:4]), "date": date, "stage": stage, "st": "GA", "office": off, "dist": dist, "lvl": lvl, "p": p,
+             "j": "", "t": t, "tot": total, "o": o, "src": src, "basis": "official"}
+        if "special" in stage:
+            c["sp"] = 1
+        tag_outcomes(o, total, majority=True)
+        return c
+
+    for ln in lines:
+        if re.search(r"\d+% of precincts reporting", ln, re.I):
+            rows = []
+            cand = [m for m in meaningful[-3:]]
+            party_head = ""
+            if cand and re.fullmatch(r"(Republican|Democratic|Democrat|Non-?\s?Partisan)( Party)?", cand[-1], re.I):
+                party_head = party_code(cand[-1].split(" ")[0])
+                cand = cand[:-1]
+            head = cand[-1] if cand else ""
+            continue
+        m = re.match(r"^Totals?\s+([\d,]+)$", ln, re.I)
+        if m:
+            c = close(_int(m.group(1)))
+            head = ""
+            if c:
+                yield c
+            continue
+        m = _SUM_ROW.match(ln)
+        if m and head:
+            rows.append((m.group(1).strip(), party_code(re.sub(r"non-?\s?partisan", "", m.group(2), flags=re.I).strip("()")), _int(m.group(3))))
+            continue
+        if not _SUM_NOISE.match(ln):
+            meaningful.append(ln)
+
+
+def resample(work) -> None:
+    """A spread of the documents kept as text for the author of their reader (data/history_samples/): for each
+    source the largest document of each year, at most 18, the first pages and two from the middle."""
+    base = Path(work) / "text"
+    out = Path(work).parent / "history_samples"
+    for d in sorted(base.glob("*")) if base.exists() else []:
+        best: dict = {}
+        for f in d.glob("*.json"):
+            y = (re.search(r"(19|20)\d\d", f.name) or [""])[0]
+            if y not in best or f.stat().st_size > best[y].stat().st_size:
+                best[y] = f
+        dst = out / d.name
+        if dst.exists():
+            for old in dst.glob("*.txt"):
+                old.unlink()
+        dst.mkdir(parents=True, exist_ok=True)
+        for y in sorted(best)[:18]:
+            pages = json.loads(best[y].read_text(encoding="utf-8")).get("pages") or []
+            pick = pages[:3] + (pages[len(pages) // 2:len(pages) // 2 + 2] if len(pages) > 8 else [])
+            (dst / (best[y].stem[:80] + ".txt")).write_text(("\n\n=== page ===\n".join(pick))[:36000], encoding="utf-8")
+
+
 class SosPdf(_Pdfs):
     """The Secretary of State's results documents for 1988 to mid-2012 (Georgia Election Results page)."""
     name = "sos_pdf"
     INDEX = "https://sos.ga.gov/page/georgia-election-results"
+
+    def contests(self, pages, item, net):
+        yield from sos_summary_contests(pages, item.meta.get("date") or "", item.meta.get("stage") or "", item.title + net.note(item.url), item.url)
 
     def wanted(self, url, text):
         if not urlsplit(url).netloc.endswith("sos.ga.gov") or not urlsplit(url).path.lower().endswith(".pdf"):

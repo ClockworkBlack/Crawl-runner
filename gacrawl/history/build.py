@@ -19,11 +19,11 @@ import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .model import STATES, is_writein_bucket, pkey, seat_key, shard
+from .model import STATES, is_writein_bucket, pkey, same_person, seat_key, shard
 from .run import iter_contests, load_state, paths
 
 PEOPLE_SHARDS, PROF_SHARDS = 64, 16
-PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "medsl": 5, "fec": 4, "legislators": 1}
+PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "sos_pdf": 3, "medsl": 5, "fec": 4, "legislators": 1}
 STAGE_CODE = {"general": "gen", "primary": "pri", "primary runoff": "prirun", "general runoff": "genrun", "special": "spec",
               "special runoff": "specrun", "special primary": "specpri", "special primary runoff": "specprirun"}
 STAGE_TITLE = {"general": "General Election", "primary": "Primary Election", "primary runoff": "Primary Runoff",
@@ -51,8 +51,8 @@ def _lead(c: dict):
 
 def choose(contests, audit: dict | None = None) -> list[dict]:
     """One contest per seat and election: the source ranked highest; a "seated" record only where nothing else is.
-    Where two sources report the same seat they are compared (winner by surname, total within 1 percent, the winner's
-    own votes within 1 percent): the kept contest is marked chk "agree" or "differ", and every difference is listed
+    Where two sources report the same seat they are compared (the winner's name, the winner's own votes within
+    1 percent, the total within 3 percent: sources count write-ins differently): the kept contest is marked chk "agree" or "differ", and every difference is listed
     in audit (the bundle's audit.json), so a wrong number shows instead of hiding."""
     seats: dict = defaultdict(list)
     for c in contests:
@@ -63,6 +63,11 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
     for k, lst in seats.items():
         lst.sort(key=lambda c: (-PRIORITY.get(c.get("item", "").split(":", 1)[0], 0), -(c.get("tot") or 0)))
         best = lst[0]
+        # Georgia, two files of the same certified count: the fuller one (an archive missing a county's file counts less)
+        full = [c for c in lst if c.get("item", "").split(":", 1)[0] in ("sos_zip", "openelections", "manual") and c.get("tot")]
+        if best in full and len(full) > 1:
+            best = max(full, key=lambda c: (c["tot"], PRIORITY.get(c.get("item", "").split(":", 1)[0], 0)))
+            lst = [best] + [c for c in lst if c is not best]
         bw, _ = _lead(best)
         for other in lst[1:]:
             if other.get("item", "").split(":", 1)[0] == best.get("item", "").split(":", 1)[0]:
@@ -70,7 +75,7 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
             ow, _ = _lead(other)
             if not bw or not ow:
                 continue
-            same_w = pkey(bw[0]).split(" ")[-1:] == pkey(ow[0]).split(" ")[-1:] or pkey(bw[0]).split(" ")[-1] in pkey(ow[0]).split(" ")
+            same_w = same_person(bw[0], ow[0])
             rec = {"y": best["y"], "race": best["t"], "stage": best["stage"], "p": best.get("p") or "",
                    "kept": {"src": best.get("item", "").split(":", 1)[0], "winner": bw[0], "votes": bw[2], "total": best.get("tot")},
                    "other": {"src": other.get("item", "").split(":", 1)[0], "winner": ow[0], "votes": ow[2], "total": other.get("tot")}}
@@ -81,7 +86,8 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
                 continue
             A["checked"] += 1
             near = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.01 * max(a, b, 1)   # noqa: E731
-            if same_w and near(bw[2], ow[2]) and (near(best.get("tot"), other.get("tot")) or not other.get("tot") or not best.get("tot")):
+            near3 = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.03 * max(a, b, 1)  # noqa: E731  totals: write-ins are counted differently
+            if same_w and near(bw[2], ow[2]) and (near3(best.get("tot"), other.get("tot")) or not other.get("tot") or not best.get("tot")):
                 A["agree"] += 1
                 best.setdefault("chk", "agree")
             else:
@@ -287,7 +293,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     _dump(out / "audit.json", {"checked": audit["checked"], "agree": audit["agree"], "differ": audit["differ"][:3000],
                                "seated_differs": audit["seated_differs"][:1500], "seats": _seat_check(summary),
                                "how": "Where two sources report the same contest they are compared: the winner (by surname), the "
-                                      "winner's votes and the total, each within 1 percent. 'seats' counts the U.S. House and Senate "
+                                      "winner's votes (within 1 percent) and the total (within 3 percent). 'seats' counts the U.S. House and Senate "
                                       "general-election contests on file each year against the seats there were."})
     man = {}
     for p in sorted(out.rglob("*.json")):

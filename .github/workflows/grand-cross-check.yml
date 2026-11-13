@@ -1,0 +1,46 @@
+name: grand-cross-check
+# The public site's Grand Cross used the way a reader would, once a day (Electo qa/gc_qa.js), at phone and desktop width:
+# people and an organization found and added, each one's strongest ties, the money, election and roll-call connections,
+# patterns across the picks and the voting table, the filters, + from the strongest ties, a #gc= link, the AI's
+# connections tool and its routing, no sideways scroll and no page errors. A check that fails fails this run; the
+# watchdog restarts it and, still failing, reports it in its issue. No Claude needed.
+# By hand: Actions -> grand-cross-check -> Run workflow.
+on:
+  schedule:
+    - cron: "41 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grand-cross-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Electo's Grand Cross check
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /qa/gc_qa.js
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+          [ -f qa/gc_qa.js ] || { echo "no Grand Cross check in this Electo"; exit 1; }
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - name: A browser (the version the site's own page check uses)
+        run: |
+          cd electo/qa && npm i -s --no-save --no-audit --no-fund playwright@1.48.2 > /dev/null
+          npx -y playwright@1.48.2 install --with-deps chromium > /dev/null
+      - name: Use the public site's Grand Cross
+        env:
+          SITE: ${{ vars.SITE_URL || 'https://clockworkblack.github.io/electo-data/' }}
+        run: |
+          set -o pipefail     # a failed check fails the run (the default shell does not pass the exit code through tee)
+          cd electo && NODE_PATH="$PWD/qa/node_modules" timeout 30m node qa/gc_qa.js | tee -a "$GITHUB_STEP_SUMMARY"

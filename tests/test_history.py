@@ -37,7 +37,13 @@ def test_names_and_keys():
     assert nice_name("JOHN H BUCHANAN JR") == "John H. Buchanan Jr."
     assert nice_name("CARTER, JIMMY") == "Jimmy Carter"
     assert nice_name("Carter, Earl L. \"Buddy\"") == "Earl L. \"Buddy\" Carter"
-    assert nice_name("DON MCDONALD") == "Don McDonald"
+    assert nice_name("DON MCDONALD") == "Don McDonald" and nice_name("Cleaver, Emanuel, II") == "Emanuel Cleaver II"
+    from gacrawl.history.model import same_person, unify_names
+    assert same_person("Robert Alderholt", "Robert B. Aderholt") and same_person("Tony Cardenas", "Tony Cárdenas") and not same_person("Chris West", "Sanford Bishop")
+    u = unify_names({'J. H. "Jack" Kingston': 185737, 'J. H."jack" Kingston': 24744, "David A. Perdue": 240911, "D. Kendrick": 5, "Darshun Nicole Kendrick": 9})
+    assert u['J. H."jack" Kingston'] == u['J. H. "Jack" Kingston'] and u["D. Kendrick"] == "Darshun Nicole Kendrick" and u["David A. Perdue"] == "David A. Perdue"
+    two = unify_names({"John Smith": 5, "Jane Smith": 4, "J. Smith": 1})
+    assert two["John Smith"] != two["Jane Smith"]
     assert pkey("Earl “Buddy” Carter, Jr.") == "EARL BUDDY CARTER"
     assert party_code("DEM/WF") == "D" and party_code("W(R)") == "R" and party_code("R*") == "R" and party_code("N/A") == ""
     assert party_code("DEMOCRATIC-FARMER-LABOR") == "D" and party_code("Rep") == "R" and party_code("LIBERAL") == "O" and party_code("") == ""
@@ -60,6 +66,8 @@ def test_ga_office():
     assert ga_office("Justice, Supreme Court")[0] == "judicial"
     assert ga_office("Sheriff")[0] == "local"
     assert ga_office("President of the United States")[1] == "President"
+    assert ga_office("School Board President")[0] == "local" and ga_office("County School Superintendent")[0] == "local"
+    assert ga_office("Board of Education District 1")[0] == "local" and ga_office("State School Superintendent")[0] == "statewide"
 
 
 def test_medsl():
@@ -143,6 +151,7 @@ def _clarity(region, by, contests):
     for title, vf, choices in contests:
         x += f'<Contest key="1" text="{title}" voteFor="{vf}">'
         for name, party, per in choices:
+            name = __import__("html").escape(name, quote=True)
             x += f'<Choice key="1" text="{name}" party="{party}" totalVotes="{sum(per.values())}"><VoteType name="Election Day" votes="{sum(per.values())}">'
             x += "".join(f'<{by} name="{k}" votes="{v}"/>' for k, v in per.items()) + "</VoteType></Choice>"
         x += "</Contest>"
@@ -165,6 +174,22 @@ def test_clarity():
     assert boe["vf"] == 2 and [x[4] for x in boe["o"]] == ["won", "won", ""]
     q = next(c for c in cs if c["lvl"] == "question")
     assert q["o"][0][0] == "YES" and q["o"][0][4] == ""
+
+
+def test_clarity_counties_only():
+    a = _clarity("Fulton", "Precinct", [("U.S. Senate", 1, [('J. H. "Jack" Kingston', "", {"P1": 50}), ("David A. Perdue", "", {"P1": 60})]),
+                                         ("School Board President", 1, [("Jolene Byrne", "", {"P1": 9}), ("David Simons", "", {"P1": 5})]),
+                                         ("State House District 103", 1, [("Timothy L. Barr R.", "", {"P1": 7})])])
+    b = _clarity("Cobb", "Precinct", [("U.S. Senate", 1, [('J. H."jack" Kingston', "", {"P1": 30}), ("David A. Perdue", "", {"P1": 10})]),
+                                       ("State House District 103", 1, [("Timothy L. Barr", "", {"P1": 4})])])
+    c = _clarity("Bibb", "Precinct", [("U.S. Senate", 1, [('J. H. "Jack" Kingston', "", {"P1": 1}), ("David A. Perdue", "", {"P1": 1})])])
+    cs = list(clarity_contests([("a.xml", a), ("b.xml", b), ("c.xml", c)], "2014-07-22", "primary runoff", "July 22, 2014", "u"))
+    sen = next(x for x in cs if x["office"] == "U.S. Senate")
+    assert [(o[0], o[2]) for o in sen["o"]] == [('J. H. "Jack" Kingston', 81), ("David A. Perdue", 71)] and sen["cty"]["Cobb"] == [30, 10]
+    sb = next(x for x in cs if "President" in x["office"])
+    assert sb["lvl"] == "local" and sb["j"] == "Fulton"
+    hd = next(x for x in cs if x["office"] == "State House")
+    assert len(hd["o"]) == 1 and hd["o"][0][2] == 11
 
 
 def _fec_xlsx():
@@ -356,3 +381,45 @@ def test_archive_fallback(tmp_path):
     assert not any(c.startswith("https://sos.ga.gov/") for c in F.calls[n:])          # the site that refused is not asked again
     with pytest.raises(IOError):
         net.bytes("https://example.org/a.csv")                                         # any other host: no archive
+
+
+def test_sos_summary_pages():
+    """The state's printed "Summary" pages, from a real one (Nov. 8, 2011): a heading split across a page break, and a
+    contest whose lines do not add up to its Totals line is not kept."""
+    from gacrawl.history.sources import sos_summary_contests
+    p1 = """12/29/21, 1:54 PM 11/8/2011 - Summary
+Georgia Election Results
+Official Results of the Tuesday, November 08, 2011 Special Election
+Last Updated Tuesday, November 15, 2011 6:07:41 PM
+State Senator, District 28
+100% of precincts reporting
+Total Precincts: 57
+Election Day Voting: 57 / 57 (100%)
+% of
+Candidates Party Votes
+Votes
+Duke Blackburn Republican 4,163 27.8%
+Mike Crane Republican 2,984 19.9%
+Cynthia C. Bennett Non-Partisan 1,420 9.5%
+M Seabolt Democratic 1,062 7.1%
+Totals 9,629
+County Results
+State Representative, District 10
+100% of precincts reporting
+Total Precincts: 18
+Candidates Party Votes % of
+https://sos.ga.gov/elections/election_results/2011_1108/swall.htm 1/2"""
+    p2 = """12/29/21, 1:54 PM 11/8/2011 - Summary
+Votes
+Terry Rogers Republican 3,594 61.4%
+J. Bruce Harkness, Sr. Republican 1,396 23.9%
+Totals 4,990
+County Results
+State Representative, District 25
+100% of precincts reporting
+Emory West Dunahoo, Jr. Republican 1,063 21.3%
+Bobby Banks Republican 982 19.7%
+Totals 9,999"""
+    cs = list(sos_summary_contests([p1, p2], "2011", "special", "Special Election - November 8, 2011", "u"))
+    assert [(c["t"], c["tot"], c["date"]) for c in cs] == [("State Senate District 28", 9629, "2011-11-08"), ("State House District 10", 4990, "2011-11-08")]
+    assert cs[0]["o"][0] == ["Duke Blackburn", "R", 4163, 0, "led"] and cs[0]["o"][2][1] == "" and cs[1]["o"][0][4] == "won"

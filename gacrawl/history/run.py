@@ -14,7 +14,7 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 3, "openelections": 2, "sos_zip": 2, "sos_pdf": 2, "clerk": 2}
+READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 3, "sos_pdf": 3, "clerk": 2}
 # a failed item is tried again by the next run (three tries, then every three days)
 ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
@@ -209,6 +209,11 @@ def run(cfg: dict, only: list[str] | None = None, max_minutes: float | None = No
         for iid in [i for i in st["items"] if i.split(":", 1)[0] == name and i not in current]:
             norm_path(work, iid).unlink(missing_ok=True)
             del st["items"][iid]
+    try:
+        from .sources import resample
+        resample(work)
+    except Exception as exc:  # noqa: BLE001  samples are a convenience: never a reason to lose the run
+        log(f"samples: {type(exc).__name__}: {str(exc)[:160]}")
     st["runs"] = (st.get("runs") or [])[-20:] + [{"at": _now(), **{k: v for k, v in summary.items() if k != "by_source"}}]
     save_state(sp, st)
     return summary
