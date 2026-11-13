@@ -1,0 +1,97 @@
+name: eval-stance
+# A one-off measurement for Electo's eval harness (Electo tools/eval/README.md): the open model reads the gold
+# sentences with the labeling job's own prompt (1) and with prompt 2, on six runners each, and the two are scored side
+# by side against the gold labels and the no-model baselines. Runs when this branch is pushed (or by hand); writes
+# nothing anywhere: the report is printed in the log and on the run's page, and the attachments are removed at the end.
+on:
+  push:
+    branches: [eval/stance-prompts]
+    paths: [".github/workflows/eval-stance.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write        # remove this run's attachments at the end
+
+concurrency:
+  group: eval-stance
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ELECTO_LLM_JOB: profile_sort      # the model Electo's tools/ai/models.json gives the labeling job
+  ELECTO_REF: feat/eval-review
+
+jobs:
+  read:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        prompt: ["1", "2"]
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (prompts, checker, gold labels)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --branch "$ELECTO_REF" --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /tools/eval/ /ga/review_gate.py /research/eval/ /research/review/
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
+      - name: Which open model does the labeling job
+        id: which
+        run: cd electo && python3 -I tools/ai/llm.py --which profile_sort | tee -a "$GITHUB_OUTPUT"
+      - name: The open model (4-bit; the labeling job's cache)
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ steps.which.outputs.key || 'hf-qwen3-8b-q4km-v1' }}
+      - name: llama.cpp (CPU build)
+        run: pip install -q --prefer-binary "llama-cpp-python>=0.3.36" numpy huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Read this runner's share of the gold sentences
+        run: |
+          cd electo && timeout -s INT -k 2m 55m python3 -I tools/eval/run_stance.py --prompt ${{ matrix.prompt }} --shard ${{ matrix.shard }} --of 6 --minutes 50 --out ../run.json || echo "stopped"
+          [ -f ../run.json ] || echo '{"s":{}}' > ../run.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-${{ matrix.prompt }}-${{ matrix.shard }}
+          path: run.json
+          retention-days: 1
+
+  score:
+    needs: read
+    if: always() && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo (gold labels, the site's labels, the people file)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          git clone -q --depth 1 --branch "$ELECTO_REF" --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /tools/eval/ /ga/review_gate.py /research/eval/ /research/review/ /ga/crawl/people.json /ga/crawl/profile_ai.json /ga/crawl/predict.json /ga/pipeline_archive/legis.json
+          git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
+      - uses: actions/download-artifact@v4
+        with: {pattern: "eval-*", path: runs}
+      - name: Score prompt 1 and prompt 2 against the gold labels
+        run: |
+          cd electo
+          for p in 1 2; do python3 -I tools/eval/run_stance.py --merge "../runs/eval-$p-*/run.json" --out "../run$p.json"; done
+          python3 -I tools/eval/eval_score.py --run "prompt 1=../run1.json" --run "prompt 2=../run2.json" | tee ../report.md
+          sed -n '/^# Accuracy report/,/^## Lines written/p' ../report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove this run's attachments
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id"
+          done
