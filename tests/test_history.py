@@ -329,7 +329,7 @@ def test_run_build_verify(tmp_path, monkeypatch):
                                   "src": {"t": "x", "u": "u"}, "basis": "official", "item": item}
     a1 = {}
     kept = choose([mk("fec:a", "Sanford D. Bishop Jr.", 132675, 241340), mk("medsl:b", "SANFORD BISHOP", 132670, 241300)], a1)
-    assert a1["agree"] == 1 and kept[0]["chk"] == "agree" and kept[0]["item"] == "medsl:b"
+    assert a1["agree"] == 1 and kept[0]["chk"] == "agree" and kept[0]["item"] == "fec:a"  # the FEC first (Nov 14: the owner prefers its certified counts)
     a2 = {}
     kept = choose([mk("fec:a", "Sanford D. Bishop Jr.", 132675, 241340), mk("medsl:b", "Chris West", 150000, 241300)], a2)
     assert kept[0]["chk"] == "differ" and a2["differ"][0]["why"] == "winner"

@@ -20,6 +20,9 @@ def main(argv=None) -> int:
     v = sub.add_parser("verify", help="is the bundle in Electo, file for file")
     v.add_argument("--bundle", required=True)
     v.add_argument("--electo", required=True, help="Electo's ga/pipeline_archive/hist")
+    c = sub.add_parser("check", help="the bundle against its own rules (exit 3 on an error: it is not delivered)")
+    c.add_argument("--bundle", required=True)
+    c.add_argument("--report", help="write the full result here (JSON)")
     a = ap.parse_args(argv)
     cfg = config.load()
     if a.cmd == "run":
@@ -35,6 +38,13 @@ def main(argv=None) -> int:
         from .run import status
         print(json.dumps(status(cfg), indent=1))
         return 0
+    if a.cmd == "check":
+        from .check import check_bundle, report_text
+        res = check_bundle(Path(a.bundle))
+        if a.report:
+            Path(a.report).write_text(json.dumps(res, indent=1, ensure_ascii=False), encoding="utf-8")
+        print(report_text(res))
+        return 3 if res["error_count"] else 0
     if a.cmd == "verify":
         from .build import verify
         res = verify(Path(a.bundle), Path(a.electo))

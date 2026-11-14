@@ -57,28 +57,45 @@ def shard(key: str, n: int) -> int:
 
 
 _PARTY = (
-    (r"^(D|DEM|DEMOCRAT|DEMOCRATIC|DFL|DEMOCRATIC[- ]FARMER[- ]LABOR|DEMOCRATIC[- ]NPL|DEMOCRATIC[- ]NONPARTISAN LEAGUE)$", "D"),
-    (r"^(R|REP|GOP|REPUBLICAN|INDEPENDENT[- ]REPUBLICAN)$", "R"),
+    (r"^(D|DEM|DEMOCRAT|DEMOCRATIC|DFL|DNL|DEMOCRATIC[- ]FARMER[- ]LABOR|DEMOCRATIC[- ]NPL|DEMOCRATIC[- ]NONPARTISAN LEAGUE"
+     r"|DEM[- ]NPL|D[- ]NPL|DEMOCRATIC[- ]NONPARTISAN[- ]LEAGUE)$", "D"),
+    (r"^(R|REP|GOP|REPUBLICAN|INDEPENDENT[- ]REPUBLICAN|IR)$", "R"),
     (r"^(L|LIB|LBT|LIBERTARIAN)$", "L"),
     (r"^(G|GRN|GRE|GREEN|PACIFIC GREEN|GREEN[- ]RAINBOW|MOUNTAIN)$", "G"),
     (r"^(I|IND|INDEPENDENT|NPA|NO PARTY AFFILIATION|UNAFFILIATED|UNENROLLED|NO PARTY PREFERENCE|NONPARTISAN|NON[- ]PARTISAN|NP)$", "I"),
 )
+_STATE_WORDS = None
+UNKNOWN_PARTY: dict = {}     # labels read as "another party" (code O), with how often: what a run's log and check show
 
 
 def party_code(p: str | None) -> str:
-    """D, R, L, G, I, or O (any other named party); "" when the source names none."""
+    """D, R, L, G, I, or O (any other named party); "" when the source names none.
+
+    A label is read as its publisher writes it: "Minnesota Democratic–Farmer–Labor Party" and "DEM-NPL" are the
+    Democratic Party's state names (D), "Republican Party (United States)" is R, a candidate on several lines
+    ("DEM/WF", "R/CRV/IDP", "R-D") is filed under the first, their own. A label that is none of the five is O, and is
+    counted in UNKNOWN_PARTY so a major party's label that is not yet known here shows up instead of hiding."""
+    global _STATE_WORDS
     s = re.sub(r"\s+", " ", str(p or "").strip().upper())
+    s = re.sub(r"[\u2010-\u2015\u2212]", "-", s)       # the dashes a page may write a hyphen as
     m = re.match(r"^W\s*\(([A-Z/ ]+)\)", s)          # the FEC's "W(R)": a write-in candidate of that party
     if m:
         s = m.group(1)
     if "/" in s and not re.match(r"^(N/A|W/I)$", s):  # "DEM/WF", "R/CRV/IDP": several lines, the first is the candidate's own
         s = s.split("/")[0]
-    s = s.strip(" ()[]*#")
-    if not s or s in ("NAN", "NONE", "N/A", "W", "W/I", "WRITE-IN", "WRITEIN"):
+    s = re.sub(r"\s*\((UNITED STATES|US|U\.S\.)\)?$", "", s).strip(" ()[]*#.,:;")
+    if not s or s in ("NAN", "NONE", "N/A", "W", "W/I", "WRITE-IN", "WRITEIN", "COMBINED PARTIES", "COMBINED"):
         return ""
-    for rx, code in _PARTY:
-        if re.match(rx, s):
-            return code
+    raw = s
+    s = re.sub(r"\s+PARTY( OF [A-Z ]+)?$", "", s)
+    if _STATE_WORDS is None:
+        _STATE_WORDS = re.compile(r"^(?:" + "|".join(sorted((re.escape(v.upper()) for v in STATES.values()), key=len, reverse=True)) + r")\s+")
+    s = _STATE_WORDS.sub("", s).strip()
+    for cand in (s, re.split(r"\s*[-&,+]\s*|\s+AND\s+", s)[0] if re.search(r"[-&,+]| AND ", s) else s):
+        for rx, code in _PARTY:
+            if re.match(rx, cand):
+                return code
+    UNKNOWN_PARTY[raw] = UNKNOWN_PARTY.get(raw, 0) + 1
     return "O"
 
 
@@ -92,9 +109,51 @@ def ungarble_name(n: str) -> str:
     return " ".join(w for w in words if w)
 
 
+_NICK = re.compile(r"""(["'(\u201c]+)([a-z])""")
+
+
+def _cap_word(w: str) -> str:
+    """One word of a name that came in one case: "MCDONALD" -> "McDonald", "O'NEAL" -> "O'Neal", "(DOC)COLLINS" ->
+    "(Doc) Collins", "E.H." stays "E.H.", "SMITH-JONES" -> "Smith-Jones"."""
+    w = re.sub(r"\)(?=[A-Za-z])", ") ", w)                       # "(Doc)collins": the nickname ran into the surname
+    out = []
+    for part in w.split(" "):
+        if re.fullmatch(r"(?:[A-Za-z]\.){2,}[A-Za-z]?\.?", part):  # initials run together: "E.h." -> "E.H."
+            out.append(part.upper())
+            continue
+        x = "-".join(p[:1].upper() + p[1:].lower() for p in part.split("-"))
+        x = re.sub(r"^(Mc)([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
+        x = re.sub(r"^(O')([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
+        x = _NICK.sub(lambda m: m.group(1) + m.group(2).upper(), x)
+        x = re.sub(r"\.([a-z])(?=[a-z]{2})", lambda m: "." + m.group(1).upper(), x)   # "J.b.smith" kept readable
+        out.append(x)
+    return " ".join(out)
+
+
+def tidy_name(n: str) -> str:
+    """A name already in mixed case, put right where a file's quoting or casing damaged it: a nickname's quotes written
+    twice by a CSV export ('Benjamin ""ben"" Bubar' -> 'Benjamin "Ben" Bubar'), a nickname or a word after a bracket
+    left in lower case ('Wm (Doc)collins' -> 'Wm (Doc) Collins'), initials half lowered ('E.h. Woods' -> 'E.H. Woods'),
+    a comma before a suffix ('Carl C. Brown, Jr.' -> 'Carl C. Brown Jr.'). Nothing else about the name is changed."""
+    n = re.sub(r"\s+", " ", str(n or "")).strip()
+    if not n:
+        return n
+    n = re.sub(r'"{2,}', '"', n).replace("\u201c", '"').replace("\u201d", '"')
+    n = re.sub(r',(?=")', "", n)                                  # 'W.J. "Billy," Tauzin': the comma belongs to no one
+    n = re.sub(r'(?<=[A-Za-z.])"(?=[A-Za-z]+")', ' "', n)          # 'J. H."Jack" Kingston': a space before the nickname
+    n = re.sub(r"\)(?=[A-Za-z])", ") ", n)
+    n = re.sub(r",\s*(Jr|Sr|II|III|IV)\b\.?", lambda m: " " + m.group(1) + ("." if m.group(1) in ("Jr", "Sr") else ""), n)
+    n = _NICK.sub(lambda m: m.group(1) + m.group(2).upper(), n)
+    n = re.sub(r"\b((?:[A-Za-z]\.){2,})(?=\s|$)", lambda m: m.group(1).upper(), n)
+    n = re.sub(r"(?<=\) )([a-z])(?=[a-z]+\b)", lambda m: m.group(1).upper(), n)
+    n = re.sub(r"\b(Jr|Sr)(?=\s|$)(?!\.)", r"\1.", n)
+    return re.sub(r"\s+", " ", n).strip(" ,")
+
+
 def nice_name(n: str) -> str:
     """A ballot name as a person would write it: "JOHN H BUCHANAN JR" -> "John H. Buchanan Jr."; mixed case is kept."""
     n = re.sub(r"\s+", " ", ungarble_name(str(n or "")).replace('\\"', '"').strip().strip(","))
+    n = re.sub(r',(?=")', "", re.sub(r'"{2,}', '"', n))
     if not n:
         return n
     m3 = re.fullmatch(r"([^,]+),\s*([^,]+),\s*(JR|SR|II|III|IV)\.?", n, re.I)      # "Cleaver, Emanuel, II" -> "Emanuel Cleaver II"
@@ -109,7 +168,7 @@ def nice_name(n: str) -> str:
             suf, first = " " + m.group(1) + ("." if m.group(1).upper() in ("JR", "SR") else ""), first[:m.start()]
         n = f"{first.strip()} {last.strip()}{suf}".strip()
     if n.upper() != n and n.lower() != n:
-        return n
+        return tidy_name(n)
     out = []
     for w in n.split(" "):
         u = w.upper().strip(".,")
@@ -120,12 +179,8 @@ def nice_name(n: str) -> str:
         elif len(u) == 1 and u.isalpha():
             out.append(u + ".")
         else:
-            x = "-".join(p[:1].upper() + p[1:].lower() for p in w.split("-"))
-            x = re.sub(r"^(Mc)([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
-            x = re.sub(r"^(O')([a-z])", lambda m: m.group(1) + m.group(2).upper(), x)
-            x = re.sub(r"""^(["'(]+)([a-z])""", lambda m: m.group(1) + m.group(2).upper(), x)
-            out.append(x)
-    return " ".join(out)
+            out.append(_cap_word(w))
+    return tidy_name(" ".join(out))
 
 
 def general_day(year: int) -> str:
@@ -140,7 +195,8 @@ def is_writein_bucket(name: str) -> bool:
     s = re.sub(r"[^A-Z]", "", str(name or "").upper())
     return s in ("WRITEIN", "WRITEINS", "SCATTERING", "SCATTER", "OTHER", "OTHERS", "BLANK", "VOID", "OVERVOTES", "UNDERVOTES",
                  "BLANKVOTES", "NONEOFTHESECANDIDATES", "NONEOFTHEABOVE", "TOTAL", "TOTALVOTES", "UNDERVOTE", "OVERVOTE",
-                 "BLANKSCATTERING", "MISCELLANEOUS", "ALLOTHERS", "UNCOMMITTED", "NOPREFERENCE")
+                 "BLANKSCATTERING", "MISCELLANEOUS", "ALLOTHERS", "UNCOMMITTED", "NOPREFERENCE",
+                 "NOCANDIDATE", "NOCANDIDATES", "NOCANDIDATEFILED", "NONE", "NONEOFTHENAMESSHOWN", "NOTAPPLICABLE")
 
 
 def tag_outcomes(o: list, tot, majority: bool, runoff_follows: bool = False, seats: int = 1) -> None:

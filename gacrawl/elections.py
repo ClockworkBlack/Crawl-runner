@@ -452,6 +452,43 @@ register(Deriver("elections", "kind IN ('page','document') AND source_id NOT LIK
 
 
 # ----------------------------------------------------------------------------- export (Electo shapes)
+# a line of a page's letterhead or footer read as a candidate with votes (Walker County, Nov. 3, 2026: the election
+# office's "PO Box 1105, LaFayette GA 30728" became "PO Box" with 1,105 votes and "LaFayette GA", the winner, with
+# 30,728, under a homestead-exemption question)
+_ADDRESS_PART = re.compile(r"^(p\.?\s?o\.?\s+box\b.*|.*\b(GA|Georgia)\.?|.*\b(street|st|avenue|ave|road|rd|suite|ste|highway|hwy|drive|dr|blvd)\.?|"
+                           r".*@.*|.*\bwww\..*|.*\b(phone|fax|e-?mail|office hours)\b.*)$", re.I)
+_QUESTION_OFFICE = re.compile(r"^\s*(shall|should|do you|are you in favor)\b|\?\s*$", re.I)
+
+
+def result_fault(office: str, candidates: list[dict], total: int | None = None) -> str:
+    """Why a contest read from a results page is not a contest ("" when it is): a question under which names were read,
+    a "candidate" that is part of an address or holds digits or is one word, votes above the total, a marked winner who
+    trails, or one with under 40 percent among four or more names (several contests read as one: Sugar Hill, 2025)."""
+    rows = [x for x in candidates if not SKIP_ROW.match(str(x.get("name") or "").strip())]
+    if not rows:
+        return "no candidates"
+    if _QUESTION_OFFICE.search(office or "") or len(office or "") > 160:
+        return "a ballot question (its choices are not candidates)"
+    for x in rows:
+        n = re.sub(r"\s+", " ", str(x.get("name") or "")).strip()
+        if _ADDRESS_PART.match(n) or re.search(r"\d", n):
+            return f"{n!r} is part of an address or a number, not a candidate"
+        if len(re.findall(r"[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f.'-]+", n)) < 2:
+            return f"{n!r} is not a person's name"
+    votes = [x.get("votes") for x in rows]
+    if any(not isinstance(v, int) or v < 0 for v in votes):
+        return "a candidate without a whole number of votes"
+    if total and sum(votes) > total:
+        return "the candidates' votes are more than the total"
+    won = [x for x in rows if x.get("outcome") == "won"]
+    top = max(rows, key=lambda x: x["votes"])
+    if len(won) == 1 and won[0]["votes"] < top["votes"]:
+        return f"the winner marked ({won[0]['name']}) has fewer votes than {top['name']}"
+    if len(won) == 1 and len(rows) >= 4 and total and won[0]["votes"] < 0.4 * total:
+        return f"the winner marked has under 40 percent among {len(rows)} names: several contests read as one"
+    return ""
+
+
 def electo_elections(store, jurisdictions: dict[str, dict]) -> list[dict]:
     """Group election_result records into Electo archive elections: {eid, date, title, kind, official, u, c:[...]}."""
     from .electo import pkey
@@ -467,6 +504,8 @@ def electo_elections(store, jurisdictions: dict[str, dict]) -> list[dict]:
                                             (" (runoff)" if m.get("runoff") else ""),
                                    "kind": "municipal runoff" if m.get("runoff") else "municipal", "official": bool(m.get("official")),
                                    "u": r["url"], "c": [], "_seen": set()})
+        if result_fault(m.get("office") or "", m.get("candidates") or [], m.get("total")):
+            continue                                   # not a contest as read: never handed to Electo
         sig = (m["office"].lower(), tuple(x["name"].lower() for x in m["candidates"]))
         if sig in g["_seen"]:
             continue

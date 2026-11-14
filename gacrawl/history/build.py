@@ -19,11 +19,14 @@ import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .model import STATES, is_writein_bucket, pkey, same_person, seat_key, shard, tag_outcomes
+from .model import STATES, UNKNOWN_PARTY, fold, is_writein_bucket, pkey, same_person, seat_key, shard, tag_outcomes
+from .repair import TERRITORIES, repair_all, src_of
 from .run import iter_contests, load_state, paths
 
 PEOPLE_SHARDS, PROF_SHARDS = 64, 16
-PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "sos_pdf": 3, "medsl": 5, "fec": 4, "legislators": 1, "reported": 2}   # reported: as reported, until MEDSL or the FEC have the year
+# Georgia: the state's own files first; OpenElections is a transcription of them (its county tables are joined to the
+# state's statewide count when the two agree to the vote)
+PRIORITY = {"manual": 6, "sos_zip": 5, "sos_pdf": 5, "openelections": 4, "medsl": 5, "fec": 4, "legislators": 1, "reported": 2}   # reported: as reported, until MEDSL or the FEC have the year
 STAGE_CODE = {"general": "gen", "primary": "pri", "primary runoff": "prirun", "general runoff": "genrun", "special": "spec",
               "special runoff": "specrun", "special primary": "specpri", "special primary runoff": "specprirun"}
 STAGE_TITLE = {"general": "General Election", "primary": "Primary Election", "primary runoff": "Primary Runoff",
@@ -87,8 +90,18 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
         # Georgia, two files of the same certified count: the fuller one (an archive missing a county's file counts less)
         full = [c for c in lst if c.get("item", "").split(":", 1)[0] in ("sos_zip", "openelections", "manual") and c.get("tot")]
         if best in full and len(full) > 1:
-            best = max(full, key=lambda c: (c["tot"], PRIORITY.get(c.get("item", "").split(":", 1)[0], 0)))
+            top = max(c["tot"] for c in full)
+            # of the files with the full count, the one whose leader has the most votes: a file that spells one candidate
+            # two ways splits that candidate's votes, it never adds to them
+            near_top = [c for c in full if c["tot"] >= 0.999 * top]
+            best = max(near_top, key=lambda c: ((_lead(c)[0] or [0, 0, 0])[2] or 0, c["tot"], PRIORITY.get(src_of(c), 0)))
             lst = [best] + [c for c in lst if c is not best]
+        if src_of(best) in ("sos_pdf", "manual") and not best.get("cty"):
+            oe = next((c for c in lst if src_of(c) == "openelections" and c.get("cty")), None)
+            if oe is not None and _graft_counties(best, oe):
+                A["counties_joined"] = A.get("counties_joined", 0) + 1
+        best = _prefer_fec(lst, best, A)
+        lst = [best] + [c for c in lst if c is not best]
         bw, _ = _lead(best)
         for other in lst[1:]:
             if other.get("item", "").split(":", 1)[0] == best.get("item", "").split(":", 1)[0]:
@@ -120,6 +133,20 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
                 best.setdefault("chk", "agree")
                 A["checked"] -= 1
                 continue
+            if best["y"] == 2002 and best.get("lvl") == "legislative" and src_of(other) == "openelections" and other.get("tot") and best.get("tot") \
+                    and other["tot"] > 1.5 * best["tot"] and "Post" not in str(best.get("dist")):
+                # the 2002 map's districts with several members, each elected by numbered post: the transcription adds the
+                # posts together; the state's document, read before posts were told apart, has the first
+                best["note"] = ((best.get("note") or "") + " In 2002 this district elected more than one member, each by numbered post; one post's contest is shown.").strip()
+                A["multi_post_2002"] = A.get("multi_post_2002", 0) + 1
+                A["checked"] -= 1
+                continue
+            if same_w and near3(best.get("tot"), other.get("tot")) and (ow[2] or 0) < (bw[2] or 0) and not near(bw[2], ow[2]) \
+                    and {src_of(best), src_of(other)} <= {"sos_zip", "openelections", "sos_pdf", "manual"} and len(other["o"]) > len(best["o"]):
+                A["spelling_other"] = A.get("spelling_other", 0) + 1      # the other file lists the winner under two spellings
+                best.setdefault("chk", "agree")
+                A["checked"] -= 1
+                continue
             if same_w and near(bw[2], ow[2]) and (near3(best.get("tot"), other.get("tot")) or not other.get("tot") or not best.get("tot")):
                 A["agree"] += 1
                 best.setdefault("chk", "agree")
@@ -127,8 +154,148 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
                 rec["why"] = "winner" if not same_w else "winner's votes" if not near(bw[2], ow[2]) else "total"
                 A["differ"].append(rec)
                 best["chk"] = "differ"
+                best["alt"] = _alt_note(best, other, bw, ow, same_w)
         out.append(best)
-    return out
+    return _one_contest_two_titles(out, A)
+
+
+SRC_NAME = {"fec": "the FEC", "medsl": "MIT's Election Lab", "sos_zip": "the Secretary of State", "sos_pdf": "the Secretary of State",
+            "openelections": "OpenElections", "reported": "Wikipedia", "manual": "the Secretary of State"}
+
+
+def _alt_note(best: dict, other: dict, bw, ow, same_w: bool) -> str:
+    """The short line shown under a contest's totals when a second source counts it differently."""
+    a, b = SRC_NAME.get(src_of(best), src_of(best)), SRC_NAME.get(src_of(other), src_of(other))
+    f = lambda v: "\u2014" if v is None else f"{v:,}"                                       # noqa: E731
+    who = f"{ow[0]} {f(ow[2])}" if not same_w else f"{ow[0].split()[-1]} {f(ow[2])}"
+    why = best.get("pick_why") or ""
+    poss = lambda n: n + ("'" if n.endswith("s") else "'s")                                 # noqa: E731
+    return (f"{b[:1].upper() + b[1:]} counts this differently: {f(other.get('tot'))} votes ({who}). "
+            f"Shown: {poss(a)} count{(' (' + why + ')') if why else ''}.")
+
+
+def _prefer_fec(lst: list[dict], best: dict, A: dict) -> dict:
+    """A federal contest both MIT's Election Lab and the FEC report: the FEC's count (the states' certified results as
+    the FEC publishes them) is the one shown, unless the FEC's row is plainly not this election's count:
+      - their totals more than 15 percent apart with different winners or different leaders' votes, where MIT's
+        has the seated member's majority (a file that doubled a candidate's party lines, New York 2004; a Washington
+        2004 row that named a minor candidate the winner with 5.5 million votes; New York's 2012 President sheet,
+        95,911 votes in all);
+    and is kept where MIT's file holds a runoff added into the general (Louisiana 2014: 3.5 million votes; the FEC has
+    November's 1.47 million, no majority). Every contest the two count differently says so on its card."""
+    if src_of(best) != "medsl":
+        return best
+    fec = next((c for c in lst if src_of(c) == "fec" and c.get("tot")), None)
+    if fec is None or not best.get("tot"):
+        return best
+    bw, _ = _lead(best)
+    fw, freal = _lead(fec)
+    if not bw or not fw:
+        return best
+    r = fec["tot"] / best["tot"]
+    fec_major = (fw[2] or 0) * 2 > fec["tot"]
+    if 0.85 <= r <= 1.15 and same_person(bw[0], fw[0]):
+        fec["pick_why"] = "the certified count the FEC publishes"
+        A["fec_preferred"] = A.get("fec_preferred", 0) + 1
+        return fec
+    if r < 0.8 and not fec_major and best.get("office") != "President" and best.get("st") in ("LA", "GA") and freal and len(freal) >= 2 \
+            and fw[1] in ("D", "R") and fec["tot"] >= 0.3 * best["tot"]:
+        fec["pick_why"] = "the other file adds a runoff into the general election"
+        A["fec_preferred"] = A.get("fec_preferred", 0) + 1
+        return fec
+    best["pick_why"] = "the FEC's file for this contest does not add up"
+    A["fec_kept_medsl"] = A.get("fec_kept_medsl", 0) + 1
+    return best
+
+
+def _one_name_a_nominee(cs: list[dict], stats: Counter) -> None:
+    """A presidential candidate is one person in every state's row, under one name and one party: the FEC's files write
+    "George Bush Sr." (Rhode Island, 2004), "Barack Hussein Obama", a state party's own label (North Dakota's
+    Democratic-NPL read as another party) or none (New York 2004). Each year's candidates are matched by surname and
+    first initial; the name and party most states give are used everywhere."""
+    by_year: dict = defaultdict(list)
+    for c in cs:
+        if c.get("office") == "President" and c.get("scope") == "us" and c["stage"] == "general":
+            by_year[c["y"]].append(c)
+
+    def key(n):
+        w = [x for x in pkey(n).split(" ") if x not in ("II", "III", "IV")]
+        return (w[-1], w[0][:1]) if w else None
+    for y, lst in by_year.items():
+        names, parties = defaultdict(Counter), defaultdict(Counter)
+        for c in lst:
+            for x in c["o"]:
+                k = key(x[0])
+                if k and (x[2] or 0) > 1000:
+                    names[k][x[0]] += 1
+                    if x[1]:
+                        parties[k][x[1]] += 1
+        for c in lst:
+            for x in c["o"]:
+                k = key(x[0])
+                if not k or k not in names or sum(names[k].values()) < 5:
+                    continue
+                nm = names[k].most_common(1)[0][0]
+                pc = parties[k].most_common(1)[0][0] if parties[k] else x[1]
+                if nm != x[0]:
+                    x[0] = nm; stats["presidential candidates' names made one across states"] += 1
+                if pc in ("D", "R") and x[1] != pc:
+                    x[1] = pc; stats["presidential candidates' parties made one across states"] += 1
+            rows: dict = {}
+            for x in list(c["o"]):                       # two spellings that are now one name: one row, votes added
+                if x[0] in rows:
+                    y0 = rows[x[0]]
+                    y0[2] = (y0[2] or 0) + (x[2] or 0) if (y0[2] is not None or x[2] is not None) else None
+                    y0[4] = y0[4] or x[4]
+                    c["o"].remove(x)
+                else:
+                    rows[x[0]] = x
+
+
+def _graft_counties(official: dict, oe: dict) -> bool:
+    """The county table of a transcription joined to the state's statewide count of the same contest, only when every
+    candidate's statewide votes are the same in both (so the table adds up to the line it is shown under)."""
+    from .repair import person_key
+    rows = [x for x in official["o"]]
+    idx = []
+    for x in rows:
+        k = person_key(x[0])
+        hit = [i for i, z in enumerate(oe["o"]) if z[2] == x[2] and (person_key(z[0]) == k or person_key(z[0]) <= k or k <= person_key(z[0])
+                                                                      or (official.get("lvl") == "question" and str(z[0]).lower() == str(x[0]).lower()))]
+        if len(hit) != 1 or hit[0] in idx:
+            return False
+        idx.append(hit[0])
+    if not idx or any(len(v) != len(oe["o"]) for v in oe["cty"].values()):
+        return False
+    official["cty"] = {cn: [v[i] for i in idx] for cn, v in oe["cty"].items()}
+    return True
+
+
+def _one_contest_two_titles(cs: list[dict], A: dict) -> list[dict]:
+    """A Georgia contest two sources title differently ("Supreme Court Justice" in one, "Supreme Court Justice,
+    Hunstein" in the other) is two seats to `choose`, and was shown twice. In one election, two contests from
+    different sources with the same candidates' votes are one: the higher-ranked source's stands."""
+    by: dict = defaultdict(list)
+    for c in cs:
+        if c.get("scope") != "ga" or c.get("lvl") in ("federal", "statewide", "legislative"):
+            continue
+        votes = tuple(sorted(((x[2] or 0) for x in c["o"] if not is_writein_bucket(x[0])), reverse=True))
+        if votes and sum(votes) >= 200:
+            by[(c.get("date"), c["stage"], c.get("p") or "", votes[:3])].append(c)
+    drop = set()
+    for lst in by.values():
+        if len(lst) < 2 or len({src_of(c) for c in lst}) < 2:
+            continue
+        lst.sort(key=lambda c: -PRIORITY.get(src_of(c), 0))
+        keep = lst[0]
+        for c in lst[1:]:
+            if src_of(c) != src_of(keep):
+                drop.add(id(c))
+                keep.setdefault("chk", "agree")
+                A["agree"] = A.get("agree", 0) + 1
+                A["checked"] = A.get("checked", 0) + 1
+                A["same_contest_two_titles"] = A.get("same_contest_two_titles", 0) + 1
+    return [c for c in cs if id(c) not in drop]
 
 
 def _merge_marked_lines(c: dict) -> None:
@@ -239,19 +406,19 @@ def link_runoffs(cs: list[dict]) -> None:
 def _match_members(profiles: dict):
     by = defaultdict(list)
     for bid, p in profiles.items():
-        last = pkey(p.get("last") or "").split(" ")
+        last = pkey(fold(p.get("last") or "")).split(" ")
         for st in {t["st"] for t in p["terms"]}:
             by[(st, last[-1] if last else "")].append(bid)
 
     def find(name: str, st: str, year: int):
-        k = pkey(name).split(" ")
+        k = pkey(fold(name)).split(" ")
         if not k:
             return None
         hits = []
         for tok in k[1:] or k:
             for bid in by.get((st, tok), []):
                 p = profiles[bid]
-                firsts = {pkey(p["n"]).split(" ")[0][:1], pkey(p.get("ballot") or p["n"]).split(" ")[0][:1]}
+                firsts = {pkey(fold(p["n"])).split(" ")[0][:1], pkey(fold(p.get("ballot") or p["n"])).split(" ")[0][:1]}
                 if k[0][:1] in firsts and any(int(t["s"][:4]) - 30 <= year <= int(t["e"][:4]) + 30 for t in p["terms"] if t.get("s") and t.get("e")):
                     hits.append(bid)
         hits = sorted(set(hits))
@@ -266,7 +433,12 @@ def build(cfg: dict, out: Path, log=print) -> dict:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     audit: dict = {}
-    cs = choose(iter_contests(work), audit)
+    repairs: Counter = Counter()
+    read = repair_all(iter_contests(work), repairs)
+    # which of a state's Senate seats an election was for (the members list gives each term's class)
+    sen_class = {(c["y"], c["st"]): c["cl"] for c in read if c.get("cl") and c.get("office") == "U.S. Senate" and not c.get("sp")}
+    cs = choose(read, audit)
+    _one_name_a_nominee(cs, repairs)
     by_year = defaultdict(list)
     for c in cs:
         by_year[c["y"]].append(c)
@@ -292,6 +464,13 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     for f in sorted((work / "people").glob("legislators-*.json")) if (work / "people").exists() else []:
         profiles.update(json.loads(f.read_text(encoding="utf-8")))
     find = _match_members(profiles)
+    _party_from_members(cs, profiles, find, repairs)
+    for c in cs:
+        if c.get("office") == "U.S. Senate" and c.get("scope") == "us" and not c.get("sp") and c["stage"] == "general" \
+                and sen_class.get((c["y"], c["st"])):
+            c["cl"] = sen_class[(c["y"], c["st"])]
+        if src_of(c) == "reported":
+            c["basis"] = "reported"
 
     index_el, people, sources = [], {}, Counter()
     src_urls = {}
@@ -327,7 +506,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
                 for i, c in enumerate(lst):
                     item_src = c.get("item", "").split(":", 1)[0]
                     sources[item_src] += 1
-                    src_urls[item_src] = c["src"]
+                    src_urls[item_src] = SOURCE_NOTE.get(item_src) or c["src"]
                     key = c["office"].replace("U.S. ", "US ") + (" " + str(c["dist"]) if c.get("dist") else "")
                     oc = {"i": i, "lvl": c["lvl"], "sub": "", "key": key, "t": c["t"], "p": c.get("p") or "", "j": c.get("j") or "",
                           "vf": c.get("vf") or 1, "tot": c.get("tot"), "o": c["o"], "u": c["src"]["u"], "srct": c["src"]["t"],
@@ -344,6 +523,12 @@ def build(cfg: dict, out: Path, log=print) -> dict:
                         oc["ro"] = ["", c["ro_date"]]
                     if c.get("chk"):
                         oc["chk"] = c["chk"]
+                    if c.get("alt"):
+                        oc["alt"] = c["alt"]
+                    if c.get("note"):
+                        oc["nt"] = c["note"]
+                    if c.get("cl"):
+                        oc["scl"] = c["cl"]
                     ids = {}
                     for x in c["o"]:
                         if c["lvl"] == "question" or is_writein_bucket(x[0]):
@@ -366,10 +551,13 @@ def build(cfg: dict, out: Path, log=print) -> dict:
                         oc["bg"] = ids
                     out_c.append(oc)
                     lv[c["lvl"]] += 1
-                el = {"eid": eid, "date": date, "title": title, "kind": stage, "official": True, "u": lst[0]["src"]["u"], "c": out_c}
+                # official: every count is a certified or compiled official one; an election holding counts "as reported"
+                # (a cycle the federal files do not cover yet) says so
+                official = not any(c.get("basis") == "reported" for c in lst)
+                el = {"eid": eid, "date": date, "title": title, "kind": stage, "official": official, "u": lst[0]["src"]["u"], "c": out_c}
                 elections.append(el)
                 index_el.append({"eid": eid, "scope": scope, "date": date, "y": str(y), "title": title, "kind": stage, "n": len(out_c),
-                                 "lv": dict(lv), "official": True, "u": el["u"],
+                                 "lv": dict(lv), "official": official, "u": el["u"],
                                  "votes": sum(1 for c in out_c if c["tot"]), "f": f"{scope}_{y}.json"})
             _dump(out / f"{scope}_{y}.json", {"year": str(y), "scope": scope, "elections": elections})
             summary[scope][str(y)] = _summarize(scope, by_year[y])
@@ -412,6 +600,13 @@ def build(cfg: dict, out: Path, log=print) -> dict:
         "audit": {"checked": audit["checked"], "agree": audit["agree"], "differ": len(audit["differ"]), "partial_other": audit.get("partial_other", 0),
                   "seated_differs": len(audit["seated_differs"]), "seats": _seat_check(summary)},
     }
+    labels = dict(UNKNOWN_PARTY)
+    lp = work / "unknown_parties.json"
+    if lp.exists():
+        try:
+            labels = json.loads(lp.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
     _dump(out / "index.json", index)
     _dump(out / "summary.json", summary)
     audit["differ"].sort(key=lambda r: (-r["y"], r["race"]))
@@ -419,6 +614,10 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     _dump(out / "audit.json", {"checked": audit["checked"], "agree": audit["agree"], "differ": audit["differ"][:3000],
                                "seated_differs": audit["seated_differs"][:1500], "seats": _seat_check(summary),
                                "runoffs_filed_as_general": audit.get("runoffs_filed_as_general", []),
+                               "repairs": dict(sorted(repairs.items(), key=lambda kv: (-kv[1], kv[0]))),
+                               "resolved": {k: audit.get(k, 0) for k in ("partial_other", "spelling_other", "counties_joined", "fec_preferred", "fec_kept_medsl",
+                                                                          "same_contest_two_titles", "multi_post_2002")},
+                               "other_party_labels": dict(sorted(labels.items(), key=lambda kv: (-kv[1], kv[0]))[:60]),
                                "how": "Where two sources report the same contest they are compared: the winner (by surname), the "
                                       "winner's votes (within 1 percent) and the total (within 3 percent). 'seats' counts the U.S. House and Senate "
                                       "general-election contests on file each year against the seats there were."})
@@ -465,10 +664,12 @@ def _summarize(scope: str, contests: list[dict]) -> dict:
         cc = [c for c in gen if c["office"] == off]
         if not cc:
             continue
-        seats, votes, unc, close = Counter(), Counter(), 0, []
+        seats, votes, unc, close, deleg = Counter(), Counter(), 0, [], 0
         for c in cc:
             p = _party_of(c)
-            if p:
+            if c.get("st") in TERRITORIES and off == "U.S. House":
+                deleg += 1                              # delegates and the resident commissioner do not vote on the floor: not seats of a majority
+            elif p:
                 seats[p if p in ("D", "R") else "O"] += 1
             real = sorted((x for x in c["o"] if not is_writein_bucket(x[0]) and x[2] is not None), key=lambda x: -x[2])
             for x in real:
@@ -477,7 +678,7 @@ def _summarize(scope: str, contests: list[dict]) -> dict:
                 unc += 1 if real else 0
             if len(real) >= 2 and c.get("tot"):
                 close.append((round(100 * (real[0][2] - real[1][2]) / c["tot"], 2), c["t"], real[0][0], real[0][1], real[1][0], real[1][1]))
-        S[off] = {"n": len(cc), "seats": dict(seats), "votes": dict(votes), "unopposed": unc,
+        S[off] = {"n": len(cc), "seats": dict(seats), **({"delegates": deleg} if deleg else {}), "votes": dict(votes), "unopposed": unc,
                   "closest": [list(x) for x in sorted(close)[:8]], "no_votes_on_file": sum(1 for c in cc if not c.get("tot"))}
     if scope == "ga":
         sw = {}
@@ -495,25 +696,111 @@ def _summarize(scope: str, contests: list[dict]) -> dict:
     return S
 
 
+def _spans(years) -> str:
+    """Years as runs of the cycle they come in: [2002, 2004, ..., 2022, 2026] -> "2002–2022 and 2026"."""
+    ys = sorted(set(years))
+    if not ys:
+        return "none yet"
+    step = 4 if all((b - a) % 4 == 0 for a, b in zip(ys, ys[1:])) and len(ys) > 1 else 2 if all((b - a) % 2 == 0 for a, b in zip(ys, ys[1:])) else 1
+    runs, start, prev = [], ys[0], ys[0]
+    for y in ys[1:]:
+        if y - prev != step:
+            runs.append((start, prev)); start = y
+        prev = y
+    runs.append((start, prev))
+    parts = [str(a) if a == b else f"{a} and {b}" if b - a == step else f"{a}–{b}" for a, b in runs]
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
 def _coverage(summary: dict, cs: list[dict]) -> str:
-    def span(scope, pred):
-        ys = sorted({c["y"] for c in cs if c["scope"] == scope and pred(c)})
-        return f"{ys[0]}–{ys[-1]}" if ys else "none yet"
-    parts = [
-        "Federal offices in every state, general elections with vote counts: President by state "
-        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "President") + ", U.S. Senate "
-        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "U.S. Senate") + ", U.S. House "
-        + span("us", lambda c: c["stage"] == "general" and c.get("tot") and c["office"] == "U.S. House")
-        + ". For earlier House and Senate elections back to 1968 the member seated is shown without a vote count. Federal primaries "
-        + span("us", lambda c: "primary" in c["stage"]) + ".",
-        "Georgia before 2016: " + span("ga", lambda c: True) + " (statewide, federal, legislative and judicial contests and ballot "
-        "questions by county, with primaries and runoffs; county and city contests where the state's archive holds them).",
-        "Not on file yet: Georgia's results before 2000 (the Secretary of State's site turns crawlers away, so its 1988–2015 "
-        "files are read when downloaded by hand; earlier years exist only in printed registers), presidential results by state "
-        "for 1968 and 1972, and city-run elections, which were never reported to the state and are added as each city's or "
-        "county's own records are found.",
-    ]
-    return " ".join(parts)
+    """What is on file, said from the contests themselves (never from a fixed sentence: the first version of this note
+    went on saying "not on file" about years that had since been read)."""
+    def years(scope, pred):
+        return sorted({c["y"] for c in cs if c["scope"] == scope and pred(c)})
+
+    def counted(off):
+        ys = []
+        for y, s in summary.get("us", {}).items():
+            o = s.get(off) or {}
+            if o.get("n") and o["n"] - o.get("no_votes_on_file", 0) >= 0.9 * o["n"]:
+                ys.append(int(y))
+        return ys
+    gen = lambda c: c["stage"] == "general"                                      # noqa: E731
+    pres, sen, house = counted("President"), counted("U.S. Senate"), counted("U.S. House")
+    rep = years("us", lambda c: c.get("basis") == "reported")
+    seated_only = sorted(int(y) for y, s in summary.get("us", {}).items() if (s.get("U.S. House") or {}).get("n") and int(y) not in house)
+    us = ("Federal offices in every state. General elections with vote counts: President by state " + _spans(pres)
+          + "; U.S. Senate " + _spans(sen) + "; U.S. House " + _spans(house) + "."
+          + (f" U.S. House elections of {_spans(seated_only)} show the member seated, without a vote count." if seated_only else "")
+          + (f" Counts for {_spans(rep)} are as reported, not yet official." if rep else "")
+          + " Federal primaries: " + _spans(years("us", lambda c: "primary" in c["stage"])) + ".")
+    ga_gen = years("ga", lambda c: gen(c) and c["lvl"] in ("federal", "statewide"))
+    ga_leg = years("ga", lambda c: gen(c) and c["lvl"] == "legislative")
+    ga_pri = years("ga", lambda c: c["stage"] == "primary" and c["lvl"] in ("legislative", "statewide", "federal"))
+    ga_loc = years("ga", lambda c: c["lvl"] == "local")
+    ga_sp = years("ga", lambda c: "special" in c["stage"])
+    ga = ("Georgia before 2016 (2016 on comes from the state's present results system): general elections for federal and "
+          "statewide offices " + _spans(ga_gen) + "; General Assembly general elections " + _spans(ga_leg) + "; primaries and their runoffs "
+          + _spans(ga_pri) + "; special elections " + _spans(ga_sp) + "; county and city contests " + _spans(ga_loc)
+          + " (where the state's archive holds them). Results are by county where the source gives them.")
+    missing = []
+    if ga_gen and ga_gen[0] > FIRST_YEAR:
+        missing.append(f"Georgia's results before {ga_gen[0]} (printed registers only)")
+    if ga_leg and ga_gen and ga_leg[0] > ga_gen[0]:
+        missing.append(f"Georgia's General Assembly and primary results before {min(ga_leg[0], ga_pri[0] if ga_pri else ga_leg[0])}")
+    if pres and pres[0] > FIRST_YEAR:
+        missing.append("presidential results by state for " + _spans(range(FIRST_YEAR, pres[0], 4)))
+    if house and house[0] > FIRST_YEAR:
+        missing.append(f"U.S. House vote counts before {house[0]}")
+    if sen and sen[0] > FIRST_YEAR:
+        missing.append(f"U.S. Senate vote counts before {sen[0]}")
+    missing.append("city-run elections, which were never reported to the state (added as each city's or county's own records are found)")
+    return " ".join([us, ga, "Not on file: " + "; ".join(missing) + "."])
+
+
+FIRST_YEAR = 1968
+# what each source is, said once for all its files (the list of sources on the page; a contest names its own file)
+SOURCE_NOTE = {
+    "fec": {"t": "Federal Election Commission, \"Federal Elections\" reports: official results as certified by the states",
+            "u": "https://www.fec.gov/introduction-campaign-finance/election-results-and-voting-information/"},
+    "medsl": {"t": "MIT Election Data and Science Lab, U.S. President and U.S. Senate returns (Harvard Dataverse)",
+              "u": "https://dataverse.harvard.edu/dataverse/medsl_election_returns"},
+    "legislators": {"t": "unitedstates/congress-legislators (public domain): the members seated after each election",
+                    "u": "https://github.com/unitedstates/congress-legislators"},
+    "sos_zip": {"t": "Georgia Secretary of State, Historical Elections Results archives, 2012–2015 (official; read from the Internet Archive's copies)",
+                "u": "https://sos.ga.gov/page/historical-elections-results"},
+    "sos_pdf": {"t": "Georgia Secretary of State, election results documents, 1988–2012 (official; read from the Internet Archive's copies)",
+                "u": "https://sos.ga.gov/page/georgia-election-results"},
+    "openelections": {"t": "OpenElections, Georgia: county results transcribed from the Secretary of State's certified returns, 2000–2015",
+                      "u": "https://github.com/openelections/openelections-data-ga"},
+    "reported": {"t": "Wikipedia, results as reported for the newest cycle (unofficial; replaced by the official count when the federal files publish it)",
+                 "u": "https://en.wikipedia.org/wiki/2026_United_States_elections"},
+    "manual": {"t": "Georgia Secretary of State, official results (files downloaded by hand)", "u": "https://sos.ga.gov/page/historical-elections-results"},
+}
+
+
+def _party_from_members(cs: list[dict], profiles: dict, find, stats: Counter) -> None:
+    """A winner's party where the results file gives none or one this lane does not know as a major party's (a fusion
+    line listed first, a state party's own name): the party the member was seated under after that election, from the
+    members list. Only winners matched to exactly one member, and only to a major party or Independent."""
+    from .model import party_code
+    for c in cs:
+        if c.get("scope") != "us" or c.get("office") == "President" or c.get("basis") == "seated" or c["stage"] not in ("general", "special"):
+            continue
+        for x in c["o"]:
+            if x[4] not in ("won", "unopposed") or x[1] in ("D", "R"):
+                continue
+            bid = find(x[0], c["st"], c["y"])
+            if not bid:
+                continue
+            terms = [t for t in profiles[bid]["terms"] if str(t.get("s") or "")[:4] in (str(c["y"] + 1), str(c["y"]))
+                     and t.get("st") == c["st"] and t.get("ch") == ("Senate" if c["office"] == "U.S. Senate" else "House")]
+            if not terms:
+                continue
+            pc = party_code(sorted(terms, key=lambda t: t["s"])[-1].get("p0") or sorted(terms, key=lambda t: t["s"])[-1].get("p"))
+            if pc in ("D", "R", "I") and pc != x[1]:
+                x[1] = pc
+                stats["winner's party taken from the members list"] += 1
 
 
 def verify(bundle: Path, electo_hist: Path) -> dict:

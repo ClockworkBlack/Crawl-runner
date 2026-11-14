@@ -133,10 +133,13 @@ def ga_office(raw: str, district: str = "") -> tuple[str, str, str, str]:
         return "federal", "U.S. House", d, "U.S. House District " + d if d else "U.S. House"
     if re.search(r"board of education|school board|\bboe\b|city council|county commission|\bmayor\b", sl):
         return "local", s, d, s
+    # a district that elected several members by numbered post (the 2002 General Assembly map): each post is its own seat
+    mp = re.search(r"\bpost\s*(\d{1,2})\b", sl)
+    post, post_t = (f" Post {int(mp.group(1))}", f", Post {int(mp.group(1))}") if mp and d else ("", "")
     if re.search(r"state senat|^senat(e|or)\b|^state senator", sl):
-        return "legislative", "State Senate", d, "State Senate District " + d if d else "State Senate"
+        return "legislative", "State Senate", d + post, ("State Senate District " + d if d else "State Senate") + post_t
     if re.search(r"state (house|rep)|^representative\b|house of representatives|general assembly", sl):
-        return "legislative", "State House", d, "State House District " + d if d else "State House"
+        return "legislative", "State House", d + post, ("State House District " + d if d else "State House") + post_t
     if re.search(r"justice|supreme court|court of appeals|\bjudge\b|superior court|state court|district attorney|solicitor", sl):
         return "judicial", s, d, s
     for rx, name in _STATEWIDE:
@@ -274,7 +277,7 @@ class Legislators:
 
 
 def legislators_read(people: list, src_url: str):
-    profiles, seats = {}, defaultdict(list)
+    profiles, seats, classes = {}, defaultdict(list), {}
     src = {"t": "unitedstates/congress-legislators (public domain): members of the United States Congress", "u": src_url}
     for p in people:
         terms = [t for t in p.get("terms") or [] if str(t.get("end") or "") >= "1969-01-03"]
@@ -291,7 +294,9 @@ def legislators_read(people: list, src_url: str):
             ch = "Senate" if t.get("type") == "sen" else "House"
             d = t.get("district")
             tl.append({"ch": ch, "st": t.get("state"), "d": ("AL" if d in (0, "0") else str(d)) if ch == "House" and d is not None else "",
-                       "s": t.get("start"), "e": t.get("end"), "p": t.get("party") or "", "how": t.get("how") or ""})
+                       "s": t.get("start"), "e": t.get("end"), "p": t.get("party") or "", "how": t.get("how") or "",
+                       **({"cl": t.get("class")} if ch == "Senate" and t.get("class") else {}),
+                       **({"p0": _party_when_elected(t)} if _party_when_elected(t) != (t.get("party") or "") else {})})
         bio = p.get("bio") or {}
         ids = p.get("id") or {}
         profiles[bid] = {"n": name, "ballot": ballot, "last": nm.get("last") or "", "born": bio.get("birthday") or "",
@@ -304,17 +309,45 @@ def legislators_read(people: list, src_url: str):
             ch = "U.S. Senate" if t.get("type") == "sen" else "U.S. House"
             d = t.get("district")
             dist = ("AL" if d in (0, "0", None) else str(d)) if ch == "U.S. House" else ""
-            seats[(y, t.get("state"), ch, dist)].append([name, party_code(t.get("party")), None, 0, "won"])
+            # an incumbent is who held this seat (this state's Senate seat of the same class, a House seat of the state)
+            # in the Congress before
+            held = any(str(u.get("end") or "")[:4] == start[:4] and u.get("type") == t.get("type") and u.get("state") == t.get("state")
+                       and (t.get("type") != "sen" or u.get("class") == t.get("class")) for u in p.get("terms") or [] if u is not t)
+            seats[(y, t.get("state"), ch, dist)].append([name, party_code(_party_when_elected(t)), None, 1 if held else 0, "won"])
+            if ch == "U.S. Senate" and t.get("class"):
+                classes[(y, t.get("state"))] = t.get("class")
 
     contests = []
     for (y, st, office, dist), o in sorted(seats.items(), key=lambda kv: [str(x) for x in kv[0]]):
         if st not in STATES:
             continue
         where = STATES[st] + ((" At Large" if dist == "AL" else " District " + dist) if office == "U.S. House" else "")
-        contests.append({"scope": "us", "y": y, "date": general_day(y), "stage": "general", "st": st, "office": office, "dist": dist,
-                         "lvl": "federal", "p": "", "j": "", "t": f"{office} · {where}", "tot": None, "o": o, "src": src,
-                         "basis": "seated"})
+        c = {"scope": "us", "y": y, "date": general_day(y), "stage": "general", "st": st, "office": office, "dist": dist,
+             "lvl": "federal", "p": "", "j": "", "t": f"{office} · {where}", "tot": None, "o": o, "src": src,
+             "basis": "seated"}
+        if len(o) > 1:
+            # the list gives a member seated at a special election later in the term the term's first day too
+            # (Glenard Lipscomb, re-elected in 1968, and John Rousselot, who won his seat in June 1970): the member who
+            # already held the seat is November's winner, and the other is named in a note
+            inc = [x for x in o if x[3]]
+            if len(inc) == 1:
+                later = [x[0] for x in o if x is not inc[0]]
+                c["o"] = inc
+                c["note"] = f"{' and '.join(later)} {'was' if len(later) == 1 else 'were'} seated later in this term (a vacancy filled at a special election)."
+            else:
+                for x in o:
+                    x[4] = ""
+                c["note"] = "The members list gives more than one member for this seat in this term and does not say who won in November."
+        if office == "U.S. Senate" and classes.get((y, st)):
+            c["cl"] = classes[(y, st)]
+        contests.append(c)
     return profiles, contests
+
+
+def _party_when_elected(t: dict) -> str:
+    """A term's party on its first day (a member who changed party during the term was elected under the first)."""
+    pa = t.get("party_affiliations") or []
+    return (pa[0].get("party") if pa and isinstance(pa[0], dict) else None) or t.get("party") or ""
 
 
 # ---------------------------------------------------------------- FEC "Federal Elections" spreadsheets
@@ -422,7 +455,7 @@ def fec_contests(sheets, year: int, url: str):
                 if dv.startswith("H") or not m:
                     continue
                 dist = "AL" if int(m.group(1)) == 0 else str(int(m.group(1)))
-            if re.search(r"combined", str(g("party") or ""), re.I):
+            if any(isinstance(v, str) and re.search(r"combined\s+(part|total)|^\s*combined\b", v, re.I) for v in r):
                 continue                               # the sum of a candidate's party lines: the lines themselves are added
             pc = party_code(g("party"))
             inc = 1 if str(g("inc") or "").strip() else 0
@@ -434,7 +467,8 @@ def fec_contests(sheets, year: int, url: str):
                 if v is None and not unopp:
                     continue
                 since = TOP_TWO.get(st)
-                p = "" if stage == "general" or (since and year >= since) or st == "LA" else pc
+                # Louisiana: one all-party election, except the party primaries it held for Congress in 2008 and 2010
+                p = "" if stage == "general" or (since and year >= since) or (st == "LA" and (year not in (2008, 2010) or office == "President")) else pc
                 d = g(dk)
                 date = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else (_date_in(str(d or "")) or str(year))
                 if not date.startswith(str(year)):
@@ -445,8 +479,20 @@ def fec_contests(sheets, year: int, url: str):
                 groups[(st, office, dist, stage, p, sp)].append(([nice_name(name), pc, v, inc, "unopposed" if unopp and v is None else won], date, fid))
     for (st, office, dist, stage, p, sp), rows in sorted(groups.items(), key=lambda kv: [str(x) for x in kv[0]]):
         merged: dict = {}
+        per: dict = defaultdict(list)
+        for o, date, fid in rows:
+            per[o[0].upper()].append(o)
+        for k, lst in per.items():
+            # a candidate's lines and, in some years' files, a row of their sum with no party beside it (New York,
+            # 2004: every candidate's votes were doubled): a row equal to the sum of the others is that sum
+            vs = [x[2] for x in lst if x[2] is not None]
+            if len(vs) >= 3 and max(vs) == sum(vs) - max(vs):
+                tot_row = next(x for x in lst if x[2] == max(vs))
+                per[k] = [x for x in lst if x is not tot_row]
         for o, date, fid in rows:                     # a candidate listed once per party line: one row, votes added
             k = o[0].upper()
+            if not any(o is x for x in per[k]):
+                continue
             if k in merged:
                 if o[2] is not None and o[1] == merged[k][0][1]:
                     # the same line twice is two elections in one list (a full and an unexpired term, an election
@@ -454,6 +500,8 @@ def fec_contests(sheets, year: int, url: str):
                     merged[k][0][2] = max(merged[k][0][2] or 0, o[2])
                 elif o[2] is not None:
                     merged[k][0][2] = (merged[k][0][2] or 0) + o[2]
+                if o[1] in ("D", "R") and merged[k][0][1] not in ("D", "R"):
+                    merged[k][0][1] = o[1]             # filed under the major party's line, whichever line comes first
             else:
                 merged[k] = (o, date, fid)
         o = sorted((x[0] for x in merged.values()), key=lambda x: -(x[2] or 0))
@@ -522,8 +570,9 @@ class OpenElections:
                 files = sorted(whole, key=lambda f: f["precinct"])[:1]
             t = stage_t.split("__")
             sp, ro, pr = "special" in t, "runoff" in t, "primary" in t
+            # "special__general" is how the files name a special election (not a primary): it is not a general election
             stage = (("special primary" if sp else "primary") + (" runoff" if ro else "")) if pr else \
-                ("special runoff" if sp else "general runoff") if ro else "special" if sp and "general" not in t else "general"
+                ("special runoff" if sp else "general runoff") if ro else "special" if sp else "general"
             party = next((_OE_PARTY[x] for x in t if x in _OE_PARTY), "")
             sig = "-".join(sorted(f["sha"] for f in files))[:60]
             out.append(Item(id=f"openelections:{date}:{stage_t}:{len(files)}:{sig}", url=files[0]["url"], title=f"Georgia {date} {stage}",
@@ -670,8 +719,8 @@ def _walk_zip(raw: bytes, docs: list, names: list, depth: int, prefix: str = "")
 def _clarity_party(text: str) -> tuple[str, str]:
     """A choice or contest label and the party written in it: "NATHAN DEAL (R)", "Governor - Rep", "REP - Governor"."""
     s = re.sub(r"\s+", " ", text or "").strip()
-    m = re.search(r"\s*\((REP|DEM|LIB|IND|R|D|L|I|GRN|G)\)?\s*$", s, re.I) or re.search(r"\s+-\s+(REP|DEM|LIB|IND|R|D|L|I)\.?$", s, re.I) \
-        or re.search(r"(?<=[A-Za-z])\s+(R|D|L)\.$", s) \
+    m = re.search(r"\s*\((REP|DEM|LIB|IND|R|D|L|GRN|G)\)?\s*$", s, re.I) or re.search(r"\s+-\s+(REP|DEM|LIB|IND|R|D|L|I)\.?$", s, re.I) \
+        or re.search(r"(?<=[A-Za-z.)\"])\s+(R|D|L)\.$", s) or re.search(r"(?<=[A-Za-z.)\"])\s+(Ind)\.?$", s) \
         or re.search(r",\s+(REP|DEM|LIB|IND)\.?$", s, re.I)
     if m:
         return s[:m.start()].strip(), party_code(m.group(1))
@@ -718,7 +767,9 @@ def clarity_contests(docs, date: str, stage: str, title: str, url: str):
             g["files"] += 1
             g["from"].add(cn_file or "*")
             for ch in ct.iter("Choice"):
-                nm_raw, chp = _clarity_party(ch.get("text") or "")
+                # "(I)" beside a name is the state's incumbent mark, wherever in the label it stands; it is never a party
+                ch_text = re.sub(r"\s+", " ", re.sub(r"\(I\)", " ", ch.get("text") or "")).strip()
+                nm_raw, chp = _clarity_party(ch_text)
                 if not nm_raw:
                     continue
                 pc = party_code(ch.get("party")) or chp
@@ -742,10 +793,10 @@ def clarity_contests(docs, date: str, stage: str, title: str, url: str):
             merged: dict = {}
             for k, row in g["c"].items():
                 kk = to.get(row[0], row[0]).upper()
-                if kk in merged and kk != k:
+                if kk in merged:
+                    # another spelling of this candidate came first: this one's votes are the candidate's too (until
+                    # Nov 14, 2026 the spelling the row is filed under lost its own votes when it was not first)
                     merged[kk][2] += row[2]; merged[kk][3] = merged[kk][3] or row[3]; merged[kk][1] = merged[kk][1] or row[1]
-                elif kk in merged:
-                    pass
                 else:
                     merged[kk] = [to.get(row[0], row[0]), row[1], row[2], row[3], ""] if kk != k else row
                 for cn in g["cty"]:
@@ -1434,7 +1485,18 @@ def reported_contests(text: str, where: dict, url: str):
             inc = 1 if re.search(r"\(incumbent\)", nm, re.I) else 0
             nm = re.sub(r"\((?:incumbent|withdrawn|withdrew|deceased)\)", "", nm, flags=re.I).strip()
             win = "winning" in cb.lower().split("|", 1)[0]
-            o.append([nm, party_code(wiki_plain(pr.get("party", "")).replace("Party (United States)", "")), v, inc, "won" if win else ""])
+            pc = party_code(wiki_plain(pr.get("party", "")))
+            same = next((x for x in o if fold_name(x[0]) == fold_name(nm)), None)
+            if same is not None:                         # a candidate on a second party's line (Connecticut, New York): one row
+                same[2] += v
+                same[3] = same[3] or inc
+                same[4] = same[4] or ("won" if win else "")
+                if pc in ("D", "R") and same[1] not in ("D", "R"):
+                    same[1] = pc
+                continue
+            o.append([nm, pc, v, inc, "won" if win else ""])
+        if tot is not None and tot < sum(x[2] for x in o):
+            tot = None                                   # a total that is less than its rows is not the total
         if o and sum(x[2] for x in o):
             got.setdefault(dist, []).append((o, tot))
     # the infobox at the head of each race (a House page has one per district): often updated before the box below it,
@@ -1458,7 +1520,7 @@ def reported_contests(text: str, where: dict, url: str):
             raw_v = pr.get(f"popular_vote{k}", "")
             v = _int(re.sub(r"[^\d]", "", wiki_plain(raw_v)) or None)
             if nm and v:
-                o.append([nm, party_code(wiki_plain(pr.get(f"party{k}", "")).replace("Party (United States)", "")), v, 0,
+                o.append([nm, party_code(wiki_plain(pr.get(f"party{k}", ""))), v, 0,
                           "won" if "\'\'\'" in raw_v else ""])
         if o:
             got.setdefault(dist, []).append((o, None))
@@ -1484,7 +1546,7 @@ def reported_contests(text: str, where: dict, url: str):
         where_t = STATES[st] + ((" At Large" if dist == "AL" else " District " + dist) if office == "U.S. House" else "")
         c = {"scope": "us", "y": y, "date": general_day(y), "stage": "special" if sp else "general", "st": st, "office": office,
              "dist": dist, "lvl": "federal", "p": "", "j": "", "t": f"{office} · {where_t}", "tot": total, "o": o, "src": src,
-             "basis": "compiled"}
+             "basis": "reported"}
         if sp:
             c["sp"] = 1
         yield c

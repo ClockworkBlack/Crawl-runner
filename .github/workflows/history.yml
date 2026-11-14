@@ -120,6 +120,14 @@ jobs:
         run: |
           set -uo pipefail
           python -m gacrawl.history build --out dist/history
+          # the bundle against its own rules (gacrawl/history/check.py): a winner with fewer votes, a county table that
+          # does not add up, a certified result that moved. A bundle with an error is not delivered: Electo keeps the
+          # one it has, and the job fails so the fault is seen.
+          if ! python -m gacrawl.history check --bundle dist/history --report check.json | tee check.txt | head -n 80; then
+            { echo "### Election history: not delivered"; echo; echo '```'; head -n 60 check.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Election history::the bundle failed its check and was not delivered to Electo (see the summary)"
+            exit 1
+          fi
           N=$(python3 -c "import json;print(len(json.load(open('dist/history/index.json'))['elections']))")
           [ "$N" -gt 0 ] || { echo "nothing to deliver yet"; exit 0; }
           tar -cf - -C dist history | zstd -q -T0 -6 -o history-bundle.tar.zst

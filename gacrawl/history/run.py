@@ -14,7 +14,7 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 4, "sos_pdf": 5, "clerk": 3, "reported": 1}   # sos_pdf 5: party columns side by side (2008-2010) read apart
+READER = {"manual": 1, "medsl": 2, "legislators": 4, "fec": 5, "openelections": 4, "sos_zip": 5, "sos_pdf": 6, "clerk": 3, "reported": 2}   # sos_pdf 5: party columns side by side (2008-2010) read apart
 # a failed item is tried again by the next run (three tries, then every three days)
 ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk", "reported"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
@@ -222,6 +222,16 @@ def run(cfg: dict, only: list[str] | None = None, max_minutes: float | None = No
         for iid in [i for i in st["items"] if i.split(":", 1)[0] == name and i not in current]:
             norm_path(work, iid).unlink(missing_ok=True)
             del st["items"][iid]
+    try:
+        # party labels this run read as "another party": kept with the work, shown in the bundle's audit
+        from .model import UNKNOWN_PARTY
+        if UNKNOWN_PARTY:
+            lp = work / "unknown_parties.json"
+            old = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {}
+            old.update(UNKNOWN_PARTY)
+            lp.write_text(json.dumps(dict(sorted(old.items(), key=lambda kv: -kv[1])), ensure_ascii=False, indent=0), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        log(f"party labels: {type(exc).__name__}: {str(exc)[:160]}")
     try:
         from .sources import resample
         resample(work)
