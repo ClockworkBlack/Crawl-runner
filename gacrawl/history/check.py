@@ -202,6 +202,20 @@ def check_bundle(bundle: Path) -> dict:
             got = [x[2] for x in cs[0]["o"] if surname.lower() in str(x[0]).lower()]
             if got != [v]:
                 E["a certified result does not match"].append(f"{fn} {title}: {surname} {got} on file, {v:,} certified")
+    # party control of Congress (congress.py): written only when its known results match, so its absence is a warning
+    cp = bundle / "congress.json"
+    if not cp.exists():
+        W["party control of Congress (congress.json) is not in the bundle: its sources are not read yet, or a known "
+          "result did not match (the build log says which)"].append("congress.json")
+    else:
+        cg = json.loads(cp.read_text(encoding="utf-8"))
+        for y, e in sorted((cg.get("years") or {}).items()):
+            h = e.get("house") or {}
+            if h and (h.get("D") or 0) + (h.get("R") or 0) + (h.get("O") or 0) > (h.get("seats") or 435):
+                E["more House seats counted than the House has"].append(f"{y}: {h.get('D')}-{h.get('R')}-{h.get('O')}")
+            a = (e.get("senate") or {}).get("after") or {}
+            if a and (a.get("D") or 0) + (a.get("R") or 0) + (a.get("O") or 0) + (a.get("undecided") or 0) > 100:
+                E["more Senate seats counted than the Senate has"].append(f"{y}: {a.get('D')}-{a.get('R')}-{a.get('O')}")
     # seats
     for y, s in sorted((index.get("audit") or {}).get("seats", {}).items()):
         if s.get("look"):

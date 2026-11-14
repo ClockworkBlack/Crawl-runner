@@ -1,0 +1,106 @@
+name: ai-compare-eval
+# Ask AI's comparison questions about Congress, asked of the model the app ships offline: Qwen2.5-1.5B-Instruct,
+# 4-bit (llama.cpp on the runner's CPU, with the phone's context window), behind the page's own prompts and checks
+# (Electo qa/compare_eval.js and qa/llm_serve.py). About 80 questions - net gains in one election, a party's losses,
+# the last time both chambers or one chamber changed hands with gains as large as the newest election, one election
+# against another, the largest gains in a span, did a chamber flip - each scored against the answer worked out from
+# the Congress file alone (pipeline/archive/hist/congress.json), not by the page's code. The page on Electo's main is
+# asked, then the page of an earlier commit (the baseline: by default the page before it worked out comparisons
+# itself) on the same data. Results go to Electo's research/eval/compare/ (latest.json, baseline.json, and a line per
+# run in log.jsonl) and the run's summary. Weekly, and by hand (Actions -> ai-compare-eval -> Run workflow).
+on:
+  schedule:
+    - cron: "41 7 * * 0"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Electo commit or branch of the baseline page (empty: the page before it worked out comparisons)"
+        default: ""
+      n:
+        description: "questions (at most 80)"
+        default: "80"
+      tier:
+        description: "the phone's setting: small (4096-token context) or lite (2048)"
+        default: "small"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-compare-eval-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
+
+jobs:
+  eval:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - name: Electo (with its history, for the baseline page)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: git clone -q --filter=blob:none "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ce
+      - name: Build and serve the site; the baseline page
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          cd /tmp/electo-ce && bash qa/mksite.sh | tail -1
+          test -f qa/site/pipeline/archive/hist/congress.json || { echo "::error::congress.json is not in Electo yet (the history run delivers it with the election history)"; exit 1; }
+          (cd qa/site && nohup python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          B="$BASE"
+          if [ -z "$B" ]; then C=$(git log --format=%H -1 --grep='^Ask AI: net gains and "how big" comparisons'); [ -n "$C" ] && B="$C^"; fi
+          [ -n "$B" ] || { echo "::error::no baseline commit found"; exit 1; }
+          git show "$B:ga/ga-election-night.html" > /tmp/base_page.html
+          echo "baseline page: $(git rev-parse --short "$B") ($(wc -c < /tmp/base_page.html) bytes); now: $(git rev-parse --short HEAD)"
+          sleep 2
+      - name: The model the app ships offline (Qwen2.5-1.5B-Instruct, 4-bit)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen25-1.5b-q4km-v1
+      - name: llama.cpp (CPU build) and Playwright
+        run: |
+          pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          mkdir -p /tmp/pw && cd /tmp/pw && npm i -q --no-audit --no-fund playwright@1 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+      - name: Serve the model
+        env:
+          TIER: ${{ inputs.tier || 'small' }}
+        run: |
+          M=$(python3 -c "from huggingface_hub import hf_hub_download as d; print(d('Qwen/Qwen2.5-1.5B-Instruct-GGUF','qwen2.5-1.5b-instruct-q4_k_m.gguf'))")
+          CTX=4096; [ "$TIER" = lite ] && CTX=2048
+          cd /tmp/electo-ce && nohup python3 -I qa/llm_serve.py --model "$M" --ctx $CTX --port 8080 > /tmp/llm.log 2>&1 &
+          for i in $(seq 90); do curl -sf http://127.0.0.1:8080/ >/dev/null && break; sleep 2; done
+          curl -sf http://127.0.0.1:8080/ || { cat /tmp/llm.log; exit 1; }
+      - name: Ask the questions (the page now, then the baseline page)
+        env:
+          NODE_PATH: /tmp/pw/node_modules
+          N: ${{ inputs.n || '80' }}
+          TIER: ${{ inputs.tier || 'small' }}
+        run: |
+          cd /tmp/electo-ce && mkdir -p /tmp/ce
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --label "now ($(git rev-parse --short HEAD))" --out /tmp/ce/now.json
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --label baseline --page /tmp/base_page.html --out /tmp/ce/baseline.json
+          node qa/compare_eval.js --report /tmp/ce/now.json /tmp/ce/baseline.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Results to Electo
+        if: env.IS_MAIN == 'true'
+        env:
+          NODE_PATH: /tmp/pw/node_modules
+        run: |
+          cd /tmp/electo-ce
+          mkdir -p research/eval/compare
+          cp /tmp/ce/now.json research/eval/compare/latest.json && cp /tmp/ce/baseline.json research/eval/compare/baseline.json
+          node qa/compare_eval.js --log /tmp/ce/now.json /tmp/ce/baseline.json >> research/eval/compare/log.jsonl
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add research/eval/compare
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -qm "Ask AI comparisons eval on the offline model: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done

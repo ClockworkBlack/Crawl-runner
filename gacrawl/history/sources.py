@@ -260,7 +260,9 @@ class Legislators:
     counted result is on file for the seat), and a profile for every member of Congress who has served since 1969."""
     name = "legislators"
     FILES = (("historical", "https://unitedstates.github.io/congress-legislators/legislators-historical.json"),
-             ("current", "https://unitedstates.github.io/congress-legislators/legislators-current.json"))
+             ("current", "https://unitedstates.github.io/congress-legislators/legislators-current.json"),
+             ("executive", "https://unitedstates.github.io/congress-legislators/executive.json"))
+    TERMS_FROM = "1911-01-01"        # party control and net gains from the 1912 elections (congress.py)
 
     def discover(self, net):
         import datetime as dt
@@ -269,11 +271,39 @@ class Legislators:
 
     def read(self, net, item, work):
         people = json.loads(net.bytes(item.url))
-        profiles, contests = legislators_read(people, item.url)
         out = Path(work) / "people"
         out.mkdir(parents=True, exist_ok=True)
+        if item.meta["kind"] == "executive":
+            # the Vice President on any day (a Senate split 50-50 is run by the Vice President's party)
+            vps = [{"s": str(t.get("start")), "e": str(t.get("end")), "p": t.get("party") or ""}
+                   for p in people for t in p.get("terms") or [] if t.get("type") == "viceprez"]
+            (out / "executive.json").write_text(json.dumps({"vp": vps, "u": item.url}, separators=(",", ":")), encoding="utf-8")
+            return
+        profiles, contests = legislators_read(people, item.url)
         (out / f"legislators-{item.meta['kind']}.json").write_text(json.dumps(profiles, separators=(",", ":")), encoding="utf-8")
+        (out / f"terms-{item.meta['kind']}.json").write_text(json.dumps(member_terms(people, self.TERMS_FROM), separators=(",", ":")),
+                                                            encoding="utf-8")
         yield from contests
+
+
+def member_terms(people: list, since: str) -> list:
+    """Every House and Senate term ending after `since`, with what congress.py counts by: the party on each day of the
+    term (party_affiliations: Jeffords, Republican to June 6, 2001), the party an independent caucuses with, and how a
+    senator came to the seat (an appointment is not an election)."""
+    out = []
+    for p in people:
+        bid = (p.get("id") or {}).get("bioguide") or ""
+        nm = p.get("name") or {}
+        name = nm.get("official_full") or " ".join(x for x in (nm.get("first"), nm.get("last")) if x)
+        for t in p.get("terms") or []:
+            if str(t.get("end") or "") < since or t.get("type") not in ("rep", "sen"):
+                continue
+            pa = [{"s": str(a.get("start")), "e": str(a.get("end")), "p": a.get("party") or "", "c": a.get("caucus") or ""}
+                  for a in t.get("party_affiliations") or [] if isinstance(a, dict)]
+            out.append({"id": bid, "n": name, "ch": "S" if t["type"] == "sen" else "H", "st": t.get("state") or "",
+                        "d": t.get("district"), "cl": t.get("class"), "s": str(t.get("start")), "e": str(t.get("end")),
+                        "p": t.get("party") or "", "c": t.get("caucus") or "", "how": t.get("how") or "", **({"pa": pa} if pa else {})})
+    return out
 
 
 def legislators_read(people: list, src_url: str):
@@ -1322,6 +1352,70 @@ class Manual:
             raise Skip(f"kept as text: {len(pages)} pages, {sum(len(x) for x in pages)} characters (the reader for these pages comes next)")
 
 
+# ---------------------------------------------------------------- the House's party divisions (for congress.py)
+class Parties:
+    """Party Divisions of the House of Representatives (the House's Office of the Historian and the Clerk): the seats
+    each party won at every election since 1788, from election-day results. The U.S. House's seats and net gains in
+    congress.json come from it. history.house.gov closes its pages to crawlers (robots.txt), so the page is read from
+    the Internet Archive's copy (Net.bytes, ARCHIVE_HOSTS), as the Clerk's statistics are; read again each week (a new
+    Congress is added after each election)."""
+    name = "parties"
+    HOUSE = "https://history.house.gov/Institution/Party-Divisions/Party-Divisions/"
+
+    def discover(self, net):
+        import datetime as dt
+        week = dt.date.today().strftime("%G-W%V")
+        return [Item(id=f"parties:house:{week}", url=self.HOUSE, title="Party Divisions of the House of Representatives", meta={"kind": "house"})]
+
+    def read(self, net, item, work):
+        rows = house_party_rows(net.text(item.url))
+        if len(rows) < 40 or not any(r["y"] >= 2020 for r in rows):
+            raise Skip(f"the party divisions table was not read whole ({len(rows)} rows)")
+        out = Path(work) / "congress"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "house_parties.json").write_text(json.dumps({"rows": rows, "src": {
+            "t": "Party Divisions of the House of Representatives (Office of the Historian and the Clerk of the House): "
+                 "seats each party won, from election-day results" + net.note(item.url), "u": item.url}}, separators=(",", ":")), encoding="utf-8")
+        return iter(())
+
+
+def house_party_rows(html: str) -> list[dict]:
+    """The table's rows: Congress number, the election before it (the year before the Congress began), the House's
+    seats, Democrats', Republicans' and other parties' seats. Each block of the table has its own header row naming its
+    columns (Federalists, Whigs...); only blocks with a Democratic and a Republican column are read. A cell's footnote
+    number ("435 4") is not part of the count."""
+    import html as _html
+
+    out = []
+    cols: list[str] = []
+    for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S | re.I):
+        cells = [re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", c))).strip()
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", r, re.S | re.I)]
+        if not cells:
+            continue
+        if re.match(r"Congress", cells[0], re.I):
+            cols = [c.lower() for c in cells]
+            continue
+        m = re.match(r"(\d+)(?:st|nd|rd|th)\s*\((\d{4})", cells[0])
+        if not m or not cols or len(cells) < 5:
+            continue
+        def col(word):
+            return next((i for i, c in enumerate(cols) if c.startswith(word)), None)
+        di, ri, oi = col("democrat"), col("republican"), col("other")
+        si = next((i for i, c in enumerate(cols) if "seats" in c or c.startswith("# ")), 1)
+        if di is None or ri is None:
+            continue
+        first = lambda c: int(re.match(r"\d+", c).group(0)) if re.match(r"\d+", c or "") else None   # noqa: E731
+        d, rr, seats = first(cells[di]), first(cells[ri]), first(cells[si])
+        if d is None or rr is None or not seats:
+            continue
+        other_txt = cells[oi] if oi is not None and oi < len(cells) else ""
+        other = sum(int(x) for x in re.findall(r"\((\d+)\)", other_txt)) if "(" in other_txt else (first(other_txt) or 0)
+        out.append({"n": int(m.group(1)), "y": int(m.group(2)) - 1, "seats": seats, "D": d, "R": rr, "O": other,
+                    **({"other": other_txt} if other else {})})
+    return out
+
+
 # ---------------------------------------------------------------- the newest general elections, as reported (Wikipedia)
 class Reported:
     """U.S. Senate and U.S. House general elections in every state for the cycles the federal files do not cover yet
@@ -1363,6 +1457,14 @@ class Reported:
         j = net.json(self.API, params={"action": "parse", "format": "json", "formatversion": "2", "oldid": str(item.meta["rev"]), "prop": "wikitext"})
         text = ((j.get("parse") or {}).get("wikitext")) or ""
         n = 0
+        if item.meta.get("national"):
+            from .national import national_contests
+            for c in national_contests(text, item.meta, item.url + f"?oldid={item.meta['rev']}"):
+                n += 1
+                yield c
+            if not n:
+                raise Skip("no race rows with candidates in this page's results tables (yet)")
+            return
         for c in reported_contests(text, item.meta, item.url + f"?oldid={item.meta['rev']}"):
             n += 1
             yield c
@@ -1376,7 +1478,11 @@ def fold_name(n: str) -> str:
 
 def reported_where(title: str, y: int) -> dict | None:
     """The state and office a page title names: "2026 United States House of Representatives elections in California
-    (districts 1–26)", "2026 United States Senate special election in Ohio"; None for any other page."""
+    (districts 1–26)", "2026 United States Senate special election in Ohio"; the cycle's national page ("2026 United
+    States House of Representatives elections", "2026 United States Senate elections": every race's called winner,
+    national.py) as {"national": 1}; None for any other page."""
+    if title in (f"{y} United States House of Representatives elections", f"{y} United States Senate elections"):
+        return {"national": 1, "office": "U.S. House" if "House" in title else "U.S. Senate", "sp": 0}
     m = re.fullmatch(rf"{y} United States (House of Representatives|Senate) (special )?elections? in (.+?)(?: \(districts? [^)]*\))?", title)
     if not m:
         return None
@@ -1552,4 +1658,4 @@ def reported_contests(text: str, where: dict, url: str):
         yield c
 
 
-SOURCES = {s.name: s for s in (Manual(), Legislators(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk(), Reported())}
+SOURCES = {s.name: s for s in (Manual(), Legislators(), Parties(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk(), Reported())}

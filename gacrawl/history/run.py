@@ -16,7 +16,8 @@ from .sources import SOURCES, Skip
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
 READER = {"manual": 1, "medsl": 2, "legislators": 4, "fec": 5, "openelections": 4, "sos_zip": 5, "sos_pdf": 6, "clerk": 3, "reported": 2}   # sos_pdf 5: party columns side by side (2008-2010) read apart
 # a failed item is tried again by the next run (three tries, then every three days)
-ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk", "reported"]
+ORDER = ["manual", "legislators", "parties", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk", "reported"]
+READER.update({"legislators": 5, "parties": 1, "reported": 3})   # legislators 5: terms and Vice Presidents for congress.py; parties: the House's party divisions; reported 3: the national tables
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
 # block list apply to them as to every host; robots.txt, written for page crawlers, is not what governs an API
 API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections", "web.archive.org/cdx/search/cdx", "en.wikipedia.org/w/api.php"]

@@ -52,6 +52,49 @@ def _lead(c: dict):
     return won, real
 
 
+def merge_national(cs: list[dict], stats: Counter | None = None) -> list[dict]:
+    """Wikipedia's national results tables (national.py) beside the state pages: a race both have keeps the state page's
+    count, and the national table's call marks its winner when the page has not marked one yet; a race only the
+    national table has stands with its winner and no count, and says so."""
+    S = stats if stats is not None else Counter()
+    nat = [c for c in cs if c.get("natl")]
+    if not nat:
+        return cs
+    rest = [c for c in cs if not c.get("natl")]
+    have = defaultdict(list)
+    for c in rest:
+        have[seat_key(c)].append(c)
+    for n in nat:
+        k = seat_key(n)
+        w = next((x for x in n["o"] if x[4] == "won"), None)
+        if k in have:
+            for c in have[k] if w else []:
+                if src_of(c) != "reported" or any(x[4] in ("won", "unopposed") for x in c["o"]):
+                    continue
+                m = next((x for x in c["o"] if fold(x[0]) == fold(w[0])), None) or \
+                    next((x for x in c["o"] if same_person(x[0], w[0])), None)
+                if m is None:
+                    S["national table's winner not found among the state page's candidates"] += 1
+                    continue
+                counted = [x for x in c["o"] if x[2] is not None]
+                lead = max(counted, key=lambda x: x[2]) if counted else None
+                for x in c["o"]:
+                    if x[4] == "led":
+                        x[4] = ""
+                m[4] = "won"
+                if lead is not None and lead is not m:
+                    c["note"] = ((c.get("note") or "") + f" Called for {m[0]} in Wikipedia's national results table; the count "
+                                 "shown is the state page's, from before the call.").strip()
+                S["races called from the national results table"] += 1
+            continue
+        n["note"] = ((n.get("note") or "") + (" The winner as called in Wikipedia's national results table; the vote count is "
+                                              "not on file yet." if w else " Not called yet in Wikipedia's national results table; "
+                                              "no count on file yet.")).strip()
+        rest.append(n)
+        S["races on file from the national results table only (no count yet)"] += 1
+    return rest
+
+
 def choose(contests, audit: dict | None = None) -> list[dict]:
     """One contest per seat and election: the source ranked highest; a "seated" record only where nothing else is.
     Where two sources report the same seat they are compared (the winner's name, the winner's own votes within
@@ -434,7 +477,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     out.mkdir(parents=True)
     audit: dict = {}
     repairs: Counter = Counter()
-    read = repair_all(iter_contests(work), repairs)
+    read = merge_national(repair_all(iter_contests(work), repairs), repairs)
     # which of a state's Senate seats an election was for (the members list gives each term's class)
     sen_class = {(c["y"], c["st"]): c["cl"] for c in read if c.get("cl") and c.get("office") == "U.S. Senate" and not c.get("sp")}
     cs = choose(read, audit)
@@ -621,6 +664,17 @@ def build(cfg: dict, out: Path, log=print) -> dict:
                                "how": "Where two sources report the same contest they are compared: the winner (by surname), the "
                                       "winner's votes (within 1 percent) and the total (within 3 percent). 'seats' counts the U.S. House and Senate "
                                       "general-election contests on file each year against the seats there were."})
+    # party control of Congress, seats and net gains by election (congress.py): after the contests, so the newest
+    # election's races as reported are counted as they stand in this bundle
+    from .congress import build_congress
+    try:
+        cg = build_congress(work, cs, log)
+    except Exception as exc:  # noqa: BLE001  the election results stand without it; the check says it is missing
+        log(f"congress: {type(exc).__name__}: {str(exc)[:200]}")
+        cg = None
+    if cg:
+        cg["built"] = index["built"]
+        _dump(out / "congress.json", cg)
     man = {}
     for p in sorted(out.rglob("*.json")):
         b = p.read_bytes()
@@ -728,10 +782,19 @@ def _coverage(summary: dict, cs: list[dict]) -> str:
     gen = lambda c: c["stage"] == "general"                                      # noqa: E731
     pres, sen, house = counted("President"), counted("U.S. Senate"), counted("U.S. House")
     rep = years("us", lambda c: c.get("basis") == "reported")
-    seated_only = sorted(int(y) for y, s in summary.get("us", {}).items() if (s.get("U.S. House") or {}).get("n") and int(y) not in house)
+    # a cycle still being counted: some races with their count as reported, the rest with the winner as called
+    partial = {}
+    for y, s in summary.get("us", {}).items():
+        o = s.get("U.S. House") or {}
+        if o.get("n") and int(y) not in house and int(y) in rep:
+            partial[int(y)] = (o["n"] - o.get("no_votes_on_file", 0), o["n"])
+    seated_only = sorted(int(y) for y, s in summary.get("us", {}).items()
+                         if (s.get("U.S. House") or {}).get("n") and int(y) not in house and int(y) not in partial)
     us = ("Federal offices in every state. General elections with vote counts: President by state " + _spans(pres)
           + "; U.S. Senate " + _spans(sen) + "; U.S. House " + _spans(house) + "."
           + (f" U.S. House elections of {_spans(seated_only)} show the member seated, without a vote count." if seated_only else "")
+          + "".join(f" U.S. House {y}: vote counts for {k} of {n} races so far; the others show the winner as called, without a count yet."
+                    for y, (k, n) in sorted(partial.items()))
           + (f" Counts for {_spans(rep)} are as reported, not yet official." if rep else "")
           + " Federal primaries: " + _spans(years("us", lambda c: "primary" in c["stage"])) + ".")
     ga_gen = years("ga", lambda c: gen(c) and c["lvl"] in ("federal", "statewide"))

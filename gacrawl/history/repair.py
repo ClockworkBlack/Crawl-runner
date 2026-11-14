@@ -155,8 +155,8 @@ def repair_contest(c: dict, stats: Counter | None = None) -> dict | None:
     if src == "fec" and o and any(x[2] is not None for x in o):
         c["tot"] = sum(x[2] or 0 for x in o) or None
 
-    # nobody voted
-    if c.get("basis") != "seated" and o and not any((x[2] or 0) > 0 for x in o):
+    # nobody voted (a national results table's race has its winner and no count: national.py; not this)
+    if c.get("basis") != "seated" and not c.get("natl") and o and not any((x[2] or 0) > 0 for x in o):
         real = _real(c)
         if len(real) == 1 and not isq and "runoff" in str(c.get("stage")) and src != "fec":
             S["contests with no votes left out"] += 1     # a runoff has two candidates: a lone name with no votes is a leftover of the first round

@@ -577,7 +577,8 @@ def test_reported_results_from_the_state_pages():
     assert w == {"st": "GA", "office": "U.S. House", "sp": 0}
     assert reported_where("2026 United States Senate special election in Ohio", 2026) == {"st": "OH", "office": "U.S. Senate", "sp": 1}
     assert reported_where("2026 United States House of Representatives elections in California (districts 1–26)", 2026)["st"] == "CA"
-    assert reported_where("2026 United States Senate elections", 2026) is None
+    assert reported_where("2026 United States Senate elections", 2026)["national"] == 1     # the national table (national.py)
+    assert reported_where("2026 United States Senate elections in Iowa and Iowa", 2026) is None
     got = {c["dist"]: c for c in reported_contests(WIKI_HOUSE, {**w, "y": 2026}, "https://en.wikipedia.org/wiki/x?oldid=1")}
     assert sorted(got) == ["5", "9"]
     assert [(x[0], x[1], x[2], x[4]) for x in got["5"]["o"]] == [("Nikema Williams", "D", 274618, "won"), ("John Salvesen", "R", 29843, "")]
