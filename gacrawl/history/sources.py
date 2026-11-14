@@ -773,6 +773,73 @@ def clarity_contests(docs, date: str, stage: str, title: str, url: str):
 
 
 # ---------------------------------------------------------------- documents kept as text for the readers that follow
+LAYOUT = 2           # kept text: 2 = side-by-side party columns read apart
+_RUN_TOGETHER = re.compile(r"(?:Republican|Democratic) Candidates\b[^\n]*\b(?:Republican|Democratic) Candidates\b")
+_COL_PARTY = re.compile(r"^(Republican|Democratic|Democrat|Libertarian|Non-?Partisan)$", re.I)
+_PRECINCTS = re.compile(r"\d+\s?% of precincts reporting", re.I)
+
+
+def _word_lines(words, tol: float = 3.0) -> list[list[dict]]:
+    """Words grouped into printed lines (page by page, top to bottom, left to right)."""
+    out: list[list[dict]] = []
+    for w in sorted(words, key=lambda w: (w["pg"], round(w["top"]), w["x0"])):
+        if out and out[-1][0]["pg"] == w["pg"] and abs(out[-1][0]["top"] - w["top"]) <= tol:
+            out[-1].append(w)
+        else:
+            out.append([w])
+    for ln in out:
+        ln.sort(key=lambda w: w["x0"])
+    return out
+
+
+def two_column_pages(pdf) -> list[str] | None:
+    """The 2008-2010 primary pages print each contest's Republican and Democratic results side by side, and plain
+    text extraction runs the two columns together line by line ("Jack Kingston 32,470 100.0% Bill Gillespie 32,802
+    100.0%"). Read each column on its own, so a contest becomes two: heading, party, "100% of precincts reporting",
+    that column's rows. None when the document is not laid out that way."""
+    words, cut = [], None
+    for pno, pg in enumerate(pdf.pages):
+        ws = pg.extract_words()
+        for w in ws:
+            w["pg"] = pno
+        words += [w for w in ws if 24 < w["top"] < pg.height - 30]          # the browser's print stamp and page URL
+        if cut is None:
+            for i, w in enumerate(ws[:-1]):
+                if _COL_PARTY.match(w["text"]) and ws[i + 1]["text"] == "Candidates" and w["x0"] > 0.4 * pg.width:
+                    if any(_COL_PARTY.match(v["text"]) and v["x0"] < 0.4 * pg.width and abs(v["top"] - w["top"]) < 12 for v in ws):
+                        cut = w["x0"] - 4
+                        break
+    if cut is None:
+        return None
+    lines = _word_lines(words)
+    text = lambda ln: " ".join(w["text"] for w in ln)                    # noqa: E731
+    marks = [i for i, ln in enumerate(lines) if _PRECINCTS.search(text(ln))]
+    if not marks:
+        return None
+    pages: list[list[str]] = [[] for _ in pdf.pages]
+    for ln in lines[:max(0, marks[0] - 1)]:
+        pages[ln[0]["pg"]].append(text(ln))
+    for k, i in enumerate(marks):
+        head, rep = lines[i - 1], lines[i]
+        end = marks[k + 1] - 1 if k + 1 < len(marks) else len(lines)
+        region = [w for ln in lines[i + 1:end] for w in ln]
+        out = pages[head[0]["pg"]]
+        for side in ([w for w in region if w["x0"] < cut], [w for w in region if w["x0"] >= cut]):
+            party, rows = "", []
+            for ln in _word_lines(side):
+                t = text(ln)
+                m = re.match(r"^(Republican|Democratic|Democrat|Libertarian|Non-?Partisan) Candidates\b", t, re.I)
+                if m:
+                    party = m.group(1)
+                    continue
+                if re.fullmatch(r"(?:Votes|% of|% of Votes|Votes % of Votes|% of % of|Votes Votes)", t, re.I):
+                    continue
+                rows.append(t)
+            if rows:
+                out += [text(head)] + ([party] if party else []) + [text(rep)] + rows
+    return ["\n".join(p) for p in pages]
+
+
 class _Pdfs:
     """Downloads each document once and keeps its text (data/history/text/<source>/), page by page. The contests are
     read from that text by a reader written against the real pages; until then the progress file shows them on hand."""
@@ -811,8 +878,11 @@ class _Pdfs:
 
     def read(self, net, item, work):
         kept = Path(work) / "text" / self.name / (item.id.split(":", 1)[1] + ".json")
-        if kept.exists():                               # read before: its text is on hand, the file is not fetched again
-            pages = json.loads(kept.read_text(encoding="utf-8")).get("pages") or []
+        doc = json.loads(kept.read_text(encoding="utf-8")) if kept.exists() else None
+        if doc is not None and not doc.get("layout") and any(_RUN_TOGETHER.search(p) for p in doc.get("pages") or []):
+            doc = None                                  # kept before the two columns were read apart: read the file again
+        if doc is not None:                             # read before: its text is on hand, the file is not fetched again
+            pages = doc.get("pages") or []
             n = 0
             for c in self.contests(pages, item, net):
                 n += 1
@@ -834,15 +904,21 @@ class _Pdfs:
         d.mkdir(parents=True, exist_ok=True)
         pages = []
         with pdfplumber.open(io.BytesIO(raw)) as pdf:
-            for pg in pdf.pages:
-                try:
-                    pages.append(pg.extract_text() or "")
-                except Exception:
-                    pages.append("")
-                pg.flush_cache()
+            try:
+                pages = two_column_pages(pdf) or []
+            except Exception:
+                pages = []
+            if not pages:
+                for pg in pdf.pages:
+                    try:
+                        pages.append(pg.extract_text() or "")
+                    except Exception:
+                        pages.append("")
+                    pg.flush_cache()
         chars = sum(len(p) for p in pages)
         (d / (item.id.split(":", 1)[1] + ".json")).write_text(json.dumps(
-            {"url": item.url, "title": item.title + net.note(item.url), "meta": item.meta, "pages": pages}, ensure_ascii=False), encoding="utf-8")
+            {"url": item.url, "title": item.title + net.note(item.url), "meta": item.meta, "pages": pages, "layout": LAYOUT},
+            ensure_ascii=False), encoding="utf-8")
         n = 0
         for c in self.contests(pages, item, net):
             n += 1
@@ -1195,4 +1271,223 @@ class Manual:
             raise Skip(f"kept as text: {len(pages)} pages, {sum(len(x) for x in pages)} characters (the reader for these pages comes next)")
 
 
-SOURCES = {s.name: s for s in (Manual(), Legislators(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk())}
+# ---------------------------------------------------------------- the newest general elections, as reported (Wikipedia)
+class Reported:
+    """U.S. Senate and U.S. House general elections in every state for the cycles the federal files do not cover yet
+    (MIT's returns and the FEC's report come out months after the states certify): the result boxes on Wikipedia's
+    page for each state's race, as reported. The lowest priority of any source: once MEDSL or the FEC carry the year,
+    their count is the one shown. A page that is edited (more ballots counted, a race called) is read again."""
+    name = "reported"
+    API = "https://en.wikipedia.org/w/api.php"
+    FROM = 2026                                  # the first cycle MEDSL and the FEC have not published
+    PREFIXES = ("United States House of Representatives election", "United States Senate election", "United States Senate special election")
+
+    def years(self):
+        import datetime as _dt
+        now = _dt.date.today()
+        return [y for y in range(self.FROM, now.year + 1, 2) if (now.year, now.month) >= (y, 11)]
+
+    def discover(self, net):
+        out = []
+        for y in self.years():
+            for pre in self.PREFIXES:
+                cont: dict = {}
+                while True:
+                    j = net.json(self.API, params={"action": "query", "format": "json", "formatversion": "2", "generator": "allpages",
+                                                   "gapprefix": f"{y} {pre}", "gapnamespace": "0", "gapfilterredir": "nonredirects",
+                                                   "gaplimit": "500", "prop": "revisions", "rvprop": "ids", **cont})
+                    for pg in (j.get("query") or {}).get("pages") or []:
+                        title, rev = pg.get("title") or "", ((pg.get("revisions") or [{}])[0]).get("revid")
+                        where = reported_where(title, y)
+                        if not where or not rev:
+                            continue
+                        out.append(Item(id=f"reported:{re.sub(r'[^A-Za-z0-9]+', '_', title)}:{rev}", url=f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
+                                        title=title, meta={"y": y, "rev": rev, "title": title, **where}))
+                    if not j.get("continue"):
+                        break
+                    cont = {k: v for k, v in j["continue"].items()}
+        return out
+
+    def read(self, net, item, work):
+        j = net.json(self.API, params={"action": "parse", "format": "json", "formatversion": "2", "oldid": str(item.meta["rev"]), "prop": "wikitext"})
+        text = ((j.get("parse") or {}).get("wikitext")) or ""
+        n = 0
+        for c in reported_contests(text, item.meta, item.url + f"?oldid={item.meta['rev']}"):
+            n += 1
+            yield c
+        if not n:
+            raise Skip("no general-election result box with votes on this page (yet)")
+
+
+def fold_name(n: str) -> str:
+    return re.sub(r"[^a-z]", "", re.sub(r"\s+(?:jr|sr|ii|iii|iv)\.?$", "", str(n).lower()))
+
+
+def reported_where(title: str, y: int) -> dict | None:
+    """The state and office a page title names: "2026 United States House of Representatives elections in California
+    (districts 1–26)", "2026 United States Senate special election in Ohio"; None for any other page."""
+    m = re.fullmatch(rf"{y} United States (House of Representatives|Senate) (special )?elections? in (.+?)(?: \(districts? [^)]*\))?", title)
+    if not m:
+        return None
+    place = re.sub(r"'s at-large (?:congressional )?district$", "", m.group(3))
+    st = STATE_BY_NAME.get(place.upper())
+    if not st:
+        return None
+    return {"st": st, "office": "U.S. House" if m.group(1).startswith("House") else "U.S. Senate", "sp": 1 if m.group(2) else 0}
+
+
+def _templates(text: str, name_rx: str):
+    """(start, end, body) of each {{template}} whose name matches, braces nested inside counted."""
+    rx = re.compile(r"\{\{\s*(?:" + name_rx + r")\s*(?=[|}])", re.I)
+    for m in rx.finditer(text):
+        depth, i = 0, m.start()
+        while i < len(text) - 1:
+            if text.startswith("{{", i):
+                depth += 1; i += 2; continue
+            if text.startswith("}}", i):
+                depth -= 1; i += 2
+                if depth == 0:
+                    yield m.start(), i, text[m.start() + 2:i - 2]
+                    break
+                continue
+            i += 1
+
+
+def _params(body: str) -> dict:
+    """A template's named parameters (split at the top-level | only)."""
+    parts, depth, cur = [], 0, ""
+    k = 0
+    while k < len(body):
+        two = body[k:k + 2]
+        if two in ("{{", "[["):
+            depth += 1; cur += two; k += 2; continue
+        if two in ("}}", "]]"):
+            depth -= 1; cur += two; k += 2; continue
+        if body[k] == "|" and depth == 0:
+            parts.append(cur); cur = ""; k += 1; continue
+        cur += body[k]; k += 1
+    parts.append(cur)
+    out = {}
+    for p in parts[1:]:
+        if "=" in p:
+            a, _, b = p.partition("=")
+            out[a.strip().lower()] = b.strip()
+    return out
+
+
+def wiki_plain(s: str) -> str:
+    """Text of a wikitext value: links to their words, {{sortname|First|Last}} to "First Last", other templates out."""
+    s = re.sub(r"\{\{\s*sortname\s*\|([^|}]*)\|([^|}]*)[^}]*\}\}", r"\1 \2", s, flags=re.I)
+    s = re.sub(r"\{\{\s*(?:nowrap|nobr|small)\s*\|([^{}]*)\}\}", r"\1", s, flags=re.I)
+    for _ in range(3):
+        s = re.sub(r"\{\{[^{}]*\}\}", "", s)
+    s = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", s)
+    s = re.sub(r"'{2,}", "", re.sub(r"<[^>]+>", " ", s))
+    return re.sub(r"\s+", " ", s).strip()
+
+
+_NOT_GENERAL = re.compile(r"primary|runoff|convention|caucus|nominating|round|jungle", re.I)
+
+
+def reported_contests(text: str, where: dict, url: str):
+    """General-election contests from a state's page: each "Election box" titled for the general (a box per district
+    on a House page), else the page's infobox (a race counted by ranked choice is shown in a table of its own)."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    text = re.sub(r"<ref[^<>]*/>", "", text, flags=re.I)                    # <ref name="x"/>, then <ref ...>...</ref>
+    text = re.sub(r"<ref(?:\s[^<>]*)?>.*?</ref>", "", text, flags=re.S | re.I)
+    y, st, office, sp = int(where["y"]), where["st"], where["office"], where.get("sp", 0)
+    src = {"t": f"Wikipedia, {y} results as reported (unofficial; the official count replaces it when published)", "u": url}
+    single = st in ("AK", "DE", "ND", "SD", "VT", "WY")
+    got = {}
+    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^=+\s*District\s+(\d+)\s*=+\s*$", text, re.M)]
+    for a, b, body in _templates(text, r"Election box begin(?: no change)?"):
+        title = wiki_plain(_params(body).get("title", ""))
+        yrs = re.findall(r"\b(?:19|20)\d\d\b", title)
+        if _NOT_GENERAL.search(title) or (yrs and str(y) not in yrs):           # a primary, or an earlier year's box
+            continue
+        if bool(re.search(r"special", title, re.I)) != (sp == 1) and office == "U.S. Senate":
+            continue
+        end = text.find("{{Election box end", b)
+        box = text[b:end if end > 0 else len(text)]
+        dist = ""
+        if office == "U.S. House":
+            m = re.search(r"(\d+)(?:st|nd|rd|th)\s+congressional district", title, re.I)
+            if m:
+                dist = m.group(1)
+            elif single or re.search(r"at-large", title, re.I):
+                dist = "AL"
+            else:
+                prev = [d for pos, d in heads if pos < a]
+                if not prev:
+                    continue
+                dist = prev[-1]
+        o, tot = [], None
+        for _, _, cb in _templates(box, r"Election box (?:winning )?candidate[^|}]*|Election box total[^|}]*"):
+            pr = _params(cb)
+            if cb.lower().lstrip().startswith("election box total"):
+                tot = _int(re.sub(r"[^\d]", "", wiki_plain(pr.get("votes", ""))) or None)
+                continue
+            nm = wiki_plain(pr.get("candidate", ""))
+            v = _int(re.sub(r"[^\d]", "", wiki_plain(pr.get("votes", ""))) or None)
+            if not nm or v is None or is_writein_bucket(nm):
+                continue
+            inc = 1 if re.search(r"\(incumbent\)", nm, re.I) else 0
+            nm = re.sub(r"\((?:incumbent|withdrawn|withdrew|deceased)\)", "", nm, flags=re.I).strip()
+            win = "winning" in cb.lower().split("|", 1)[0]
+            o.append([nm, party_code(wiki_plain(pr.get("party", "")).replace("Party (United States)", "")), v, inc, "won" if win else ""])
+        if o and sum(x[2] for x in o):
+            got.setdefault(dist, []).append((o, tot))
+    # the infobox at the head of each race (a House page has one per district): often updated before the box below it,
+    # and the only count on a page whose race is shown in a table of its own (ranked-choice rounds)
+    for a, _, body in _templates(text, r"Infobox election"):
+        pr = _params(body)
+        name = wiki_plain(pr.get("election_name", ""))
+        if office == "U.S. Senate":
+            if "Senate" not in name or bool(re.search(r"special", name, re.I)) != (sp == 1):
+                continue
+            dist = ""
+        else:
+            m = re.search(r"(\d+)(?:st|nd|rd|th)\s+congressional district", name, re.I)
+            prev = [d for pos, d in heads if pos < a]
+            dist = m.group(1) if m else "AL" if single or re.search(r"at-large", name, re.I) else (prev[-1] if prev else None)
+            if dist is None:
+                continue                                 # the page's overview of all its seats
+        o = []
+        for k in range(1, 9):
+            nm = wiki_plain(pr.get(f"nominee{k}") or pr.get(f"candidate{k}") or "")
+            raw_v = pr.get(f"popular_vote{k}", "")
+            v = _int(re.sub(r"[^\d]", "", wiki_plain(raw_v)) or None)
+            if nm and v:
+                o.append([nm, party_code(wiki_plain(pr.get(f"party{k}", "")).replace("Party (United States)", "")), v, 0,
+                          "won" if "\'\'\'" in raw_v else ""])
+        if o:
+            got.setdefault(dist, []).append((o, None))
+    for dist in list(got):
+        boxes = got[dist]
+        best = max(boxes, key=lambda b: b[1] or sum(x[2] for x in b[0]))
+        # who won, as either form marks it
+        won = {fold_name(x[0]) for o, _ in boxes for x in o if x[4] == "won"}
+        for x in best[0]:
+            x[4] = "won" if fold_name(x[0]) in won else ""
+        inc = {fold_name(x[0]) for o, _ in boxes for x in o if x[3]}
+        for x in best[0]:
+            x[3] = 1 if fold_name(x[0]) in inc else x[3]
+        got[dist] = best
+    for dist, (o, tot) in sorted(got.items()):
+        o.sort(key=lambda x: -x[2])
+        total = tot or sum(x[2] for x in o)
+        if not any(x[4] == "won" for x in o):
+            if len(o) == 1:
+                o[0][4] = "unopposed"
+            else:
+                o[0][4] = "led"                          # not called on the page: the leader leads
+        where_t = STATES[st] + ((" At Large" if dist == "AL" else " District " + dist) if office == "U.S. House" else "")
+        c = {"scope": "us", "y": y, "date": general_day(y), "stage": "special" if sp else "general", "st": st, "office": office,
+             "dist": dist, "lvl": "federal", "p": "", "j": "", "t": f"{office} · {where_t}", "tot": total, "o": o, "src": src,
+             "basis": "compiled"}
+        if sp:
+            c["sp"] = 1
+        yield c
+
+
+SOURCES = {s.name: s for s in (Manual(), Legislators(), Medsl(), OpenElections(), SosZip(), Fec(), SosPdf(), Clerk(), Reported())}

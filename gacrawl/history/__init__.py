@@ -22,4 +22,7 @@ Sources (gacrawl/history/sources.py), each read from an index the publisher keep
     sos_zip        the Secretary of State's "Historical Elections Results" archives, July 2012 to 2015
     sos_pdf        the Secretary of State's results documents, 1988 to 2011 (kept as text for the reader that follows)
     clerk          the Clerk of the House's "Election Statistics", 1968-1974 (kept as text for the reader that follows)
+    reported       Wikipedia's page for each state's U.S. Senate and U.S. House races, for the cycles MEDSL and the FEC
+                   have not published (2026 on): the general elections as reported, each page read again when it is
+                   edited, and replaced by the federal files' count once they carry the year
 """

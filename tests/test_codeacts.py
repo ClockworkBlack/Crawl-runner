@@ -230,3 +230,41 @@ def test_legis_token_is_asked_again_after_a_refusal(monkeypatch):
     answers[:] = [401, 401, 401]
     with pytest.raises(TokenRefused):
         Legis(F(), log=lambda *_: None).token()
+
+
+def _groups(a):
+    """Each whole-section passage: the section number it is filed under and its first paragraph."""
+    out = []
+    for _, c in clauses(a):
+        cur = None
+        for p in c.get("paras") or []:
+            if p["k"] == "cite":
+                cur = p["a"].rstrip(".")
+                out.append([cur, None])
+            elif p["k"] == "p" and cur and out[-1][1] is None:
+                out[-1][1] = p["a"]
+    return out
+
+
+def test_a_cross_reference_wrapped_onto_its_own_line_is_not_a_new_section():
+    # HB 1379 (2026) § 2 adds 20-1-13; its definitions end "... as set forth in Code Section" / "7-10-1." and the
+    # rest of 20-1-13 was being filed under 7-10-1 (and so replaced the Code's 7-10-1 with half a section)
+    g = _groups(act("hb1379_2026.pdf"))
+    first = dict(g)["20-1-13"]
+    assert first.startswith("(a) The General Assembly finds that there is a compelling state interest")
+    assert not any(c == "7-10-1" for c, _ in g)
+
+
+def test_a_decimal_section_number_without_its_final_period():
+    # HB 827 (2024) § 2 adds 16-7-21.1, printed '"16-7-21.1' with no period: not 16-7-21 with a paragraph "1"
+    g = _groups(act("hb827_2024.pdf"))
+    assert g[0][0] == "16-7-21.1" and g[0][1].startswith("(a) As used in this Code section")
+    assert codeacts.CITE_LINE.match("16-7-21.1").group(1) == "16-7-21.1"
+    assert codeacts.CITE_LINE.match("16-7-21.1. Text").group(2) == "Text"
+    assert codeacts.CITE_LINE.match("16-7-21.").group(1) == "16-7-21"
+
+
+def test_a_letter_after_the_decimal_is_part_of_the_number():
+    # HB 463 (2026) § 4-2 repeals 48-7-40.1A, not 48-7-40.1
+    cites = [(c.get("ins") or {}).get("cite") for n, c in clauses(act("hb463_2026.pdf")) if n == "4-2"]
+    assert cites == ["48-7-40.1A"]

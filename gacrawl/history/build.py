@@ -23,7 +23,7 @@ from .model import STATES, is_writein_bucket, pkey, same_person, seat_key, shard
 from .run import iter_contests, load_state, paths
 
 PEOPLE_SHARDS, PROF_SHARDS = 64, 16
-PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "sos_pdf": 3, "medsl": 5, "fec": 4, "legislators": 1}
+PRIORITY = {"manual": 6, "sos_zip": 5, "openelections": 4, "sos_pdf": 3, "medsl": 5, "fec": 4, "legislators": 1, "reported": 2}   # reported: as reported, until MEDSL or the FEC have the year
 STAGE_CODE = {"general": "gen", "primary": "pri", "primary runoff": "prirun", "general runoff": "genrun", "special": "spec",
               "special runoff": "specrun", "special primary": "specpri", "special primary runoff": "specprirun"}
 STAGE_TITLE = {"general": "General Election", "primary": "Primary Election", "primary runoff": "Primary Runoff",

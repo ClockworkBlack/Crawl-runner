@@ -14,12 +14,12 @@ from .model import contest_id
 from .sources import SOURCES, Skip
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
-READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 4, "sos_pdf": 4, "clerk": 3}
+READER = {"manual": 1, "medsl": 2, "legislators": 3, "fec": 4, "openelections": 3, "sos_zip": 4, "sos_pdf": 5, "clerk": 3, "reported": 1}   # sos_pdf 5: party columns side by side (2008-2010) read apart
 # a failed item is tried again by the next run (three tries, then every three days)
-ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk"]
+ORDER = ["manual", "legislators", "medsl", "openelections", "sos_zip", "fec", "sos_pdf", "clerk", "reported"]
 # documented data services and file hosts (a dataset's API, a repository's API): the crawler's spacing, back-off and
 # block list apply to them as to every host; robots.txt, written for page crawlers, is not what governs an API
-API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections", "web.archive.org/cdx/search/cdx"]
+API_ENDPOINTS = ["dataverse.harvard.edu/api", "api.github.com/repos/openelections", "web.archive.org/cdx/search/cdx", "en.wikipedia.org/w/api.php"]
 
 
 def _now() -> str:

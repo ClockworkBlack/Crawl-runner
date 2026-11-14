@@ -38,7 +38,8 @@ OFFICE_RX = re.compile(r"^(?:city\s+of\s+[\w .'-]+?\s*[-–:]\s*)?(mayor|council
 SKIP_ROW = re.compile(r"^(total|totals?\b|total\s+votes|votes\s+cast|undervotes?|overvotes?|write[- ]?ins?|write[- ]?in\s+totals?|"
                       r"blank|registered\s+voters?|ballots?\s+cast|turnout|precincts?\s+reporting|contest\s+total|times\s+counted)",
                       re.I)
-NAME_RX = re.compile(r"^[A-Z][A-Za-z'.\-]+(?:\s+(?:\"[^\"]+\"|\([^)]+\)|[A-Z][A-Za-z'.\-]*|de|van|von|la|del))*(?:,?\s+(?:Jr|Sr|II|III|IV)\.?)?$")
+NAME_RX = re.compile(r"^[A-Z\u00c0-\u00de][A-Za-z\u00c0-\u024f'.\-]+(?:\s+(?:\"[^\"]+\"|\([^)]+\)|[A-Z\u00c0-\u00de][A-Za-z\u00c0-\u024f'.\-]*|"
+                     r"de|van|von|la|del))*(?:,?\s+(?:Jr|Sr|II|III|IV)\.?)?$")   # accented names too (Bárbara)
 VOTES_RX = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,6})(?![\d,])\s*(?:votes?)?\s*(?:\(?\s*(\d{1,3}(?:\.\d+)?)\s*%\)?)?\s*$")
 DATE_RX = re.compile(r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+(20\d\d))\b|"
                      r"\b(\d{1,2})/(\d{1,2})/(20\d\d)\b|\b(20\d\d-\d{2}-\d{2})\b")
@@ -68,59 +69,113 @@ _PAGE_STAMP = re.compile(r"^(?:Page\s+\d+\s+of\s+\d+\s*)?(?:\d{1,2}/\d{1,2}/\d{4
 
 def _unflatten(text: str) -> str:
     """The report's lines back, when its text was kept as one long line (the store keeps PDF text that way): a line
-    ends after each share (12.34%), after "(Vote for N)", after a "Total Votes" row's numbers, and around the report's
-    own headings."""
+    ends after each share (12.34%), after "(Vote for N)", after a row's run of numbers, and around the report's own
+    headings, column headings and page stamps."""
     t = re.sub(r"\s+", " ", text)
-    t = re.sub(r"\s*(Total Votes|Times Cast|Precincts Reported:|Election Summary Report|Summary for:)", r"\n\1", t)
-    t = re.sub(r"(Candidate\s+Party\b.*?\bTotal)\s+", r"\n\1\n", t)
+    t = re.sub(r"\s*(Total Votes|Times Cast|Precincts Reported:|Election Summary Report|Summary for:|Registered Voters:|Ballots Cast:|"
+               r"Unresolved Write-In|Page:? \d+ of \d+)", r"\n\1", t)
+    t = re.sub(r"(Candidate\s+Party\b.*?\bTotal)\s+(Voting\s+Mail\s+)?", r"\n\1\n", t)
+    t = re.sub(r"\s*(Election Day Advance\b.*?\bTotal)\s+(Voting\s+Mail\s+)?", r"\n\1\n", t)
     t = re.sub(r"(\(Vote\s+for\s+\d+\))\s*", r"\1\n", t, flags=re.I)
     t = re.sub(r"(\d{1,3}\.\d+\s*%\)?)\s+", r"\1\n", t)
-    t = re.sub(r"(\nTotal Votes(?:\s+\d[\d,]*)+)\s+", r"\1\n", t)
+    t = re.sub(r"(Ballots Cast: [\d,]+)\s+", r"\1\n", t)
+    t = re.sub(r"(Page:? \d+ of \d+ (?:\d{1,2}/\d{1,2}/\d{4} \d{1,2}:\d{2}(?::\d{2})? ?(?:AM|PM))?)\s*", r"\1\n", t, flags=re.I)
+    # a row's numbers (the counting groups and the total, no share on an unofficial report) end the row
+    t = re.sub(r"((?<![\d,/])(?:\d[\d,]*\s+){2,}\d[\d,]*)\s+(?=[A-Z(\"\u00c0-\u024f])", r"\1\n", t)
     t = re.sub(r"(" + _MONTHS + r"\s+\d{1,2},\s+\d{4})\s+", r"\1\n", t)
     t = re.sub(r"(All Counting Groups|Unofficial and Incomplete|Official and Complete|Official Results)\s+", r"\1\n", t, flags=re.I)
     return t
 
 
-def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
-    """Contests from a county's Election Summary Report (also inside a longer document: a board's meeting packet)."""
-    text = text[:SUMMARY_MAX]
-    if text.count("\n") < text.count("(Vote for") * 3:
-        text = _unflatten(text)
-    contests, cur = [], None
+# what a report prints that is not a candidate: the ways of voting (the report's columns, and its turnout table's rows),
+# the write-ins nobody resolved, a lone party line ("(Rep)") left by a name that wrapped
+_SUMMARY_NOT_CANDIDATE = re.compile(r"^(?:election\s+day|advance(?:d)?(?:\s+in[- ]person)?\s+voting|advance|absentee(?:\s+by\s+mail)?|"
+                                    r"provisional|early\s+voting|mail(?:-in)?|in[- ]person|unresolved\s+write-?in|"
+                                    r"elector\s+group|counting\s+group|registered\s+voters|turnout)\b", re.I)
+_SUMMARY_LEAD_PARTY = re.compile(r"^((?:\((?:I|Inc)\))?\((?:Rep|Dem|Lib|Ind|Grn|NP|R|D|L)\))\s*(.*)$", re.I)
+_SUMMARY_NUMS = re.compile(r"^((?:\d[\d,]*\s+)*\d[\d,]*)(?:\s+(\d{1,3}\.\d+)\s*%)?$")
+_SUMMARY_ROW_PLAIN = re.compile(r"^(.+?)\s+((?:\d[\d,]*\s+){1,9})(\d[\d,]*)$")
+# report boilerplate a flattened heading can still carry before the office's name
+_SUMMARY_HEAD_JUNK = re.compile(r"^.*(?:Voting\s+Mail|Write-?In(?:\s+\d[\d,]*)+|Ballots\s+Cast:\s*[\d,]+|"
+                                r"\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM))\s+(?=[A-Z])", re.I)
+
+
+def _summary_lines(text: str) -> list[str]:
+    """The report's lines with each candidate on one: a name that wrapped ("Penny Brown Reynolds" / its numbers /
+    "(Dem)") is put back together."""
+    out: list[str] = []
     for raw in text.splitlines():
         line = re.sub(r"\s+", " ", raw.replace("|", " ")).strip()
         if not line:
             continue
+        if out and _SUMMARY_NUMS.match(line) and re.search(r"[A-Za-z]", out[-1]) and not re.search(r"\d", out[-1]) \
+                and not SUMMARY_HEAD.match(out[-1]) and not _SUMMARY_NOT_CANDIDATE.match(out[-1]) \
+                and not re.match(r"^(candidate|times cast|precincts|election day|voting mail|total|page|[A-Z]{2,4}$)", out[-1], re.I):
+            out[-1] = out[-1] + " " + line              # the name's numbers on the next line
+            continue
+        out.append(line)
+    return out
+
+
+def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
+    """Contests from a county's Election Summary Report (also inside a longer document: a board's meeting packet).
+    Official reports print each candidate's share; unofficial ones only the counting groups and the total."""
+    text = text[:SUMMARY_MAX]
+    if text.count("\n") < text.count("(Vote for") * 3:
+        text = _unflatten(text)
+    contests, cur = [], None
+    for line in _summary_lines(text):
         h = SUMMARY_HEAD.match(line)
         if h:
             if cur and cur["candidates"]:
                 contests.append(cur)
             office = _PAGE_STAMP.sub("", h.group(1)).strip(" :-")
+            office = _SUMMARY_HEAD_JUNK.sub("", office).strip(" :-")
             cur = {"office": office, "candidates": [], "runoff": runoff or "runoff" in office.lower(), "vote_for": int(h.group(2))}
             continue
-        if cur is None or re.match(r"^(times cast|precincts reported|candidate\b|election day\b|page\b)", line, re.I):
+        if cur is None or re.match(r"^(times cast|precincts reported|candidate\b|election day\b|page\b|voting mail\b)", line, re.I):
+            continue
+        lp = _SUMMARY_LEAD_PARTY.match(line)
+        if lp:                                          # the party of the candidate above, left on its own line
+            if cur["candidates"] and not cur["candidates"][-1]["party"]:
+                _, party, inc = _clean_name("X " + lp.group(1))
+                cur["candidates"][-1]["party"] = party
+                cur["candidates"][-1]["incumbent"] = cur["candidates"][-1]["incumbent"] or inc
+            line = lp.group(2).strip()
+            if not line:
+                continue
+        t = re.match(r"^total votes\s+.*?(\d[\d,]*)$", line, re.I)
+        if t:
+            cur["total"] = int(t.group(1).replace(",", ""))
+            cur["closed"] = True                        # what follows is the write-ins block
             continue
         m = SUMMARY_ROW.match(line)
-        if not m:
-            t = re.match(r"^total votes\s+.*?(\d[\d,]*)$", line, re.I)
-            if t:
-                cur["total"] = int(t.group(1).replace(",", ""))
-            continue
-        label = m.group(1).strip()
-        if SKIP_ROW.match(label):
+        pct = None
+        if m:
+            label, votes, pct = m.group(1).strip(), m.group(3), float(m.group(4))
+        else:
+            m = _SUMMARY_ROW_PLAIN.match(line)
+            if not m:
+                continue
+            label, votes = m.group(1).strip(), m.group(3)
+        if SKIP_ROW.match(label) or _SUMMARY_NOT_CANDIDATE.match(label):
             continue
         pm = SUMMARY_PARTY.search(label)
         name, party, inc = _clean_name(label[:pm.start()] if pm else label)
         if pm and not party:
             party = {"DEM": "D", "REP": "R", "LIB": "L", "IND": "I"}.get(pm.group(1), "")
-        if not name or not NAME_RX.match(name) or len(name) > 60:
+        if not name or not NAME_RX.match(re.sub(r",?\s+WRITE-?IN$", "", name, flags=re.I)) or len(name) > 60:
             continue
-        cur["candidates"].append({"name": name, "party": party, "votes": int(m.group(3).replace(",", "")), "pct": float(m.group(4)),
+        cur["candidates"].append({"name": name, "party": party, "votes": int(votes.replace(",", "")), "pct": pct,
                                   "incumbent": inc})
     if cur and cur["candidates"]:
         contests.append(cur)
     for c in contests:
+        c.pop("closed", None)
         c["total"] = c.get("total") or sum(x["votes"] for x in c["candidates"])
+        for x in c["candidates"]:
+            if x["pct"] is None:
+                x["pct"] = round(100.0 * x["votes"] / c["total"], 2) if c["total"] else 0.0
         _outcomes(c)
         if c["vote_for"] > 1 and not c["runoff"]:       # several seats in one contest: the top N are seated
             top = sorted(c["candidates"], key=lambda x: -x["votes"])[:c["vote_for"]]

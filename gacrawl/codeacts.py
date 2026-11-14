@@ -31,7 +31,7 @@ from pathlib import Path
 from .fetch import Blocked, Disallowed, OutOfTime
 from .store import Record, Store
 
-PARSER_VERSION = 3          # bump to re-parse stored acts (the PDF is fetched again)
+PARSER_VERSION = 4          # bump to re-parse stored acts (the PDF is fetched again)
 SOURCE = "ga:legis"
 API = "https://www.legis.ga.gov/api/"
 SITE = "https://www.legis.ga.gov"
@@ -40,13 +40,18 @@ N, S, U = 0, 1, 2           # plain, struck, underlined
 MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
                                       "september", "october", "november", "december"], 1)}
 DATE_RX = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})")
-CITE = r"\d{1,2}[A-Z]?-\d{1,3}[A-Z]?-\d{1,4}(?:\.\d+)*"
+CITE = r"\d{1,2}[A-Z]?-\d{1,3}[A-Z]?-\d{1,4}(?:\.\d+)*(?:[A-Z]\b)?"   # 48-7-40.1A: a letter after the decimal
 CITE_RX = re.compile(CITE)
 LABEL = r"\((?:[A-Za-z]{1,6}|\d{1,3})(?:\.\d+)*\)"
 LEAD_RX = re.compile(r"^((?:" + LABEL + r"\s*)+)")
 SECTION_HDR = re.compile(r"^\s*SECTION\s+(\d+[A-Za-z]?(?:[-.]\d+)*[A-Za-z]?)\.\s*$")
 PART_HDR = re.compile(r"^\s*PART\s+([IVXLC]+|\d+)\s*$")
-CITE_LINE = re.compile(r"^\s*(" + CITE + r")\.\s*(.*)$")
+# a section number opening a line: "21-2-1." or "21-2-1. Text"; also "16-7-21.1" alone, without its final period (a
+# period followed by a digit is the section's own decimal, never the end of the number)
+CITE_LINE = re.compile(r"^\s*(" + CITE + r")(?:\.(?!\d)\s*|\s*$)(.*)$")
+# the end of a line that a section number continues ("... as set forth in Code Section" / "53-12-2."): the number is a
+# cross-reference inside the sentence, not the start of a new section
+CITE_CONTINUES = re.compile(r"(?:\bSections?|\b(?:of|in|and|or|to|under|through|with|by|than|see)|,|\bSection\s+\S+\s+(?:and|or|through))\s*$", re.I)
 STRUCT_LINE = re.compile(r"^\s*(ARTICLE|Article|PART|Part|SUBPART|Subpart|CHAPTER|Chapter)\s+(\d+[A-Z]?(?:\.\d+)?|[IVXLC]+)\s*$")
 NOUNS = {"subsection": "SS", "subsections": "SS", "paragraph": "P", "paragraphs": "P", "subparagraph": "SP",
          "subparagraphs": "SP", "division": "DV", "divisions": "DV", "subdivision": "SD", "subdivisions": "SD"}
@@ -224,7 +229,7 @@ def split_sections(st: Stream) -> list[dict]:
 def _is_para_start(line: str, prev: str) -> bool:
     s = line.lstrip('"').lstrip()
     if CITE_LINE.match(s) and len(s) < 40:
-        return True
+        return not CITE_CONTINUES.search(prev.rstrip())
     if STRUCT_LINE.match(s):
         return True
     m = LEAD_RX.match(s)
@@ -256,6 +261,8 @@ def block_paragraphs(st: Stream, a: int, b: int) -> list[dict]:
         s = line.strip().lstrip('"')
         if STRUCT_LINE.match(s):
             paras.append([(x, y)]); kinds.append("struct"); after_struct = True
+        elif CITE_LINE.match(s) and len(s) < 40 and paras and kinds[-1] == "p" and CITE_CONTINUES.search(prev.rstrip()):
+            paras[-1].append((x, y))         # a cross-reference wrapped onto a line of its own
         elif CITE_LINE.match(s) and len(s) < 40:
             cm = CITE_LINE.match(s)
             paras.append([(x, y)]); kinds.append("cite"); after_struct = False

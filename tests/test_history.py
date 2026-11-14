@@ -485,3 +485,109 @@ https://sos.ga.gov/elections/election_results/1992/labor.htm 1/4"""
     c = list(sos_county_contests([p92], "1992-11-03", "general", "t", "u"))[0]
     assert c["t"] == "Commissioner of Labor" and c["o"][0] == ["David Poythress", "D", 3016, 0, "won"] and c["cty"] == {"Appling": [2000, 1000, 100], "Ben Hill": [1016, 175, 21]}
     assert split_names("Zell Miller Johnny Isakson Carole Ann Rand", 3) is None
+
+
+def test_sos_pages_with_party_columns_side_by_side():
+    """July 15, 2008: each contest's Republican and Democratic results printed in two columns. Read run together, a row
+    became "Jack Kingston 32,470 100.0% Bill Gillespie" and then "470 100.0% Bill Gillespie Jack Kingston 32" in
+    Electo, and an empty column left "No Candidates 0 0.0% John Lewis". Word positions from the state's first page."""
+    import json as _json
+    from pathlib import Path as _P
+
+    from gacrawl.history.sources import _RUN_TOGETHER, two_column_pages, sos_summary_contests
+
+    class Page:
+        def __init__(self, d):
+            self.width, self.height, self._w = d["w"], d["h"], d["words"]
+
+        def extract_words(self):
+            return [dict(w) for w in self._w]
+
+    class Doc:
+        def __init__(self, pages):
+            self.pages = pages
+
+    raw = _json.loads((_P(__file__).parent / "fixtures" / "history" / "sos_2008_07_two_columns.json").read_text())
+    pages = two_column_pages(Doc([Page(d) for d in raw]))
+    assert pages and not any(_RUN_TOGETHER.search(p) for p in pages)
+    got = {(c["t"], c["p"]): [(o[0], o[2]) for o in c["o"]] for c in sos_summary_contests(pages, "2008-07-15", "primary", "t", "u")}
+    assert got[("U.S. Senate", "R")] == [("Saxby Chambliss", 392902)]
+    assert got[("U.S. Senate", "D")][:2] == [("Vernon Jones", 199026), ("Jim Martin", 169635)]
+    assert got[("U.S. House District 1", "R")] == [("Jack Kingston", 32470)]
+    assert got[("U.S. House District 1", "D")] == [("Bill Gillespie", 32802)]
+    assert not any("Candidates" in n or "%" in n for v in got.values() for n, _ in v)
+    # a single-column document is left to the plain reading
+    assert two_column_pages(Doc([Page({"w": 612, "h": 792, "words": [{"x0": 88, "x1": 120, "top": 100, "text": "Governor"}]})])) is None
+
+
+WIKI_HOUSE = """{{Infobox election
+| election_name = 2026 United States House of Representatives elections in Georgia
+| party1 = Republican Party (United States)
+| popular_vote1 = 1,825,455
+}}
+==District 5==
+{{Infobox election
+| election_name = 2026 Georgia's 5th congressional district election
+| nominee1 = [[Nikema Williams]]
+| party1 = Democratic Party (United States)
+| popular_vote1 = '''274,618'''
+| nominee2 = {{nowrap|John Salvesen}}
+| party2 = Republican Party (United States)
+| popular_vote2 = 29,843
+}}
+===Democratic primary===
+{{Election box begin no change |title = Democratic primary results}}
+{{Election box winning candidate with party link no change
+| candidate = [[Nikema Williams]] (incumbent)
+| party = Democratic Party (United States)
+| votes = 118,546
+}}
+{{Election box end}}
+===General election===
+{{Election box begin|title=2026 Georgia's 5th congressional district election}}
+{{Election box candidate with party link
+  |party      = Democratic Party (United States)
+  |candidate  = [[Nikema Williams]] (incumbent)
+  |votes      =
+}}
+{{Election box end}}
+==District 9==
+{{Election box begin|title=2026 Georgia's 9th congressional district election<ref name="a/b">x</ref>}}
+{{Election box winning candidate with party link
+  |party      = Republican Party (United States)
+  |candidate  = [[Andrew Clyde]] (incumbent)
+  |votes      = 182,886
+}}
+{{Election box candidate with party link
+  |party      = Democratic Party (United States)
+  |candidate  = Caitlyn Gegan
+  |votes      = 125,526
+}}
+{{Election box write-in with party link|votes=10}}
+{{Election box total|votes=308,422}}
+{{Election box end}}
+"""
+
+
+def test_reported_results_from_the_state_pages():
+    """2026: no federal file has the year yet; the state pages' result boxes (or, where the box is still empty, the
+    race's infobox, winner in bold) stand in, primaries left out."""
+    from gacrawl.history.sources import reported_contests, reported_where
+    w = reported_where("2026 United States House of Representatives elections in Georgia", 2026)
+    assert w == {"st": "GA", "office": "U.S. House", "sp": 0}
+    assert reported_where("2026 United States Senate special election in Ohio", 2026) == {"st": "OH", "office": "U.S. Senate", "sp": 1}
+    assert reported_where("2026 United States House of Representatives elections in California (districts 1–26)", 2026)["st"] == "CA"
+    assert reported_where("2026 United States Senate elections", 2026) is None
+    got = {c["dist"]: c for c in reported_contests(WIKI_HOUSE, {**w, "y": 2026}, "https://en.wikipedia.org/wiki/x?oldid=1")}
+    assert sorted(got) == ["5", "9"]
+    assert [(x[0], x[1], x[2], x[4]) for x in got["5"]["o"]] == [("Nikema Williams", "D", 274618, "won"), ("John Salvesen", "R", 29843, "")]
+    assert got["5"]["stage"] == "general" and got["5"]["date"] == "2026-11-03" and got["5"]["t"] == "U.S. House · Georgia District 5"
+    assert [(x[0], x[3], x[4]) for x in got["9"]["o"]] == [("Andrew Clyde", 1, "won"), ("Caitlyn Gegan", 0, "")]
+    assert got["9"]["tot"] == 308422
+    senate = """{{Election box begin | title=2026 United States Senate election in Georgia}}
+{{Election box candidate with party link|party=Democratic Party (United States)|candidate=[[Jon Ossoff]] (incumbent)|votes=2,466,422}}
+{{Election box candidate with party link|party=Republican Party (United States)|candidate=[[Mike Collins (politician)|Mike Collins]]|votes=1,712,444}}
+{{Election box end}}"""
+    (c,) = reported_contests(senate, {"st": "GA", "office": "U.S. Senate", "sp": 0, "y": 2026}, "u")
+    assert [(x[0], x[4]) for x in c["o"]] == [("Jon Ossoff", "led"), ("Mike Collins", "")]   # not called on the page
+    assert not list(reported_contests(senate, {"st": "GA", "office": "U.S. Senate", "sp": 1, "y": 2026}, "u"))
