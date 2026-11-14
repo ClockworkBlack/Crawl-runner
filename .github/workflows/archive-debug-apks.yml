@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN }}
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
       DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
       SRC: ClockworkBlack/Electo
       DEST: ClockworkBlack/Crawl
