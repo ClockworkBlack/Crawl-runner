@@ -80,25 +80,31 @@ jobs:
           cd /tmp/electo-ce && nohup python3 -I qa/llm_serve.py --model "$M" --ctx $CTX --port 8080 > /tmp/llm.log 2>&1 &
           for i in $(seq 90); do curl -sf http://127.0.0.1:8080/ >/dev/null && break; sleep 2; done
           curl -sf http://127.0.0.1:8080/ || { cat /tmp/llm.log; exit 1; }
-      - name: Ask the questions (the page now, then the baseline page)
+      - name: Ask the questions (the page now, then the baseline page; up to 70 minutes each, results kept after every question)
         env:
           NODE_PATH: /tmp/pw/node_modules
           N: ${{ inputs.n || '80' }}
           TIER: ${{ inputs.tier || 'small' }}
         run: |
           cd /tmp/electo-ce && mkdir -p /tmp/ce
-          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --label "now ($(git rev-parse --short HEAD))" --out /tmp/ce/now.json
-          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --label baseline --page /tmp/base_page.html --out /tmp/ce/baseline.json
-          node qa/compare_eval.js --report /tmp/ce/now.json /tmp/ce/baseline.json | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Results to Electo
-        if: env.IS_MAIN == 'true'
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label "now ($(git rev-parse --short HEAD))" --out /tmp/ce/now.json || echo "::warning::the page now: the run stopped (what it asked is kept)"
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label baseline --page /tmp/base_page.html --out /tmp/ce/baseline.json || echo "::warning::the baseline page: the run stopped (what it asked is kept)"
+      - name: Summary
+        if: always()
         env:
           NODE_PATH: /tmp/pw/node_modules
         run: |
-          cd /tmp/electo-ce
+          cd /tmp/electo-ce && F=$(ls /tmp/ce/now.json /tmp/ce/baseline.json 2>/dev/null) && [ -n "$F" ] || { echo "no results"; exit 0; }
+          node qa/compare_eval.js --report $F | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Results to Electo
+        if: always() && env.IS_MAIN == 'true'
+        env:
+          NODE_PATH: /tmp/pw/node_modules
+        run: |
+          cd /tmp/electo-ce && [ -f /tmp/ce/now.json ] || { echo "no results"; exit 0; }
           mkdir -p research/eval/compare
-          cp /tmp/ce/now.json research/eval/compare/latest.json && cp /tmp/ce/baseline.json research/eval/compare/baseline.json
-          node qa/compare_eval.js --log /tmp/ce/now.json /tmp/ce/baseline.json >> research/eval/compare/log.jsonl
+          cp /tmp/ce/now.json research/eval/compare/latest.json; [ -f /tmp/ce/baseline.json ] && cp /tmp/ce/baseline.json research/eval/compare/baseline.json
+          node qa/compare_eval.js --log $(ls /tmp/ce/now.json /tmp/ce/baseline.json 2>/dev/null) >> research/eval/compare/log.jsonl
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           git add research/eval/compare
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
