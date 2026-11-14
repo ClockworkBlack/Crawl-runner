@@ -8,7 +8,9 @@ dist/electo/
   jurisdictions/<id>.json       that jurisdiction's records grouped by kind
   councils/<id>.json            how often each pair of council members voted the same way (non-unanimous votes)
   candidates.json               candidate index with record counts
-  candidates/<id>.json          a candidate's records (primary/reported only; never unverified)
+  candidates/<id>.json          a candidate's records (primary/reported only; never unverified); money lines: the 500
+                                largest, with `capped` saying how many there are (all of them are in the database
+                                and counted in packets, profiles and donors.json)
   packets/<key>.json            Electo research packets: opened sources in {t,u,d} form, votes by topic,
                                 mentions, statements, endorsements, money, posts, leads, rumors, profile
   profiles/<key>.json           profile supplements in Electo's item shapes (ideology, positions, statements,
@@ -42,6 +44,7 @@ content changes, so the site can upsert) and `hash` (changes with the content).
 from __future__ import annotations
 
 import datetime as dt
+import heapq
 import json
 from collections import Counter, defaultdict
 from itertools import combinations
@@ -57,6 +60,59 @@ from .verified_posts import Registry
 
 SCHEMA_VERSION = "2.1"
 SLIM = {"rid", "key", "first_seen", "thash"}
+
+# Kinds one candidate can hold a million lines of: read from the database in pages each time they are used, never held
+# whole. Nov 13, 2026: the FEC re-read brought Jon Ossoff's campaign to 1.19 million lines; read into a list the way
+# every other kind is, that one candidate took about 10 GB, and the export ran the runner out of memory ("lost
+# communication with the server") with the Electo import still to come, twice in a row.
+STREAMED = ("contribution",)
+# candidates/<id>.json keeps this many lines of a streamed kind (the largest by amount) and says how many there are
+CANDIDATE_FILE_LINES = 500
+
+
+class StoredRecords:
+    """One candidate's records of a streamed kind (unverified ones left out, like the lists beside them): iterating reads
+    them from the store in pages, each time; len() and truth come from a count taken up front."""
+
+    def __init__(self, store: Store, source_id: str, kind: str, n: int):
+        self.store, self.source_id, self.kind, self.n = store, source_id, kind, int(n)
+
+    def __iter__(self):
+        if not self.n:
+            return iter(())
+        return self.store.iter_query("source_id=? AND kind=? AND evidence<>'unverified'", (self.source_id, self.kind))
+
+    def __len__(self) -> int:
+        return self.n
+
+    def __bool__(self) -> bool:
+        return self.n > 0
+
+
+def candidate_file(slim_c: dict, records: dict) -> dict:
+    """candidates/<id>.json: the candidate and their records by kind; a streamed kind keeps its CANDIDATE_FILE_LINES
+    largest lines, and `capped` says how many there are."""
+    grouped, capped = {}, {}
+    for k, v in records.items():
+        if isinstance(v, StoredRecords):
+            top = heapq.nlargest(CANDIDATE_FILE_LINES, v, key=_amount) if v else []
+            grouped[k] = [_slim(r) for r in top]
+            if len(v) > len(top):
+                capped[k] = {"kept": len(top), "of": len(v), "note": f"the {len(top)} largest of {len(v)} lines; every line is "
+                                                                       "in the database and counted in packets, profiles and donors.json"}
+        else:
+            grouped[k] = [_slim(r) for r in v]
+    body = {"candidate": slim_c, "exported_at": _now(), "records": grouped}
+    if capped:
+        body["capped"] = capped
+    return body
+
+
+def _amount(r: dict) -> float:
+    try:
+        return float((r.get("meta") or {}).get("amount") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 SCHEMA_MD = """# Electo import bundle — field reference (schema {version})
 
@@ -278,14 +334,19 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         sid = f"cand:{c['id']}"
         records: dict[str, list] = {}
         if sid in cand_sources:
+            streamed = store.counts("kind", "source_id=? AND evidence<>'unverified' AND kind IN (%s)" %
+                                    ",".join("?" * len(STREAMED)), (sid,) + STREAMED)
             for kind in store.kinds(sid):
-                records[kind] = [r for r in store.read(sid, kind) if r.get("evidence") != "unverified"]
-            grouped = {k: [_slim(r) for r in v] for k, v in records.items()}
-            counts = {k: len(v) for k, v in grouped.items()}
+                if kind in STREAMED:
+                    records[kind] = StoredRecords(store, sid, kind, streamed.get(kind, 0))
+                else:
+                    records[kind] = [r for r in store.read(sid, kind) if r.get("evidence") != "unverified"]
+            counts = {k: len(v) for k, v in records.items()}
             total_records.update(counts)
             slim_c = {k: v for k, v in c.items() if k not in ("variants", "profile_urls")}
-            (out / "candidates" / f"{c['id']}.json").write_text(
-                json.dumps({"candidate": slim_c, "exported_at": _now(), "records": grouped}, ensure_ascii=False), encoding="utf-8")
+            body = candidate_file(slim_c, records)
+            (out / "candidates" / f"{c['id']}.json").write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+            del body
             cindex.append({**slim_c, "record_counts": counts})
         if pb is None:
             continue

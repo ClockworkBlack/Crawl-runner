@@ -123,14 +123,27 @@ NAME_STOP = re.compile(r"\b(Department|Police|Sheriff|Office|County|City|Contact
                        r"Special|Victim|School|Resource|Accreditation|Leadership|Team|Chief|Deputy|Captain|Major|"
                        r"Lieutenant|Sergeant|Officer|Assistant|Interim|Acting|Directory|Employment|Contact|Info)\b", re.I)
 SUFFIX_FIRST = re.compile(r"^(Jr|Sr|II|III|IV)\.?$", re.I)
+# a link's or button's own words, never a person's name: Fulton County's sheriff page has the title on one line and its
+# "Read More" link on the next, and "Read More" went out as the Sheriff of Fulton County (Nov 13, 2026)
+LINK_TEXT = re.compile(r"^(read|learn|see|view|show|find out|click|tap|continue|go|more|full|meet)\b(\s+(the\s+)?"
+                       r"(more|here|all|details?|bio(graphy)?|profile|story|article|info(rmation)?|sheriff|chief|page|"
+                       r"site|now|below|reading))*\s*(\W*)$|^(click|tap)\s+here\b|^more\s+info\b", re.I)
+UI_WORDS = re.compile(r"\b(Click|Here|Learn|Details|Biography|Bio|Profile|Download|Print|Share|Search|Menu|Skip|Login|"
+                      r"Log In|Sign In|Translate|Accessibility|Subscribe|Submit|Reading|Website|Facebook|Twitter|Instagram|"
+                      r"YouTube|Email|Phone|Fax|Map|Directions|Hours|Calendar|Events|News|Forms|FAQs?)\b", re.I)
+
+
+def _tidy_name(n: str) -> str:
+    """A name with a link's verb in front of it taken off ("Email Janet Moon": Peachtree City's chief)."""
+    return re.sub(r"^(e-?mail|contact|call|message|meet|write to)\s+", "", _clean(n), flags=re.I)
 
 
 def _name_ok(n: str) -> bool:
     """A person's name as a page prints it: two to five words, none of them a department word ("Jr. Fire" was read as
-    Valdosta's chief), not starting with a suffix, every word capitalized, and at least two words longer than an
-    initial."""
+    Valdosta's chief) or a link's words ("Read More" as Fulton County's sheriff), not starting with a suffix, every word
+    capitalized, and at least two words longer than an initial."""
     w = n.split()
-    if not 2 <= len(w) <= 5 or NAME_STOP.search(n) or SUFFIX_FIRST.match(w[0]):
+    if not 2 <= len(w) <= 5 or NAME_STOP.search(n) or SUFFIX_FIRST.match(w[0]) or LINK_TEXT.search(n) or UI_WORDS.search(n):
         return False
     if not all(x[0].isupper() for x in w if x[0].isalpha()):
         return False
@@ -172,7 +185,7 @@ def find_chief(lines: list[str]) -> dict | None:
 
     def consider(name: str, title: str):
         nonlocal best
-        name, title = _clean(name).strip(",-–: "), _clean(title)
+        name, title = _tidy_name(name).strip(",-–: "), _clean(title)
         if not _name_ok(name) or re.search(r"deputy|assistant|commander|major|captain|lieutenant", title, re.I):
             return
         s = score(title)
@@ -1003,6 +1016,11 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
     depts = []
     for j, d in pairs:
         name, name_from = (d["name"], d.get("name_from")) if d.get("v") == POLICE_VERSION or d.get("listed_by") else department_name(j, d)
+        if d.get("chief"):
+            # read before the name check knew a link's words ("Read More", "Email Janet Moon"): tidied, or left out
+            # until the page is read again
+            cn = _tidy_name(d["chief"].get("name") or "")
+            d = dict(d, chief=dict(d["chief"], name=cn) if _name_ok(cn) else None)
         depts.append({"jurisdiction": j["id"], "jurisdiction_name": j["name"], "jurisdiction_kind": j.get("kind"),
                       "county": (j.get("counties") or [None])[0] if j.get("kind") != "county" else j["name"].replace(" County", ""),
                       **{k: d.get(k) for k in ("kind", "url", "chief", "phones", "emails", "address", "precincts",

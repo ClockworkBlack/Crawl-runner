@@ -19,7 +19,7 @@ import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .model import STATES, is_writein_bucket, pkey, same_person, seat_key, shard
+from .model import STATES, is_writein_bucket, pkey, same_person, seat_key, shard, tag_outcomes
 from .run import iter_contests, load_state, paths
 
 PEOPLE_SHARDS, PROF_SHARDS = 64, 16
@@ -56,11 +56,32 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
     in audit (the bundle's audit.json), so a wrong number shows instead of hiding."""
     seats: dict = defaultdict(list)
     for c in contests:
+        _merge_marked_lines(c)
         seats[seat_key(c)].append(c)
     out = []
     A = audit if audit is not None else {}
     A.setdefault("checked", 0); A.setdefault("agree", 0); A.setdefault("differ", []); A.setdefault("seated_differs", [])
+    # the state's own certified count of each Georgia federal general (the Secretary of State's files): a witness for
+    # the federal files' counts of the same contests
+    state_gen = {(c["y"], c["office"], str(c.get("dist") or ""), 1 if c.get("sp") else 0): c
+                 for lst in seats.values() for c in lst
+                 if c.get("scope") == "ga" and c.get("stage") == "general" and c.get("tot") and c.get("office") in ("U.S. Senate", "U.S. House")}
+    for k, lst in list(seats.items()):
+        witness = state_gen.get((k[1], k[4], k[5], k[8])) if k[0] == "us" and k[3] == "GA" and k[2] == "general" else None
+        moved = _runoff_filed_as_general(lst, witness)
+        for c in moved:
+            lst.remove(c)
+            r = dict(c, stage="general runoff", date=str(c["y"]), chk="filed as the general")
+            seats[seat_key(r)].append(r)
+            A.setdefault("runoffs_filed_as_general", []).append({"y": c["y"], "race": c["t"], "src": c.get("item", "").split(":", 1)[0],
+                                                                 "total": c.get("tot")})
+        if moved and witness and not any(c.get("tot") for c in lst):
+            # nothing else counted the general (MEDSL is the only federal file before 2000): the state's own count
+            # stands in for it, under the federal set's name for the race
+            lst.append(dict(witness, scope="us", t=moved[0]["t"], o=[list(x) for x in witness["o"]], chk="the state's count"))
     for k, lst in seats.items():
+        if not lst:
+            continue
         lst.sort(key=lambda c: (-PRIORITY.get(c.get("item", "").split(":", 1)[0], 0), -(c.get("tot") or 0)))
         best = lst[0]
         # Georgia, two files of the same certified count: the fuller one (an archive missing a county's file counts less)
@@ -83,6 +104,12 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
                 if not same_w:
                     A["seated_differs"].append(rec)     # usually a death, a resignation or a contested seat: worth a look
                     best["chk"] = "seated differs"
+                    # someone else took the seat and this count's leader had no majority: a runoff decided it
+                    # (Louisiana's December runoffs, Texas specials), so the leader led; never "won"
+                    tot = best.get("tot") or sum((x[2] or 0) for x in best["o"])
+                    if bw[4] == "won" and tot and (bw[2] or 0) * 2 <= tot:
+                        bw[4] = "led"
+                        rec["now"] = "led"
                 continue
             A["checked"] += 1
             near = lambda a, b: a is not None and b is not None and abs(a - b) <= 0.01 * max(a, b, 1)   # noqa: E731
@@ -104,6 +131,74 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
     return out
 
 
+def _merge_marked_lines(c: dict) -> None:
+    """The FEC's files put a footnote mark in some names ("Sean Patrick # Maloney"), and a candidate on a second party's
+    line under the marked name is then a second candidate: New York's 18th District, 2012, showed Nan Hayworth winning
+    with 133,049 votes over Sean Patrick Maloney's 132,456 and "Sean Patrick # Maloney"'s 11,389 (Maloney won,
+    143,845). The mark is dropped and a candidate's party lines added (one line twice is two elections in one list:
+    the larger count, as the reader does); outcomes are worked out again when two rows became one."""
+    if c.get("lvl") != "federal" or not any("#" in (x[0] or "") for x in c.get("o") or []):
+        return                                  # the FEC's candidates only ("Amendment #4 - Yes" is the state's own label)
+    rows, by = [], {}
+    merged = False
+    for x in c["o"]:
+        name = re.sub(r"\s+", " ", re.sub(r"\s*#\s*", " ", x[0] or "")).strip()
+        if not name or re.fullmatch(r"\d+", name):
+            merged = True                       # "#4": a footnote's own row, not a candidate
+            continue
+        k = pkey(name)
+        if k in by:
+            y = by[k]
+            if x[2] is not None:
+                y[2] = max(y[2] or 0, x[2]) if x[1] == y[1] else (y[2] or 0) + x[2]
+            y[3] = max(y[3] or 0, x[3] or 0)
+            merged = True
+            continue
+        y = [name] + list(x[1:])
+        by[k] = y
+        rows.append(y)
+    c["o"] = sorted(rows, key=lambda x: -(x[2] or 0)) if merged else rows
+    if merged and not any(x[4] in ("runoff", "unopposed") for x in c["o"]):
+        for x in c["o"]:
+            x[4] = ""
+        tag_outcomes(c["o"], c.get("tot"), majority=_ga_needs_majority(c) and c.get("lvl") != "local")
+
+
+def _share(c: dict, x: list) -> float | None:
+    t = c.get("tot") or sum((y[2] or 0) for y in c["o"])
+    return (x[2] or 0) / t if t and x[2] is not None else None
+
+
+def _runoff_filed_as_general(lst: list[dict], witness: dict | None = None) -> list[dict]:
+    """Georgia federal contests a source files as the general though they are the runoff: MEDSL's U.S. Senate, 2008,
+    holds the December 2 runoff (Saxby Chambliss 57.4 percent of 2,137,956 votes) as the November 4 general, which the
+    FEC's file has (49.8 percent of 3,752,485, no majority); its 1992 race holds the November 24 runoff (Paul Coverdell
+    635,114 to Wyche Fowler 618,877) where the Secretary of State's general has Fowler leading with 49.2 percent of
+    2,251,576. A "general" whose leader has a majority while another count of the same general (another federal file, or
+    `witness`, the state's own) has none, with over a quarter more votes and the same two leaders, is that runoff."""
+    gen = [c for c in lst if c.get("scope") == "us" and c.get("st") == "GA" and c.get("stage") == "general"
+           and c.get("office") != "President" and c.get("tot")]
+    out = []
+    for c in gen:
+        real = sorted((x for x in c["o"] if not is_writein_bucket(x[0]) and x[2] is not None), key=lambda x: -x[2])
+        if len(real) < 2 or (_share(c, real[0]) or 0) <= 0.5:
+            continue
+        for o in gen + ([witness] if witness else []):
+            if o is c or o.get("item", "").split(":", 1)[0] == c.get("item", "").split(":", 1)[0]:
+                continue
+            ro = sorted((x for x in o["o"] if not is_writein_bucket(x[0]) and x[2] is not None), key=lambda x: -x[2])
+            if len(ro) >= 2 and (_share(o, ro[0]) or 1) <= 0.5 and o["tot"] > 1.25 * c["tot"] \
+                    and all(any(same_person(a[0], b[0]) for b in ro[:2]) for a in real[:2]):
+                out.append(c)
+                break
+    return out
+
+
+def _ga_needs_majority(c: dict) -> bool:
+    """Georgia's own contests and its federal ones (presidential electors aside): no majority means a runoff."""
+    return (c.get("scope") == "ga" or c.get("st") == "GA") and c.get("office") != "President" and c.get("lvl") != "question"
+
+
 def link_runoffs(cs: list[dict]) -> None:
     """Outcome codes that need the whole year: who went to a runoff, and Georgia's 45 percent general elections."""
     ro = defaultdict(list)
@@ -117,7 +212,11 @@ def link_runoffs(cs: list[dict]) -> None:
         if len(real) < 2 or real[0][2] is None:
             continue
         k = (c["scope"], c.get("st"), c["office"], str(c.get("dist") or ""), c.get("p") or "", c.get("j") or "")
-        later = [r for r in ro.get(k, []) if c["y"] <= r["y"] <= c["y"] + 1 and str(r.get("date") or r["y"]) >= str(c.get("date") or c["y"])
+
+        def after(r: dict) -> bool:
+            rd, cd = str(r.get("date") or r["y"]), str(c.get("date") or c["y"])
+            return rd >= cd or (len(rd) == 4 and rd == cd[:4])      # a runoff known only by its year: that year's
+        later = [r for r in ro.get(k, []) if c["y"] <= r["y"] <= c["y"] + 1 and after(r)
                  and ("primary" in r["stage"]) == ("primary" in c["stage"])
                  and {pkey(x[0]) for x in r["o"]} & {pkey(x[0]) for x in real[:3]}]
         if later:
@@ -126,9 +225,15 @@ def link_runoffs(cs: list[dict]) -> None:
             for x in c["o"]:
                 x[4] = "runoff" if pkey(x[0]) in names else ""
             c["ro_date"] = r.get("date") or str(r["y"])
-        elif real[0][4] == "led" and c["scope"] == "ga" and c["stage"] == "general" and 1996 <= c["y"] <= 2004 \
+        elif real[0][4] == "led" and _ga_needs_majority(c) and c["stage"] == "general" and 1996 <= c["y"] <= 2004 \
                 and c.get("tot") and real[0][2] / c["tot"] > 0.45:
             real[0][4] = "won"      # 1996-2004: a general election was won with more than 45 percent (O.C.G.A. 21-2-501 as then written)
+        elif real[0][4] == "led" and c["scope"] == "us" and c.get("st") == "GA" and _ga_needs_majority(c) \
+                and "primary" not in c["stage"]:
+            # Georgia's federal general and special elections: the federal files (MEDSL, the FEC) hold the November
+            # count but not the runoff that followed it; the law sends the top two to it, which is what is shown
+            for x in real[:2]:
+                x[4] = "runoff"
 
 
 def _match_members(profiles: dict):
@@ -165,6 +270,21 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     by_year = defaultdict(list)
     for c in cs:
         by_year[c["y"]].append(c)
+        # Georgia's majority rule over the federal files' counts as they were read (the readers apply it since Nov 13,
+        # 2026; the files read before then said "won" for every leader: Raphael Warnock with 32.9 percent in the 2020
+        # special, 49.4 percent in the 2022 general, both decided in runoffs)
+        if c["scope"] == "us" and c.get("st") == "GA" and _ga_needs_majority(c) and c.get("basis") != "seated" \
+                and "runoff" not in c["stage"]:
+            real = sorted((x for x in c["o"] if not is_writein_bucket(x[0]) and x[2] is not None), key=lambda x: -x[2])
+            if len(real) >= 2 and real[0][4] == "won" and (_share(c, real[0]) or 1) <= 0.5:
+                real[0][4] = "led"
+        # presidential electors go to the plurality in every state, Georgia included: the Secretary of State's files are
+        # read with the state's majority rule, which left Bill Clinton (1992, 43.5 percent) and Bob Dole (1996, 47.0)
+        # as having only led Georgia
+        if c.get("office") == "President" and c.get("lvl") == "federal" and c["stage"] == "general":
+            for x in c["o"]:
+                if x[4] == "led":
+                    x[4] = "won"
     for y in sorted(by_year):
         link_runoffs(by_year[y] + [c for c in by_year.get(y + 1, []) if "runoff" in c["stage"] and str(c.get("date", ""))[5:7] in ("01", "02")])
 
@@ -298,6 +418,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     audit["seated_differs"].sort(key=lambda r: (-r["y"], r["race"]))
     _dump(out / "audit.json", {"checked": audit["checked"], "agree": audit["agree"], "differ": audit["differ"][:3000],
                                "seated_differs": audit["seated_differs"][:1500], "seats": _seat_check(summary),
+                               "runoffs_filed_as_general": audit.get("runoffs_filed_as_general", []),
                                "how": "Where two sources report the same contest they are compared: the winner (by surname), the "
                                       "winner's votes (within 1 percent) and the total (within 3 percent). 'seats' counts the U.S. House and Senate "
                                       "general-election contests on file each year against the seats there were."})

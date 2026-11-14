@@ -29,6 +29,9 @@ class Deriver:
     fn: Callable[[dict, dict], Iterable[Record]]   # (source record, context) -> derived records
     params: tuple = ()
     needs: dict = field(default_factory=dict)      # context keys the deriver wants (e.g. jurisdictions)
+    # a change in what the deriver writes: a new version reads every source record again, once (resumably: a pass that
+    # runs out of time keeps its place like any other)
+    version: str = ""
 
 
 REGISTRY: list[Deriver] = []
@@ -57,6 +60,10 @@ def run(store: Store, only: set[str] | None = None, context: dict | None = None,
         if only and d.name not in only:
             continue
         cursor = None if full else store.kv_get(f"derive:{d.name}")
+        if d.version and store.kv_get(f"derive:{d.name}:v") != d.version:
+            cursor = None                               # the new version's pass starts from the beginning
+            store.kv_set(f"derive:{d.name}:v", d.version)
+            log(f"{d.name}: version {d.version}: every source record is read again")
         started = store_now()
         seen = made = 0
         last = None          # the last source record this pass finished with

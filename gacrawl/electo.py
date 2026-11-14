@@ -21,6 +21,7 @@ Export (`gacrawl electo packets`, also part of `gacrawl export`):
 from __future__ import annotations
 
 import datetime as dt
+import heapq
 import json
 import re
 import unicodedata
@@ -59,6 +60,22 @@ def _alnum(s: str) -> str:
 
 def norm_url(u: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", (u or "").strip().lower()).split("#")[0].split("?")[0].rstrip("/")
+
+
+TRACKING_PARAM = re.compile(r"^(utm_[a-z]+|fbclid|gclid|dclid|msclkid|mc_[a-z]+|igshid|ref|ref_src|cmpid|smid|s_cid|cid)$", re.I)
+
+
+def source_key(u: str) -> str:
+    """A packet source's identity: norm_url with the query kept (tracking parameters aside), because many documents are
+    told apart only by it. Until Nov 13, 2026 packets keyed sources by norm_url, which drops the query, so every one of a
+    campaign's FEC lines cited the first filing page read ("docquery.fec.gov/cgi-bin/fecimg/?<image number>")."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit
+
+    q = urlsplit((u or "").strip()).query
+    keep = sorted((k, v) for k, v in parse_qsl(q, keep_blank_values=True) if not TRACKING_PARAM.match(k))
+    if not keep and q and "=" not in q:
+        keep = [(q, "")]            # "?202010159295433734": a bare query names the document too
+    return norm_url(u) + ("?" + urlencode(keep) if keep else "")
 
 
 def _load(p: Path, default=None):
@@ -289,17 +306,18 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
     def src(r: dict, excerpt: str = "") -> int:
         u = r.get("url") or ""
         k = norm_url(u)
-        if k in index:
-            i = index[k]
+        ik = source_key(u)      # one source per document: the FEC's filing pages differ only in their query
+        if ik in index:
+            i = index[ik]
             if excerpt and not sources[i].get("excerpt"):
                 sources[i]["excerpt"] = excerpt
             return i
-        index[k] = len(sources)
+        index[ik] = len(sources)
         sources.append({"t": (r.get("title") or "").strip()[:200] or u, "u": u, "d": _d10({"published": r.get("published") or ""}),
                         "kind": r["kind"], "evidence": r.get("evidence") or "primary",
                         "opened_at": (r.get("fetched_at") or "")[:10], "excerpt": excerpt[:600],
                         "in_profile": k in profile_urls})
-        return index[k]
+        return index[ik]
 
     d10 = _d10        # ISO dates, also for a feed's "Wed, 21 Oct 2026 …"
 
@@ -328,17 +346,24 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
         m = r.get("meta", {})
         if m.get("type") == "endorsement":
             endorsements.append({"name": m.get("party"), "src": [src(r)]})
-    # money: the candidate's contribution lines as the shared rules count them (no memo lines, each line once)
-    from .money import clean
+    # money: the candidate's 200 largest contribution lines as the shared rules count them (no memo lines, each line
+    # once). The lines may be read from the database as they go (export.StoredRecords: a Senate campaign has a million),
+    # so they are read in two passes (the filers' report dates, then the rules) and only the 200 kept are held, and
+    # only those 200 are cited: until Nov 13, 2026 every counted line's filing page went into the sources list
+    # (395,500 for Jon Ossoff) though the packet shows 200 of them.
+    from .money import clean, note_covered
 
-    for L in clean(records.get("contribution", [])):
+    money = records.get("contribution", [])
+    covered: dict = {}
+    for r in money:
+        note_covered(r.get("meta") or {}, covered)
+    top = heapq.nlargest(200, (L for L in clean(money, covered=covered) if L["type"] == "contribution" and L["amount"] > 0),
+                         key=lambda L: L["amount"] or 0)
+    for L in top:
         m = L["meta"]
-        if L["type"] == "contribution" and L["amount"] > 0:
-            finance.append({"name": m.get("name"), "amount": L["amount"], "date": m.get("date"), "employer": m.get("employer"),
-                            "via": L["via"], "src": [src({"url": L["url"], "meta": m, "title": m.get("name") or "", "kind": "contribution",
-                                                          "evidence": "primary", "published": L["published"]})]})
-    finance.sort(key=lambda x: -(x["amount"] or 0))
-    finance = finance[:200]
+        finance.append({"name": m.get("name"), "amount": L["amount"], "date": m.get("date"), "employer": m.get("employer"),
+                        "via": L["via"], "src": [src({"url": L["url"], "meta": m, "title": m.get("name") or "", "kind": "contribution",
+                                                      "evidence": "primary", "published": L["published"]})]})
     social = [{"d": d10(r), "text": (r.get("text") or "")[:400], "author": r.get("meta", {}).get("author"),
                "src": [src(r, (r.get("text") or "")[:400])]} for r in records.get("social_mention", [])[:30]]
     leads = [{"t": r.get("title", "")[:200], "u": r.get("url"), "outlet": r.get("meta", {}).get("outlet"),

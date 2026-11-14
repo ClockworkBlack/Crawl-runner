@@ -79,6 +79,9 @@ env:
   OPTIMIZE_FTS: ${{ github.event.schedule == '41 9 * * 0' }}
   NIGHTLY: ${{ github.event.schedule == '7 4 * * *' }}
   BACKFILL: ${{ inputs.job == 'backfill' || github.event.schedule == '17 11 * * *' }}
+  # job: export-only: no crawl and no optional step (scripts/budget.sh gives each 0 minutes): the database as stored,
+  # exported, imported into Electo and put on the site; for a run that stopped before the Electo import
+  EXPORT_ONLY: ${{ inputs.job == 'export-only' }}
   HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
   GACRAWL_BROWSER_CHANNEL: chrome      # GitHub's runners ship Google Chrome: no Playwright browser download per run
 
@@ -270,8 +273,8 @@ jobs:
     # database, the temp save, the next backfill run, the state) inside GitHub's five minutes for a cancelled job.
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
-    # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes
-    # kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
+    # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes, 110
+    # by default, kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
     # block or a slow day ends in time instead of being stopped at this limit before it saves anything.
     timeout-minutes: 350
     steps:
@@ -828,8 +831,29 @@ jobs:
             fi
           fi
           rm -rf late
-          if [ "$n" = "1" ]; then timeout -s INT -k 2m 20m gacrawl finance link | tail -c 300 || echo "linking stopped; the next run finishes it"
+          # linking fits the job's clock: what is left after the export, the store and the Electo import (about 60
+          # minutes, scripts/budget.sh), at most 20 minutes. Until Nov 13, 2026 it always had 20, and a run that
+          # reached this step late went into the export with too little time
+          LEFT=$(( MERGE_LIMIT - ($(date +%s) - MERGE_T0) / 60 - 60 )); [ "$LEFT" -gt 20 ] && LEFT=20
+          if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300 || echo "linking stopped; the next run finishes it"
+          elif [ "$n" = "1" ]; then echo "money applied; no time left to link it in this run (the next run links it)"
           else echo "no money hand-off arrived while this run worked"; fi
+      - name: Memory to spare for the export (swap on the runner's scratch disk)
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          # the export holds the money graph (about 5 GB for 3.1 million lines on Nov 13, 2026) with everything else; a
+          # few GB of swap make a run that would have been killed for memory ("lost communication with the server") a
+          # slower one instead
+          have=$(free -m | awk '/^Swap:/{print $2}')
+          if [ "${have:-0}" -ge 8000 ]; then echo "swap: ${have} MB already"; exit 0; fi
+          sudo -n true 2>/dev/null || { echo "no passwordless sudo here: no extra swap"; exit 0; }
+          # only on the scratch disk, and only with room to spare on it (never on the disk the database is on)
+          free_mnt=$(df -Pm /mnt 2>/dev/null | awk 'NR==2{print $4}')
+          if [ "$(df -P /mnt 2>/dev/null | awk 'NR==2{print $1}')" = "$(df -P "$GITHUB_WORKSPACE" | awk 'NR==2{print $1}')" ] || [ "${free_mnt:-0}" -lt 16000 ]; then
+            echo "no separate scratch disk with room (/mnt: ${free_mnt:-none} MB free): no extra swap"; exit 0; fi
+          sudo fallocate -l 8G /mnt/export.swap && sudo chmod 600 /mnt/export.swap && sudo mkswap /mnt/export.swap >/dev/null \
+            && sudo swapon /mnt/export.swap && free -m | awk '/^(Mem|Swap):/'
       - name: Task list, status, Electo bundle
         timeout-minutes: 45
         id: bundle

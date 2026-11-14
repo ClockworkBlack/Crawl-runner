@@ -66,6 +66,43 @@ PRESENT_RX = re.compile(r"\b(?:members?\s+|those\s+|council\s+members?\s+|commis
                         r"\s*[:\-–]?\s*(?P<names>[^.]{5,600}?)(?:\.\s|\n\s*\n|\babsent\b|\balso\s+present\b)", re.I | re.S)
 ORD_RX = re.compile(r"\b(ordinance|resolution)\s*(?:no\.?|number|#)?\s*([0-9]{2,4}[-–][0-9A-Za-z]{1,6}|[0-9]{1,5})\b", re.I)
 NOISE = re.compile(r"\b(motion|vote|carried|passed|none|all|approved|seconded|second|the|was|were|members?|council)\b", re.I)
+# the clerk's closing lines, never a motion's words: Hull's "Respectfully submitted, Sandra Pou, City Clerk" (read by
+# OCR as "Re pectfully submitted, Aa/laPoit andra Pou") went out as the motion of the roll call before it (Nov 13, 2026)
+SIGNOFF_RX = re.compile(r"^\W*(re\s?s?pectfully\s+submitted|submitted\s+by|attest(ed)?\b|approved\s*:|minutes\s+(recorded|taken|"
+                        r"prepared|transcribed)\s+by|(recorded|prepared|transcribed)\s+by|signed\s*:|clerk'?s?\s+signature)", re.I)
+# the meeting's own date as the minutes' heading prints it: "Monday, May 11th, 2026", "February 27,2025"
+HEAD_DATE_RX = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
+                          r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*((?:19|20)\d\d)\b|"
+                          r"\b(\d{1,2})/(\d{1,2})/((?:19|20)\d\d)\b", re.I)
+_MONTH_N = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+
+def _says_more(sentence: str) -> bool:
+    """Does a motion's sentence say what was moved, beyond who moved and seconded it ("Motion by Councilmember Bowes;
+    second by Councilmember Hunter" does not)?"""
+    s = re.sub(WHO, " ", sentence)
+    s = re.sub(r"(?i)\b(a|an|the|first|motion|made|was|were|by|and|with|seconded|second(?:ed)?|moved|motioned|from|"
+               r"following|after|then|on|of)\b|[^A-Za-z]+", " ", s)
+    return len(s.split()) >= 2
+
+
+def meeting_date(text: str, title: str = "") -> str | None:
+    """The date in the minutes' title or heading (their first 600 characters), as YYYY-MM-DD; None when neither has one.
+    Only the heading: a date further in is usually another meeting's ("approve the minutes for April 13th")."""
+    import datetime as dt
+
+    for part in (title or "", (text or "")[:600]):
+        for m in HEAD_DATE_RX.finditer(part):
+            try:
+                if m.group(1):
+                    d = dt.date(int(m.group(3)), _MONTH_N[m.group(1).lower()[:3]], int(m.group(2)))
+                else:
+                    d = dt.date(int(m.group(6)), int(m.group(4)), int(m.group(5)))
+            except (ValueError, KeyError):
+                continue
+            if 1990 <= d.year <= dt.date.today().year + 1:
+                return d.isoformat()
+    return None
 
 
 def _person(s: str) -> str:
@@ -137,10 +174,30 @@ def parse_motions(text: str) -> list[dict]:
             sec = _person(s2.group("sec")) if s2 else ""
             if sec and mover and sec == mover:
                 sec = ""
+        if what and SIGNOFF_RX.search(what):
+            what = ""
         if not what or len(what) < 4:
             w = re.search(r"\bmotion\s+to\s+([^.;]{4,240})", flat, re.I)
-            first = re.split(r"(?<=[.;])\s", flat, maxsplit=1)[0].strip(" .;:,")
-            what = w.group(1).strip(" .;:,") if w else first[:240] if not re.match(r"motion\b", first, re.I) else flat[:240]
+            if w:
+                what = w.group(1).strip(" .;:,")
+            else:
+                first = re.split(r"(?<=[.;])\s", flat, maxsplit=1)[0].strip(" .;:,")
+                what = first[:240] if not re.match(r"motion\b", first, re.I) else flat[:240]
+                if m:
+                    # the sentence the motion is in, when it says more than who moved and seconded ("the meeting was
+                    # adjourned after a motion by Paige Phillips and a second by Steven Hollingsworth"): the paragraph's
+                    # first sentence is often another matter's, or the clerk's closing lines
+                    a = max(flat.rfind(". ", 0, m.start()), flat.rfind("; ", 0, m.start()))
+                    # to the end of the sentence that names the mover and seconder (the match itself can run on into the
+                    # clerk's closing lines)
+                    e = max((m.end(k) for k in ("mover1", "sec1", "mover5", "sec5", "mover2", "sec2", "mover3", "sec3", "mover4", "sec4")
+                             if m.group(k)), default=m.end())
+                    b = re.search(r"[.;](?:\s|$)", flat[e:])
+                    own = flat[a + 2 if a >= 0 else 0: e + (b.start() if b else len(flat) - e)].strip(" .;:,")[:240]
+                    if _says_more(own) or SIGNOFF_RX.search(what):
+                        what = own
+            if SIGNOFF_RX.search(what):
+                what = "Motion"
         res = RESULT_RX.search(flat)
         result = ""
         if res:
@@ -209,7 +266,9 @@ def _derive(src: dict, ctx: dict):
     if not date:
         from .elections import find_date
 
-        date = find_date(text, title)
+        # the heading's own date first ("Minutes Regular Session: Monday, May 11th, 2026"): find_date takes neither
+        # ordinals nor "February 27,2025", and nine roll calls went out undated (Nov 13, 2026)
+        date = meeting_date(text, title) or find_date(text, title)
     for mo in parse_motions(text):
         base_key = f"{src['source_id']}|minutes|{url}|{mo['index']}"
         topics = tag(mo["motion"], mo["text"])
@@ -227,4 +286,5 @@ def _derive(src: dict, ctx: dict):
                                "votes": mo["votes"], "MatterFile": mo["ordinance_ref"], "EventBodyName": ""})
 
 
-register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive))
+# version 2 (Nov 13, 2026): the heading's date when the document has none; a motion's words never the clerk's closing lines
+register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive, version="2"))

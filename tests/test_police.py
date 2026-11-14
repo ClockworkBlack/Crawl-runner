@@ -84,7 +84,7 @@ def test_media_tips_from_outlet_contact_page():
 
 def test_export_shapes(tmp_path: Path):
     (tmp_path / "state").mkdir(); (tmp_path / "config").mkdir()
-    (tmp_path / "state" / "police.json").write_text(json.dumps({"marietta": {"found": True, "kind": "police", "name": "Marietta Police Department", "url": "https://www.mariettaga.gov/police", "chief": {"name": "A B", "title": "Chief of Police", "src": "u"}, "phones": [], "emails": [], "address": None, "precincts": [], "checked_at": "2026-11-06T00:00:00+00:00"}, "nowhere": {"found": False}}))
+    (tmp_path / "state" / "police.json").write_text(json.dumps({"marietta": {"found": True, "kind": "police", "name": "Marietta Police Department", "url": "https://www.mariettaga.gov/police", "chief": {"name": "Ann Brown", "title": "Chief of Police", "src": "u"}, "phones": [], "emails": [], "address": None, "precincts": [], "checked_at": "2026-11-06T00:00:00+00:00"}, "nowhere": {"found": False}}))
     (tmp_path / "state" / "media.json").write_text(json.dumps({"ajc.com": {"found": True, "name": "AJC", "page": "p", "tips": [{"address": "tips@ajc.com", "src": "p", "label": "News tips"}], "checked_at": "x"}, "gone.com": {"found": False}}))
     (tmp_path / "state" / "discovered.json").write_text(json.dumps({"marietta": {"website": "https://www.mariettaga.gov/", "records": {"emails": ["clerk@mariettaga.gov"], "portal": None, "page": "https://www.mariettaga.gov/clerk"}}, "co-cobb": {"website": "https://www.cobbcounty.gov/", "records": {}}}))
     (tmp_path / "config" / "openrecords.yaml").write_text("approved: {co-cobb: records@cobbcounty.gov}\nskip: []\n")
@@ -96,7 +96,7 @@ def test_export_shapes(tmp_path: Path):
     M = json.loads((out / "media.json").read_text())
     assert M["outlets"][0]["name"] == "The AJC" and M["statewide"] == ["ajc.com"] and "atlanta" in M["regions"]
     P = json.loads((out / "police.json").read_text())["departments"][0]
-    assert P["jurisdiction"] == "marietta" and P["county"] == "Cobb" and P["chief"]["name"] == "A B"
+    assert P["jurisdiction"] == "marietta" and P["county"] == "Cobb" and P["chief"]["name"] == "Ann Brown"
     C = json.loads((out / "records_contacts.json").read_text())["contacts"]
     assert C["marietta"]["emails"] == ["clerk@mariettaga.gov"] and C["co-cobb"]["emails"] == ["records@cobbcounty.gov"]
 

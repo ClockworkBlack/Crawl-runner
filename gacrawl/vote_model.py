@@ -413,6 +413,13 @@ def _table(y, P, X, groups):
     out["verdict"] = ("better than every rule" if m["range95"][0] > b["right"] else
                       "ahead of every rule, within the range chance allows" if m["right"] > b["right"] else
                       "no better than the best rule")
+    # how close its chances are (Brier score, lower is better): what the expected Yea counts and the pass/fail calls add
+    # up from. Nov 13, 2026: no better than the best rule at calling single votes (92.39 to 92.54 percent of 565,749),
+    # its chances were the closest (0.0611 to the rule's 0.0710), and blending the rule in or re-fitting the chances on
+    # an earlier year called fewer roll calls' outcomes right (4,973 and 4,966 of 5,144, against the model's 4,992)
+    best_b = min(RULES, key=lambda k: out[k]["brier"])
+    out["chances"] = {"model_brier": m["brier"], "best_rule": best_b, "best_rule_brier": out[best_b]["brier"],
+                      "verdict": "closer than every rule" if m["brier"] < out[best_b]["brier"] else "no closer than the best rule"}
     return out
 
 
@@ -548,5 +555,5 @@ def export_vote_model(store, out_path: Path, log=print) -> dict:
     counts.pop("years", None)
     if t:
         counts.update({"model_right": t["model"]["right"], "best_rule": t["best_rule"], "best_rule_right": t[t["best_rule"]]["right"],
-                       "verdict": t["verdict"]})
+                       "verdict": t["verdict"], "chances": (t.get("chances") or {}).get("verdict")})
     return counts

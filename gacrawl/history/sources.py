@@ -244,7 +244,10 @@ def medsl_contests(text: str, kind: str, src_url: str):
              "basis": "compiled"}
         if special:
             c["sp"] = 1
-        tag_outcomes(o, g["tot"], majority=False)
+        # Georgia needs a majority (O.C.G.A. 21-2-501; presidential electors excepted): its leader without one led, and
+        # build.link_runoffs says who went to the runoff. Until Nov 13, 2026 every leader here was "won", so David Perdue
+        # showed as the winner of the 2020 U.S. Senate general (49.7 percent; Jon Ossoff won the January runoff)
+        tag_outcomes(o, g["tot"], majority=st == "GA" and kind != "president")
         yield c
 
 
@@ -465,9 +468,16 @@ def fec_contests(sheets, year: int, url: str):
             continue                                   # minor-party and independent lines are not primaries
         if sp:
             c["sp"] = 1
+        ga = st == "GA" and office != "President"
+        if ga and stage == "general":
+            # the FEC's winner mark on a Georgia general is the winner after the runoff (Jon Ossoff, 2020, beside his
+            # 47.9 percent of the November vote): Georgia's own majority rule says who won the general itself
+            for x in o:
+                if x[4] == "won":
+                    x[4] = ""
         if not any(x[4] for x in o):
-            tag_outcomes(o, tot, majority=False)
-            if stage == "primary" and len(o) > 1 and o[0][4] == "won" and tot and (o[0][2] or 0) * 2 <= tot \
+            tag_outcomes(o, tot, majority=ga)
+            if stage == "primary" and len(o) > 1 and o[0][4] in ("won", "led") and tot and (o[0][2] or 0) * 2 <= tot \
                     and (st, office, dist, "primary runoff", p, sp) in groups:
                 o[0][4] = o[1][4] = "runoff"
         yield c

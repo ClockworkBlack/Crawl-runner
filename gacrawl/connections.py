@@ -33,6 +33,7 @@ import datetime as dt
 import json
 import os
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -40,6 +41,11 @@ from .entities import EntityIndex, committee_candidate, is_org, norm_org
 from .store import Store
 
 MATTER_WINDOW_DAYS = 180
+
+
+def _in(s):
+    """One shared copy of a string the graph holds many times (entity ids, page urls, dates, employers)."""
+    return sys.intern(s) if isinstance(s, str) and len(s) < 600 else s
 
 
 def _d(s: str | None) -> dt.date | None:
@@ -74,11 +80,17 @@ class Graph:
     def edge(self, a: str, b: str, etype: str, src: str, **attrs) -> dict | None:
         if not a or not b or a == b:
             return None
-        key = f"{a}|{b}|{etype}|{attrs.get('date') or ''}|{attrs.get('amount') or ''}|{attrs.get('role') or ''}|{src}|{attrs.pop('line', '')}"
+        line = attrs.pop("line", "")
+        # a money line's own id makes its edge unique: the key is then short (it was the whole page url and every field,
+        # a few hundred bytes for each of three million lines)
+        key = (f"{etype}|{line}|{a}|{b}" if line not in ("", None) else
+               f"{a}|{b}|{etype}|{attrs.get('date') or ''}|{attrs.get('amount') or ''}|{attrs.get('role') or ''}|{src}|")
         if key in self._edge_keys:
             return None
         self._edge_keys.add(key)
-        e = {"a": a, "b": b, "type": etype, "src": src, **{k: v for k, v in attrs.items() if v not in (None, "")}}
+        # the same page, date, employer or occupation recurs on thousands of lines: one copy of each string
+        e = {"a": _in(a), "b": _in(b), "type": etype, "src": _in(src),
+             **{k: (_in(v) if isinstance(v, str) else v) for k, v in attrs.items() if v not in (None, "")}}
         self.edges.append(e)
         self.out[a].append(e)
         self.inn[b].append(e)

@@ -295,11 +295,27 @@ def money_checks(store) -> str:
     from .finance import part_read as _part_read
 
     part = [(f"fec:a2r:{k}", store.kv_get(f"fec:a2r:{k}") or "{}") for k in _part_read(store)]
-    with store._lock:
-        sums = store.db.execute("SELECT json_extract(meta,'$.candidate_id') AS c, sum(json_extract(meta,'$.amount')) AS t FROM records "
-                                "WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' AND json_extract(meta,'$.fec_v') IS NOT NULL "
-                                "AND coalesce(json_extract(meta,'$.memo_code'),'') != 'X' AND json_extract(meta,'$.candidate_id') IS NOT NULL "
-                                "GROUP BY c").fetchall()
+    # each campaign's FEC lines counted by the shared rules (gacrawl/money.py), as the site counts them: until Nov 13, 2026
+    # this added every line but memos, so a loan an amended report listed again (Jim Barksdale's two $1 million loans of
+    # 2016, on lines 13A and 13B of two filings) counted twice here and the report called a campaign wrong that the site
+    # shows right ($2,733,404 of the FEC's $2,940,200)
+    from collections import defaultdict as _dd
+
+    from .money import clean as _clean
+
+    def _fec_rows():
+        return store.iter_query("kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' AND "
+                                "json_extract(meta,'$.fec_v') IS NOT NULL AND json_extract(meta,'$.candidate_id') IS NOT NULL")
+    own = _dd(set)
+    for r in _fec_rows():
+        m = r.get("meta") or {}
+        if m.get("committee"):
+            own[m["candidate_id"]].add(m["committee"])
+    totals = _dd(float)
+    for ln in _clean(_fec_rows(), own, covered={}):
+        if ln["type"] in ("contribution", "in_kind"):
+            totals[ln["meta"]["candidate_id"]] += ln["amount"]
+    sums = [{"c": c, "t": t} for c, t in sorted(totals.items())]
     L.append(f"- Committees part-way through a read (carried on next run): **{len(part)}**"
              + (": " + ", ".join(f"{r[0][8:]} ({json.loads(r[1]).get('pages', 0)} pages)" for r in part[:12]) if part else ""))
     from .connections import fec_check

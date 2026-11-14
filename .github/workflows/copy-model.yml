@@ -1,0 +1,96 @@
+name: copy-model
+
+# The newest model trained on Electo's data (the Colab notebook's Electo-*.zip on Electo's private ai-models release) put
+# on the public electo-data repository's app-models release, where its apps workflow takes it into Electo-with-AI.apk.
+# Runs in the PUBLIC runner repository only, with the tokens it already holds: ELECTO_TOKEN reads Electo, and
+# SITE_DATA_TOKEN (else ELECTO_TOKEN) writes electo-data, as the site data and publish-model jobs do. Electo's own
+# copy-model-public workflow does the same job only when Electo has a PUBLIC_DATA_TOKEN secret; it has none (Nov 13,
+# 2026: it failed every morning, and the model trained that day never reached the app).
+#
+# Every morning and by hand; nothing to do when electo-data already has this exact file (same SHA-256). After a copy it
+# asks electo-data to build the Android apps, or leaves it to that repository's Monday build.
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "the trained model's ID (the folder inside the zip)"
+        required: false
+        default: Electo-Qwen2.5-1.5B-q4f16_1-MLC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copy-model
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MODEL: ${{ inputs.model || 'Electo-Qwen2.5-1.5B-q4f16_1-MLC' }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      PUBLIC_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+      PUBLIC_TAG: app-models
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      PUB_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+    steps:
+      - name: The newest trained model on Electo, and what electo-data has
+        id: look
+        run: |
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no ELECTO_TOKEN secret: Electo's models can't be read"; exit 1; }
+          [ -n "$PUB_TOKEN" ] || { echo "::error::no SITE_DATA_TOKEN or ELECTO_TOKEN secret: electo-data can't be written"; exit 1; }
+          # GitHub renames a re-upload (….MLC.2.zip) and a Google Drive download adds -<time>-1-001: the newest upload of
+          # the model's name is the one used, as in Electo's tools/fetch_models.sh
+          GH_TOKEN="$ELECTO_TOKEN" gh api "repos/$ELECTO_REPO/releases/tags/ai-models" --jq \
+            '[.assets[] | select(.name | test("^" + (env.MODEL | gsub("\\."; "\\.")) + "(-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+)?(\\.[0-9]+)?\\.zip$"))] | sort_by(.updated_at) | last // empty | [.id, .name, .digest, .size, .updated_at] | @tsv' > newest.tsv
+          if [ ! -s newest.tsv ]; then echo "no $MODEL zip on Electo's ai-models release yet: nothing to copy" | tee -a "$GITHUB_STEP_SUMMARY"; echo "copy=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          IFS=$'\t' read -r id name digest size at < newest.tsv
+          echo "newest on Electo: $name, $size bytes, uploaded $at, $digest"
+          have=$(GH_TOKEN="$PUB_TOKEN" gh api "repos/$PUBLIC_REPO/releases/tags/$PUBLIC_TAG" --jq '.assets[] | select(.name == (env.MODEL + ".zip")) | .digest' 2>/dev/null) || have=""
+          echo "on $PUBLIC_REPO $PUBLIC_TAG: ${have:-nothing}"
+          if [ -n "$digest" ] && [ "$have" = "$digest" ]; then echo "copy=no" >> "$GITHUB_OUTPUT"; echo "electo-data has this exact file already: nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          { echo "copy=yes"; echo "id=$id"; echo "name=$name"; echo "digest=$digest"; echo "at=$at"; } >> "$GITHUB_OUTPUT"
+      - name: Download and check it
+        if: steps.look.outputs.copy == 'yes'
+        run: |
+          GH_TOKEN="$ELECTO_TOKEN" gh api "repos/$ELECTO_REPO/releases/assets/${{ steps.look.outputs.id }}" -H "Accept: application/octet-stream" > "$MODEL.zip"
+          got="sha256:$(sha256sum "$MODEL.zip" | cut -d' ' -f1)"
+          want="${{ steps.look.outputs.digest }}"
+          if [ -n "$want" ] && [ "$got" != "$want" ]; then echo "::error::download is $got, GitHub says $want"; exit 1; fi
+          tops=$(unzip -Z1 "$MODEL.zip" | cut -d/ -f1 | grep -v '^$' | sort -u)
+          [ "$tops" = "$MODEL" ] || { echo "::error::expected the one folder $MODEL inside the zip, found: $(echo $tops | head -c 300)"; exit 1; }
+          unzip -Z1 "$MODEL.zip" | grep -Eq "^$MODEL/(mlc-chat-config\.json)$" || { echo "::error::no mlc-chat-config.json in the zip: not a WebLLM model"; exit 1; }
+          unzip -Z1 "$MODEL.zip" | grep -Eq "^$MODEL/(tensor-cache|ndarray-cache)\.json$" || { echo "::error::no tensor-cache.json or ndarray-cache.json in the zip"; exit 1; }
+          echo "$(du -h "$MODEL.zip" | cut -f1), $got, $(unzip -Z1 "$MODEL.zip" | wc -l) files"
+      - name: Put it on electo-data's app-models release
+        if: steps.look.outputs.copy == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+        run: |
+          notes="The model the Android app carries inside (Electo-with-AI.apk), copied here from Electo's private ai-models release by Crawl-runner's copy-model workflow: $MODEL, Qwen2.5-1.5B-Instruct (Qwen team, Apache License 2.0) trained further on Electo's public data and quantized to 4 bits for WebLLM. Trained ${{ steps.look.outputs.at }}. The apps workflow takes it from here; the dictation and voice models come from Hugging Face. Not meant to be downloaded by hand."
+          gh release view "$PUBLIC_TAG" -R "$PUBLIC_REPO" >/dev/null 2>&1 \
+            || gh release create "$PUBLIC_TAG" -R "$PUBLIC_REPO" --title "The app's offline AI model" --prerelease --latest=false --notes "$notes"
+          gh release edit "$PUBLIC_TAG" -R "$PUBLIC_REPO" --notes "$notes" --prerelease --latest=false
+          gh release upload "$PUBLIC_TAG" -R "$PUBLIC_REPO" "$MODEL.zip" --clobber
+          # one model on the release: any other zip there would be bundled too
+          gh api "repos/$PUBLIC_REPO/releases/tags/$PUBLIC_TAG" --jq '.assets[] | select(.name != (env.MODEL + ".zip") and (.name | endswith(".zip"))) | .name' | while read -r old; do
+            gh release delete-asset "$PUBLIC_TAG" "$old" -R "$PUBLIC_REPO" -y && echo "removed $old"
+          done
+          up=$(gh api "repos/$PUBLIC_REPO/releases/tags/$PUBLIC_TAG" --jq '.assets[] | select(.name == (env.MODEL + ".zip")) | .digest')
+          [ "$up" = "${{ steps.look.outputs.digest }}" ] || [ -z "${{ steps.look.outputs.digest }}" ] || { echo "::error::electo-data has $up after the upload, expected ${{ steps.look.outputs.digest }}"; exit 1; }
+          echo "Copied $MODEL (trained ${{ steps.look.outputs.at }}) to $PUBLIC_REPO's $PUBLIC_TAG release." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Ask electo-data to build the Android apps with it
+        if: steps.look.outputs.copy == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+        run: |
+          if gh workflow run apps.yml -R "$PUBLIC_REPO" -f what=android -f publish=yes 2>err.txt; then
+            echo "Started electo-data's apps workflow for Android." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The token may not start workflows on $PUBLIC_REPO ($(head -c 200 err.txt)): its Monday build takes the model." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
