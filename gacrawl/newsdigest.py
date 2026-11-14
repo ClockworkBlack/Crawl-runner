@@ -390,7 +390,7 @@ class Digest:
                 if r.status == 200 and r.content.strip().startswith(b"["):
                     posts = [p for p in r.json() if isinstance(p, dict)]
         self._wp_known[dom] = (known or set()) | {p.get("id") for p in posts}
-        return [(p.get("link") or "", (p.get("title") or {}).get("rendered") or "",
+        return [(p.get("link") or "", _text((p.get("title") or {}).get("rendered") or ""),   # the title is HTML too
                  _text((p.get("excerpt") or {}).get("rendered") or ""), p.get("date") or "", dom, "wp_json",
                  _text((p.get("content") or {}).get("rendered") or ""), False) for p in posts]
 

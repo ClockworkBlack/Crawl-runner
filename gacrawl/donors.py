@@ -42,6 +42,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from .textfix import fix_tree
+
 GIFT_CAP = 12000             # what Electo's Donors tab keeps (ga/crawl_import.py donors_from): more was cut there, by size
 GIFT_FLOOR, GIFT_TOP = 10, 60   # every recipient's own largest gifts kept first: at least GIFT_FLOOR, up to GIFT_TOP each
 # Earmarking platforms: a line "from" one of these is many people's gifts passed through, not one donor. Counted in
@@ -695,7 +697,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     for g in gift_list:
         if g.get("via"):
             g["via"] = sorted(g["via"])[:3]
-    out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    # names, employers and occupations as people read them (the filings carry "TundÃ©", "McCookâ€™s")
+    out_path.write_text(json.dumps(fix_tree(doc), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log, candidates=candidates)
     return {"profiles": np, "rows": n_rows, "recipients": len(rec_list), "gifts": len(gift_list), "spend": len(spend_list), "donors": len(donor_list)}
 
@@ -882,9 +885,10 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
     (out_dir / "dp").mkdir(parents=True)
     (out_dir / "dpi").mkdir()
     for k in (f"{i:02x}" for i in range(SHARDS)):
-        (out_dir / "dp" / f"{k}.json").write_text(json.dumps(shards.get(k, {}), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        (out_dir / "dp" / f"{k}.json").write_text(json.dumps(fix_tree(shards.get(k, {})), ensure_ascii=False, separators=(",", ":")),
+                                                 encoding="utf-8")
     for k, rows in index.items():
-        (out_dir / "dpi" / f"{k}.json").write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        (out_dir / "dpi" / f"{k}.json").write_text(json.dumps(fix_tree(rows), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     n = min(len(order), cap)
     (out_dir / "meta.json").write_text(json.dumps({"donors": n, "all_donors": len(order), "cap": cap, "shards": SHARDS,
                                                   "generated": _now(), "letters": sorted(index)}, separators=(",", ":")), encoding="utf-8")

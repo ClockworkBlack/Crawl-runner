@@ -38,7 +38,8 @@ from collections import defaultdict
 from pathlib import Path
 
 from .entities import EntityIndex, committee_candidate, is_org, norm_org
-from .store import Store
+from .store import Store, norm_published
+from .textfix import fix_inplace
 
 MATTER_WINDOW_DAYS = 180
 
@@ -46,6 +47,13 @@ MATTER_WINDOW_DAYS = 180
 def _in(s):
     """One shared copy of a string the graph holds many times (entity ids, page urls, dates, employers)."""
     return sys.intern(s) if isinstance(s, str) and len(s) < 600 else s
+
+
+def _day(s: str | None) -> str:
+    """A record's date as YYYY-MM-DD ("" when it has none): never the first ten characters of an e-mail-header date
+    ("Sun, 22 Ma" reached Electo's Grand Cross that way, Nov 14, 2026)."""
+    s = norm_published(s) or ""
+    return s[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", s) else ""
 
 
 def _d(s: str | None) -> dt.date | None:
@@ -212,7 +220,7 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
             eid = entities.resolve(who, "org" if is_org(who) else "person", url=r["url"])
             if eid:
                 g.node(eid)
-                g.edge(eid, ceid, "endorsed", r["url"], date=(r.get("published") or "")[:10],
+                g.edge(eid, ceid, "endorsed", r["url"], date=_day(r.get("published")),
                        evidence=r.get("evidence") or "primary", self_reported=bool(m.get("self_reported")))
         elif m.get("type") in ("membership", "affiliation") and m.get("party"):
             eid = entities.resolve(m["party"], "org", url=r["url"])
@@ -245,7 +253,7 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
                 pid = entities.resolve(sp["name"], "person", url=m.get("opened_url") or r["url"])
                 if pid:
                     g.node(pid)
-                    g.edge(pid, mid, "sponsored", m.get("opened_url") or r["url"], date=(r.get("published") or "")[:10], evidence="primary")
+                    g.edge(pid, mid, "sponsored", m.get("opened_url") or r["url"], date=_day(r.get("published")), evidence="primary")
     for r in store.iter_query("kind='appointment'"):
         m = r["meta"]
         if m.get("person") and m.get("body"):
@@ -254,7 +262,7 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
             if pid:
                 g.node(pid)
                 g.node(bid, "body", m["body"])
-                g.edge(pid, bid, "appointed_to", r["url"], date=(r.get("published") or "")[:10], by=m.get("by", ""),
+                g.edge(pid, bid, "appointed_to", r["url"], date=_day(r.get("published")), by=m.get("by", ""),
                        evidence=r.get("evidence") or "primary")
     g.seal()
     return g
@@ -568,7 +576,12 @@ def export_graph(g: Graph, pats: list[dict], out: Path) -> dict:
     Electo never links people through a private individual); gifts are one edge per donor and recipient (amount the
     total, n the lines, date the newest, src the largest gift's filing); each kind of pattern its PATTERN_CAP largest.
     Returns the whole graph's counts (what the profiles and patterns were built from) and the file's."""
+    # names and roles as people read them (organization names came in as "A womanâ€™s space"), once, before the size
+    # loop below, in place: the graph is the export's largest object (gacrawl/export.py keeps its memory low)
     nodes = g.nodes
+    for n in nodes.values():
+        fix_inplace(n)
+    fix_inplace(pats)
 
     def private(i):
         return nodes.get(i, {}).get("kind") == "person"

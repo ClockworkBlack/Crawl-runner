@@ -47,6 +47,7 @@ from . import extract
 from .fetch import Blocked, Disallowed, Fetcher, OutOfTime
 from .registry import load_yaml, school_districts
 from .store import Record, Store
+from .textfix import fix_text
 
 SRC_NCES, SRC_GOSA, SRC_CCRPI, SRC_SITES = "schools:nces", "schools:gosa", "schools:ccrpi", "schools:sites"
 GRADES = ["PK", "KG", "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12", "G13", "UG"]
@@ -865,9 +866,19 @@ def principal_from_text(text: str) -> tuple[str, str] | None:
     return (nm, "Principal") if nm else None
 
 
+# a sentence's first words, never a person's first name: "On March 26, 2026, the Board of Education appointed Mrs.
+# Karen McNeal" gave Early County's board a member called "On March" (Nov 2026)
+NOT_FIRST_NAMES = {"on", "in", "at", "by", "for", "from", "of", "to", "with", "and", "or", "as", "since", "until", "after",
+                   "before", "during", "each", "every", "all", "this", "that", "these", "those", "our", "your", "their",
+                   "his", "her", "its", "please", "meet", "contact", "elected", "appointed", "serving", "term", "effective",
+                   "beginning", "starting", "following", "congratulations", "welcome", "thank", "thanks", "when", "where",
+                   "what", "who", "how", "why", "if", "upon", "via", "under", "over", "about", "new", "former", "current"}
+
+
 def _plausible_name(name: str) -> bool:
     w = name.split()
-    return 2 <= len(w) <= 4 and not STOP_NAMES.search(name) and all(len(x) <= 20 for x in w) and name[0].isupper()
+    return (2 <= len(w) <= 4 and not STOP_NAMES.search(name) and all(len(x) <= 20 for x in w) and name[0].isupper()
+            and w[0].lower().rstrip(".,") not in NOT_FIRST_NAMES)
 
 
 def sites(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, log=print, deadline: float | None = None) -> dict:
@@ -1114,7 +1125,7 @@ SEAT_RX_DEFAULT = r"(?:district|post|seat|area|ward)\s*(\d+|[A-Z]\b)"
 def board_members_from_text(text: str, seat_rx: str = SEAT_RX_DEFAULT) -> list[dict]:
     """Names with roles from a board page's text. Looks at each line (and the line after it) for a name and a role
     or seat; a page that names fewer than two people with roles is not treated as a board page."""
-    lines = [ln.strip(" \t#*-•|") for ln in (text or "").splitlines()]
+    lines = [ln.strip(" \t#*-•|") for ln in fix_text(text or "").splitlines()]   # "Mc\u00adNeal": the soft hyphen goes
     lines = [ln for ln in lines if ln]
     seat = re.compile(seat_rx, re.I)
     role_rx = re.compile(r"\b" + ROLE_WORDS + r"\b", re.I)

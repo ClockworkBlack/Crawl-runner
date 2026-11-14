@@ -35,6 +35,8 @@ from collections import defaultdict
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from .textfix import fix_text, fix_tree
+
 BASE = "https://www.govinfo.gov/bulkdata"
 FIRST = 114
 TYPES = ("hr", "s", "hjres", "sjres", "hres", "sres", "hconres", "sconres")
@@ -69,7 +71,7 @@ def cg_url(c: int, t: str, n: int | str) -> str:
 
 def _t(e, path, default=""):
     x = e.find(path) if e is not None else None
-    return (x.text or "").strip() if x is not None and x.text else default
+    return fix_text((x.text or "").strip()) if x is not None and x.text else default
 
 
 def parse(xml: bytes) -> dict | None:
@@ -133,7 +135,8 @@ def parse(xml: bytes) -> dict | None:
         s = max(sums, key=lambda x: _t(x, "actionDate") or _t(x, "updateDate"))
         txt = _t(s, "cdata/text") or _t(s, "text")
         txt = re.sub(r"<[^>]+>", " ", txt)
-        summ = re.sub(r"\s+", " ", txt).strip()[:600]
+        # the summary is HTML: its tags are dropped above and its entities decoded here ("penalties&#8212;a fine")
+        summ = fix_text(re.sub(r"\s+", " ", txt).strip())[:600]
     la = b.find("latestAction")
     return {"c": c, "t": typ, "n": int(num), "title": _t(b, "title")[:300], "intro": intro, "sponsor": sponsor,
             "cos": len(cos), "cos_other": other, "cos_ga": ga[:12], "m": m,
@@ -386,10 +389,12 @@ def export_federal(store, out_dir: Path, log=print, today: dt.date | None = None
             # the summary only where people read it (a bill that moved, one Georgia's members are on, one with an
             # outlook): the rest keep their title and link, which keeps each Congress's file small enough for a phone
             keep_sum = stg != "introduced" or ga
-            rows.append([m["t"], m["n"], _clip(m["title"], 220), m["intro"], sp.get("name", ""), sp.get("party", ""), sp.get("state", ""),
-                         m["cos"], m["cos_other"], m.get("cos_ga") or [], stg, m["last"]["d"], _clip(m["last"]["text"], 140),
-                         m.get("law", ""), m.get("area", ""), _clip(m.get("summary") or "", 320) if keep_sum else "", o,
-                         {"t": a["t"], "m": a.get("m", "")} if a and a.get("t") else None])
+            # bills stored before Nov 14, 2026 keep their summaries' HTML entities: decoded here, before the clip counts length
+            rows.append(fix_tree([m["t"], m["n"], _clip(fix_text(m["title"]), 220), m["intro"], sp.get("name", ""), sp.get("party", ""),
+                                  sp.get("state", ""), m["cos"], m["cos_other"], m.get("cos_ga") or [], stg, m["last"]["d"],
+                                  _clip(fix_text(m["last"]["text"]), 140), m.get("law", ""), m.get("area", ""),
+                                  _clip(fix_text(m.get("summary") or ""), 320) if keep_sum else "", o,
+                                  {"t": a["t"], "m": a.get("m", "")} if a and a.get("t") else None]))
         (out_dir / f"{c}.json").write_text(json.dumps({"c": c, "cols": COLS, "rows": rows}, ensure_ascii=False, separators=(",", ":")),
                                            encoding="utf-8")
         counts[c] = len(rows)
@@ -428,7 +433,7 @@ def ai_run(store, root: Path, deadline: float, log=print) -> dict:
     now_c = congress_now()
     todo = []
     for r in store.iter_query("kind='federal_bill' AND key LIKE ?", (f"fed|{now_c}|%",)):
-        m = r.get("meta") or {}
+        m = fix_tree(r.get("meta") or {})          # the model reads the summary as people do, entities decoded
         k = f"{m['c']}|{m['t']}|{m['n']}"
         if not m.get("summary") or len(m["summary"]) < 120 or (have.get(k) or {}).get("v") == AI_V:
             continue

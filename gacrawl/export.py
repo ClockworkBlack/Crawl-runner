@@ -59,7 +59,7 @@ from .scheduler import Progress
 from .store import Store
 from .verified_posts import Registry
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"   # 2.2 (Nov 14, 2026): published is always ISO 8601; text has HTML entities decoded
 SLIM = {"rid", "key", "first_seen", "thash"}
 
 # Kinds one candidate can hold a million lines of: read from the database in pages each time they are used, never held
@@ -127,8 +127,8 @@ SCHEMA_MD = """# Electo import bundle — field reference (schema {version})
 | jurisdiction | registry id (`canton`, `co-fulton`) |
 | kind | ordinance, matter, meeting, agenda_item, vote, official, page, document, feed_item, ocr, statement, article, mention, social_mention, post, connection, lead |
 | url | the page or API resource that was opened (or a link that resource itself gave); never built from a pattern |
-| title, text, markdown | content (`markdown` only when it differs from `text`); articles keep excerpts only |
-| published | date from the source when it gave one |
+| title, text, markdown | content (`markdown` only when it differs from `text`); articles keep excerpts only. Plain text: HTML entities decoded and text mis-decoded as Windows-1252 repaired (gacrawl/textfix.py); `&lt;` and `&gt;` are left as written |
+| published | date from the source when it gave one, always ISO 8601: `YYYY-MM-DD`, or the date and time with the source's offset (`2026-10-27T15:05:21-05:00`); a feed's e-mail-header form is converted (since schema 2.2) |
 | channel | how it was fetched: api, wp_json, feed, sitemap, html, browser, pdf, ocr, import, store |
 | evidence | primary (official record / candidate's own channel), reported (listed news outlet), lead (not opened; never cite). Unverified items are only in rumor_mill.json |
 | fetched_at, changed_at | when this content was fetched / last changed |
@@ -297,6 +297,9 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     own = store is None
     store = store or Store(root / "data")
     store.flush()
+    n_dates = store.normalize_published()      # once per database (schema 2.2): stored feed dates as ISO 8601
+    if n_dates:
+        log(f"export: {n_dates} stored dates rewritten as ISO 8601")
     progress = Progress(root / "state" / "progress.json")
     src_status = {s["id"]: {k: v for k, v in progress.get(s["id"]).items()
                             if k in ("last_ok", "status", "channel", "mode", "new", "seen")} for s in all_sources(root)}

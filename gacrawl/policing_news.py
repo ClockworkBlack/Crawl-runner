@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from .registry import write_json_atomic
+from .textfix import fix_text
 import re
 import time
 from collections import defaultdict
@@ -226,7 +227,8 @@ class PoliceNews:
                 if not link.startswith("http"):
                     continue
                 _, md = extract.html_to_markdown((p.get("content") or {}).get("rendered") or "", link)
-                title = re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered") or "")
+                # WordPress returns the title as HTML: tags dropped, entities decoded ("activist&#8217;s")
+                title = fix_text(re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered") or ""))
                 out.append({"url": link, "title": title, "text": md or "", "date": (p.get("date") or "")[:10], "outlet": dom})
         return out
 

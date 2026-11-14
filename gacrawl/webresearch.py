@@ -33,6 +33,7 @@ from pathlib import Path
 
 from . import extract
 from .blocked import Blocked
+from .textfix import fix_text
 from .fetch import Disallowed, OutOfTime
 from .names import excerpts, name_regex, name_variants
 from .store import Record
@@ -201,7 +202,7 @@ class WebLane:
                 _, text = extract.html_to_markdown((p.get("content") or {}).get("rendered") or "", link)
                 if not self._about(c, text or "", pat, dom in local):
                     continue
-                title = re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered") or "")
+                title = fix_text(re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered") or ""))   # HTML in the API
                 add(Record("", "article", link, title=extract_title(title), text="\n".join(excerpts(text, pat, n=3))[:1800],
                            published=(p.get("date") or "")[:10] or None, channel="wp_json", evidence="reported",
                            meta={"outlet": dom, "via": "outlet_archive", "opened": True}))

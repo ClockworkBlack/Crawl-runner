@@ -233,11 +233,18 @@ def run(cfg: dict, only: list[str] | None = None, max_minutes: float | None = No
 
 
 def iter_contests(work: Path):
+    from .model import nice_name, ungarble_name
+
     for p in sorted((work / "norm").glob("*/*.jsonl.gz")):
         with gzip.open(p, "rt", encoding="utf-8") as fh:
             for line in fh:
                 if line.strip():
-                    yield json.loads(line)
+                    c = json.loads(line)
+                    # files read before names were ungarbled (Nov 14, 2026) are put right here, without reading them again
+                    for o in c.get("o") or []:
+                        if o and isinstance(o[0], str) and "\ufffd" in o[0]:
+                            o[0] = nice_name(ungarble_name(o[0]))
+                    yield c
 
 
 def status(cfg: dict) -> dict:

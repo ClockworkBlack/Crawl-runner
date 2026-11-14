@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from .textfix import fix_text
+
 SCHEMA_VERSION = 2
 
 
@@ -40,6 +42,26 @@ ID_FIELDS = ("EventItemId", "VoteId", "MatterId", "EventId", "OfficeRecordId", "
              "guid", "wp_id", "record_id", "tweet_id", "video_id", "uri", "account_id", "person_id")
 # kinds where many distinct records legitimately share a URL and carry no id: keyed by content
 CONTENT_KEYED = {"connection", "ocr"}
+
+
+def norm_published(s):
+    """A record's date as ISO 8601: "2026-10-27" or "2026-10-27T15:05:21-05:00". Feeds and some sites write the form
+    of e-mail headers ("Tue, 27 Oct 2026 15:05:21 -0500"; 317 of 322,446 dated records in the Nov 14, 2026 bundle),
+    which sorts before every ISO date in SQL and was cut to "Tue, 27 Oc" by readers that take a date's first ten
+    characters. A form neither ISO nor that is returned as it is."""
+    if not isinstance(s, str):
+        return s or None
+    s = s.strip()
+    if not s:
+        return None
+    if s[:4].isdigit():
+        return s
+    try:
+        from email.utils import parsedate_to_datetime
+        d = parsedate_to_datetime(s)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return s
+    return d.isoformat() if d else s
 
 
 @dataclass
@@ -58,6 +80,11 @@ class Record:
     jurisdiction: str = ""   # registry id (co-fulton, canton, ...)
     evidence: str = ""       # primary | reported | unverified | lead
     key: str = ""            # natural key; computed when empty
+
+    def __post_init__(self):
+        # one date form and text as people read it, whichever source made the record (gacrawl/textfix.py)
+        self.published = norm_published(self.published)
+        self.title, self.text, self.markdown = fix_text(self.title), fix_text(self.text), fix_text(self.markdown)
 
     @property
     def content_hash(self) -> str:
@@ -161,6 +188,12 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d.pop("rid", None)
     d.pop("thash", None)
     d["meta"] = json.loads(d.get("meta") or "{}")
+    # rows stored before Nov 14, 2026 are read the way new records are written (Record.__post_init__)
+    if d.get("published"):
+        d["published"] = norm_published(d["published"])
+    for k in ("title", "text", "markdown"):
+        if d.get(k):
+            d[k] = fix_text(d[k])
     return d
 
 
@@ -450,6 +483,25 @@ class Store:
             self._begin()
             self.db.execute("INSERT INTO kv VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (key, value))
             self._maybe_commit(force=True)
+
+    def normalize_published(self) -> int:
+        """Once per database: dates stored in the e-mail-header form rewritten as ISO 8601 (norm_published), so SQL that
+        sorts or compares by date (read_recent) sees one form. Later records are written that way. -> rows changed."""
+        if self.kv_get("published_iso") == "1":
+            return 0
+        with self._lock:
+            rows = self.db.execute("SELECT rid, published FROM records WHERE published IS NOT NULL AND published != '' "
+                                   "AND substr(published, 1, 1) NOT BETWEEN '0' AND '9'").fetchall()
+            n = 0
+            self._begin()
+            for r in rows:
+                p = norm_published(r["published"])
+                if p != r["published"]:
+                    self.db.execute("UPDATE records SET published=? WHERE rid=?", (p, r["rid"]))
+                    n += 1
+            self.flush()
+        self.kv_set("published_iso", "1")
+        return n
 
     def changed_since(self, since: str | None, where: str = "1", params: tuple = (), batch: int = 1000) -> Iterator[dict]:
         """Records changed after `since` (ISO), oldest change first (changed_at, then rid), so a derivation that

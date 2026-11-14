@@ -979,8 +979,10 @@ jobs:
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           fill() {     # Electo's folder <- this bundle's files, staged
             rm -rf "${ELECTO_PATH}" && mkdir -p "${ELECTO_PATH}"
+            # organizations.json (23 MB) and ballot_questions.json are not copied: nothing in Electo reads them (Nov 14, 2026
+            # audit); they stay in the full bundle on the crawl-data release
             for f in manifest.json schema.md jurisdictions.json rumor_mill.json rumor_mill_video.json screenshots.json connections.json \
-                     organizations.json elections.json ballot_questions.json police.json media.json records_contacts.json \
+                     elections.json police.json media.json records_contacts.json \
                      police_incidents.json bill_reasons.json vote_model.json donors.json packets profiles councils; do
               [ -e "$B/$f" ] && cp -r "$B/$f" "${ELECTO_PATH}/"
             done
@@ -1033,27 +1035,59 @@ jobs:
           # police job and the AI jobs push to Electo too, and a rebase over their files (ga/crawl/people.json and
           # donors.json are the money push's as well) stops on a conflict and failed every later try. The explicit
           # returns matter: errexit does not apply inside a function whose status is tested
+          # Each command's exit status is checked (Nov 14, 2026 audit): piped into tail, a crash was hidden, and what the
+          # importer had written before it stopped was committed beside older files. A core step that fails publishes
+          # nothing from this try (the clone is thrown away) and is not tried again (it would fail the same way); a step
+          # whose files can stay as they were (places, the written profiles, the bills and amended Code) is put back and
+          # the rest imported, with a warning. Only a refused push is tried again on Electo's newest commit.
+          run_step() {     # run_step <label> <lines of output to show> <command...>
+            local label="$1" show="$2" log rc=0
+            shift 2
+            log=$(mktemp)
+            "$@" > "$log" 2>&1 || rc=$?
+            tail -n "$show" "$log" | cut -c1-300
+            [ "$rc" = 0 ] || echo "::warning title=Electo import::$label stopped (exit $rc): $(grep -v '^\s*$' "$log" | tail -n 1 | cut -c1-240)"
+            cp "$log" /tmp/import-last-step.log; rm -f "$log"
+            return $rc
+          }
+          put_back() {     # put_back <path...>: as Electo's main has them
+            git checkout -q HEAD -- "$@" 2>/dev/null || true
+            git clean -fdq -- "$@" 2>/dev/null || true
+          }
           import_once() {
             rm -rf /tmp/electo-full
             git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full || return 1
             cd /tmp/electo-full || return 1
             # the order ga/build_all.sh uses, minus the steps that need the live web
-            python3 -I ga/merge_profiles.py | tail -1
-            python3 -I research/build_aliases.py | head -1
-            python3 -I ga/merge_prim.py | tail -1
-            python3 -I ga/places.py | tail -1
-            python3 -I ga/crawl_import.py | tail -1 | cut -c1-300
-            (cd ga && python3 -I councils.py | tail -1 && python3 -I crawl_import.py | tail -1 | cut -c1-300)
-            python3 -I ga/crawl_import.py --policing-only --force | tail -1 | cut -c1-300   # police, media, records, bill reasons, donors
+            run_step "ga/merge_profiles.py" 1 python3 -I ga/merge_profiles.py || return 2
+            run_step "research/build_aliases.py" 1 python3 -I research/build_aliases.py || return 2
+            run_step "ga/merge_prim.py" 1 python3 -I ga/merge_prim.py || return 2
+            # places need matplotlib (installed above when it can be): without it the last places.json stays
+            run_step "ga/places.py" 1 python3 -I ga/places.py || put_back ga/places.json
+            run_step "ga/crawl_import.py" 1 python3 -I ga/crawl_import.py || return 2
+            ( cd ga && run_step "ga/councils.py" 1 python3 -I councils.py && run_step "ga/crawl_import.py (with the councils)" 1 python3 -I crawl_import.py ) || return 2
+            # police, media, records, bill reasons, donors
+            run_step "ga/crawl_import.py --policing-only" 1 python3 -I ga/crawl_import.py --policing-only --force || return 2
             # everyone's profile written from the records this import just brought (ga/written.py: races, the legislature's
             # records, the open model's checked lines for their own words), folded into the archive and this year's profiles
-            [ ! -f ga/written.py ] || python3 -I ga/written.py | tail -3
+            if [ -f ga/written.py ]; then
+              run_step "ga/written.py" 3 python3 -I ga/written.py || put_back ga/crawl/written.json ga/pipeline_archive/profiles.json ga/profiles.json ga/profiles_local.json
+            fi
             # the rest of build_all.sh, none of which needs the live web: the bill list (statuses, act numbers, new bills)
             # from legislation.json, the Code as amended by every enacted act from code_acts.json (a run that changes
-            # nothing rewrites nothing), and the name registry last (record-only council voters get their pages)
-            [ ! -f civics/refresh_acts.py ] || python3 -I civics/refresh_acts.py "$BUNDLE/legislation.json" | tail -1
-            [ ! -f civics/apply_acts.py ] || timeout 10m python3 -I civics/apply_acts.py "$BUNDLE/code_acts.json" | grep -E '"(coverage|sections_changed|published)"|apply_acts:' | tr -d '\n'; echo
-            python3 -I ga/names.py | tail -1
+            # nothing rewrites nothing); either one stopping leaves the civics files as they were
+            civics_ok=1
+            if [ -f civics/refresh_acts.py ]; then
+              run_step "civics/refresh_acts.py" 1 python3 -I civics/refresh_acts.py "$BUNDLE/legislation.json" || civics_ok=0
+            fi
+            if [ "$civics_ok" = 1 ] && [ -f civics/apply_acts.py ]; then
+              if run_step "civics/apply_acts.py" 0 timeout 10m python3 -I civics/apply_acts.py "$BUNDLE/code_acts.json"; then
+                { grep -E '"(coverage|sections_changed|published)"|apply_acts:' /tmp/import-last-step.log || true; } | tr -d '\n'; echo
+              else civics_ok=0; fi
+            fi
+            [ "$civics_ok" = 1 ] || put_back ga/pipeline_civics
+            # the name registry last (record-only council voters get their pages)
+            run_step "ga/names.py" 1 python3 -I ga/names.py || return 2
             # the News tab has its own job (news.yml, every 3 hours, fresher than this run's bundle): what the importer
             # wrote there is dropped, so the site data below publishes that job's stories
             git checkout -q -- ga/news.json 2>/dev/null || true
@@ -1067,7 +1101,12 @@ jobs:
             echo "imported into Electo ($(git rev-parse --short HEAD))"
           }
           for i in 1 2 3; do
-            (import_once) && exit 0
+            if (import_once); then exit 0; else rc=$?; fi
+            if [ "$rc" = 2 ]; then
+              echo "::error title=Electo import::a step of the import stopped (above); nothing from this run was committed to Electo"
+              { echo "### Electo import stopped"; echo; echo '```'; tail -n 25 /tmp/import-last-step.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
             echo "Electo's main moved while importing (or the push was refused): importing again on its newest commit"
             sleep $((i * 10))
           done

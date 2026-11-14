@@ -82,9 +82,19 @@ def party_code(p: str | None) -> str:
     return "O"
 
 
+def ungarble_name(n: str) -> str:
+    """A name a publisher's file garbled (MEDSL's 2006 U.S. Senate, Tennessee: "EMORY \ufffd_\u01ca\ufffd_\u01caBO\ufffd_\u01d0\ufffd_\u01d0 HEYWARD", a
+    quoted nickname after a bad character set): in a word holding the replacement mark, only its letters are kept
+    ("EMORY BO HEYWARD", the person key the page already files him under). Any other name is returned as it is."""
+    if not isinstance(n, str) or "\ufffd" not in n:
+        return n
+    words = [re.sub(r"[^A-Za-z.'-]", "", w) if "\ufffd" in w else w for w in n.split()]
+    return " ".join(w for w in words if w)
+
+
 def nice_name(n: str) -> str:
     """A ballot name as a person would write it: "JOHN H BUCHANAN JR" -> "John H. Buchanan Jr."; mixed case is kept."""
-    n = re.sub(r"\s+", " ", str(n or "").replace('\\"', '"').strip().strip(","))
+    n = re.sub(r"\s+", " ", ungarble_name(str(n or "")).replace('\\"', '"').strip().strip(","))
     if not n:
         return n
     m3 = re.fullmatch(r"([^,]+),\s*([^,]+),\s*(JR|SR|II|III|IV)\.?", n, re.I)      # "Cleaver, Emanuel, II" -> "Emanuel Cleaver II"
