@@ -80,6 +80,8 @@ class Graph:
     def edge(self, a: str, b: str, etype: str, src: str, **attrs) -> dict | None:
         if not a or not b or a == b:
             return None
+        if self._edge_keys is None:
+            raise RuntimeError("the graph is sealed (connections.build): edges are added only while it is built")
         line = attrs.pop("line", "")
         # a money line's own id makes its edge unique: the key is then short (it was the whole page url and every field,
         # a few hundred bytes for each of three million lines)
@@ -95,6 +97,11 @@ class Graph:
         self.out[a].append(e)
         self.inn[b].append(e)
         return e
+
+    def seal(self) -> None:
+        """Once built: the keys that kept each edge unique (one per money line, three million on Nov 14, 2026) are not
+        needed again, and an edge added after this is refused rather than allowed to repeat one."""
+        self._edge_keys = None
 
     def neighbors(self, eid: str, etype: str | None = None, out: bool = True):
         for e in (self.out if out else self.inn).get(eid, ()):
@@ -249,6 +256,7 @@ def build(store: Store, entities: EntityIndex, jurisdictions: dict | None = None
                 g.node(bid, "body", m["body"])
                 g.edge(pid, bid, "appointed_to", r["url"], date=(r.get("published") or "")[:10], by=m.get("by", ""),
                        evidence=r.get("evidence") or "primary")
+    g.seal()
     return g
 
 

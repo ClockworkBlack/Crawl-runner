@@ -44,6 +44,7 @@ content changes, so the site can upsert) and `hash` (changes with the content).
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import heapq
 import json
 from collections import Counter, defaultdict
@@ -210,6 +211,19 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _memory() -> str:
+    """'(memory 5.1 GB, at most 7.9 GB so far)' on Linux, for the run's log: a runner killed for memory leaves no
+    message of its own, so the last of these lines says where the export had got to and how much it held."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as f:
+            st = dict(line.split(":", 1) for line in f if ":" in line)
+        now, top = (int(st[k].split()[0]) / 1048576 for k in ("VmRSS", "VmHWM"))
+        swap = int(st.get("VmSwap", "0 kB").split()[0]) / 1048576
+    except (OSError, KeyError, ValueError):
+        return ""
+    return f"(memory {now:.1f} GB" + (f" + {swap:.1f} GB swapped" if swap >= 0.05 else "") + f", at most {top:.1f} GB so far)"
+
+
 _HEAD = ("id", "hash", "source_id", "jurisdiction", "kind", "url", "title", "text", "markdown", "published", "channel", "evidence")
 _TAIL = ("fetched_at", "changed_at", "version")
 
@@ -323,13 +337,18 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     cand_sources = set(s for s in store.sources() if s.startswith("cand:"))
     n_packets = n_profiles = 0
     graph_counts = {}
-    pb, profiles = None, []
+    pb = pw = None
     if packets:
         from .electo import packet_for, slug, write_packet_index
-        from .profiles import ProfileBuilder
+        from .profiles import ProfileBuilder, ProfileWriter
 
         legis = _load_json(root / "state" / "legis_people.json")
+        log(f"  building the money graph and the profile indexes {_memory()}")
         pb = ProfileBuilder(root, store, cfg, cands, legis)
+        log(f"  profile builder ready: {len(pb.g.nodes):,} nodes, {len(pb.g.edges):,} edges, {len(pb.pats):,} patterns {_memory()}")
+        # each profile is written as soon as it is built (only its index row is kept): holding all of them, about 8,000,
+        # on top of the graph was part of what ran the runner out of memory on Nov 13, 2026
+        pw = ProfileWriter(out / "profiles", log=log)
     for c in cands:
         sid = f"cand:{c['id']}"
         records: dict[str, list] = {}
@@ -351,9 +370,9 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         if pb is None:
             continue
         prof = pb.profile(c, records)
-        if prof:
-            profiles.append(prof)
         pk = packet_for(c, records, rumors_by.get(c["id"], []), prof) if (records or rumors_by.get(c["id"])) else None
+        if prof:
+            pw.add(prof)
         if pk:
             (out / "packets" / f"{slug(c.get('electo_key') or c['id'])}.json").write_text(
                 json.dumps(pk, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -361,19 +380,25 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     (out / "candidates.json").write_text(json.dumps(cindex, ensure_ascii=False, indent=1), encoding="utf-8")
     if pb is not None:
         from .connections import export_graph
-        from .profiles import write_profiles
 
         write_packet_index(out / "packets")
-        log(f"wrote {n_packets} research packets to {out / 'packets'}")
+        log(f"wrote {n_packets} research packets to {out / 'packets'} {_memory()}")
         pb.finish()
-        n_profiles = write_profiles(profiles, out / "profiles", log=log)
+        n_profiles = pw.finish()
         bundle = pb.bundle()
         graph_counts = export_graph(bundle["_graph"], bundle["_patterns"], out / "connections.json")
+        # nothing below reads the graph, its patterns or the entity index: let them go before the donors, the vote model
+        # and the rest build their own (the graph alone was several GB of the runner's 16 on Nov 13, 2026)
+        del bundle
+        pb = pw = None
+        gc.collect()
+        log(f"  connections.json written; the graph let go {_memory()}")
         orgs = [_slim(r) for r in store.iter_query("kind='organization'")]
         (out / "organizations.json").write_text(json.dumps({"note": "What each organization in the money and endorsement "
                                                             "records is (registries and its own site), who runs it and who it "
                                                             "funds; every field carries its source url.", "organizations": orgs},
                                                            ensure_ascii=False), encoding="utf-8")
+        del orgs
 
     # ---- elections, qualifying lists and ballot questions in Electo shapes
     from .ballot import export_questions
@@ -411,7 +436,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
         vote_model_counts = export_vote_model(store, out / "vote_model.json", log=log)
     except Exception as exc:  # noqa: BLE001  the rest of the bundle does not wait on the model
         vote_model_counts = {"built": False, "why": f"{type(exc).__name__}: {exc}"[:200]}
-    log(f"  vote model: {vote_model_counts}")
+    log(f"  vote model: {vote_model_counts} {_memory()}")
     from .newsdigest import export_news
 
     news_counts = export_news(store, out / "news.json")
@@ -419,6 +444,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     from .donors import export_donors
 
     donors_counts = export_donors(store, root, cands, out / "donors.json", log=log)
+    log(f"  donors exported {_memory()}")
     from .federal_bills import export_federal
 
     federal_counts = export_federal(store, out / "federal_bills", log=log)
@@ -489,6 +515,7 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     if own:
         store.close()
+    log(f"export done {_memory()}")
     log(json.dumps(manifest, indent=1))
     return manifest
 

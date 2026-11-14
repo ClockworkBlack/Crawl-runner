@@ -838,22 +838,30 @@ jobs:
           if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300 || echo "linking stopped; the next run finishes it"
           elif [ "$n" = "1" ]; then echo "money applied; no time left to link it in this run (the next run links it)"
           else echo "no money hand-off arrived while this run worked"; fi
-      - name: Memory to spare for the export (swap on the runner's scratch disk)
+      - name: Memory to spare for the export (swap on the runner's disk)
         continue-on-error: true
         timeout-minutes: 5
         run: |
-          # the export holds the money graph (about 5 GB for 3.1 million lines on Nov 13, 2026) with everything else; a
-          # few GB of swap make a run that would have been killed for memory ("lost communication with the server") a
-          # slower one instead
+          # the export holds the entity index, the money graph and its patterns (5.7 GB before the first profile on Nov 14,
+          # 2026: 3.3 million money lines) with everything else; a few GB of swap make a run that would have been killed
+          # for memory ("lost communication with the server": two merge jobs on Nov 13) a slower one instead
           have=$(free -m | awk '/^Swap:/{print $2}')
           if [ "${have:-0}" -ge 8000 ]; then echo "swap: ${have} MB already"; exit 0; fi
           sudo -n true 2>/dev/null || { echo "no passwordless sudo here: no extra swap"; exit 0; }
-          # only on the scratch disk, and only with room to spare on it (never on the disk the database is on)
+          # a separate scratch disk with room when there is one; else the workspace's own disk, when it keeps 30 GB free
+          # besides (the bundle, its archive and the database's upload need about 12): the ubuntu-26.04 image has no
+          # separate scratch disk (Nov 14: /mnt was on the workspace's disk with 69 GB free, and this step added nothing)
+          ws=$(df -P "$GITHUB_WORKSPACE" | awk 'NR==2{print $1}')
           free_mnt=$(df -Pm /mnt 2>/dev/null | awk 'NR==2{print $4}')
-          if [ "$(df -P /mnt 2>/dev/null | awk 'NR==2{print $1}')" = "$(df -P "$GITHUB_WORKSPACE" | awk 'NR==2{print $1}')" ] || [ "${free_mnt:-0}" -lt 16000 ]; then
-            echo "no separate scratch disk with room (/mnt: ${free_mnt:-none} MB free): no extra swap"; exit 0; fi
-          sudo fallocate -l 8G /mnt/export.swap && sudo chmod 600 /mnt/export.swap && sudo mkswap /mnt/export.swap >/dev/null \
-            && sudo swapon /mnt/export.swap && free -m | awk '/^(Mem|Swap):/'
+          if [ -d /mnt ] && [ "$(df -P /mnt | awk 'NR==2{print $1}')" != "$ws" ] && [ "${free_mnt:-0}" -ge 16000 ]; then
+            f=/mnt/export.swap
+          elif [ "$(df -Pm "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')" -ge 38000 ]; then
+            f=/var/tmp/export.swap; [ -d /mnt ] && [ "$(df -P /mnt | awk 'NR==2{print $1}')" = "$ws" ] && f=/mnt/export.swap
+          else
+            echo "no disk with room for swap (workspace: $(df -Pm "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}') MB free, /mnt: ${free_mnt:-none} MB): no extra swap"; exit 0
+          fi
+          { sudo fallocate -l 8G "$f" || sudo dd if=/dev/zero of="$f" bs=1M count=8192 status=none; } && sudo chmod 600 "$f" \
+            && sudo mkswap "$f" >/dev/null && sudo swapon "$f" && echo "swap on $f" && free -m | awk '/^(Mem|Swap):/'
       - name: Task list, status, Electo bundle
         timeout-minutes: 45
         id: bundle
@@ -864,7 +872,12 @@ jobs:
           # the vote model (vote_model.json: every legislator's recorded votes -> positions, a tested vote model, expected
           # counts) needs these three; without them the export writes everything else and says the model was not built
           python3 -c "import numpy, scipy, sklearn" 2>/dev/null || pip install -q --prefer-binary numpy scipy scikit-learn || echo "::warning title=Vote model::numpy, scipy or scikit-learn did not install; vote_model.json is not rebuilt this run"
-          gacrawl export --out dist/electo
+          # out of memory, the kernel stops the export first, never the runner: the step then fails with exit code 137 and
+          # its own log (the export's last "memory" line says how far it got), and the steps after it still store what this
+          # run read. Nov 13, 2026: twice the runner itself went ("lost communication with the server"), 8 minutes into
+          # the export, and the job, its log and every step after it were lost with it
+          { echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true
+          gacrawl export --out dist/electo || { code=$?; [ "$code" = 137 ] && echo "::error title=Export::the export was stopped for memory (exit 137); its last memory line above says where"; exit "$code"; }
       - name: Store database and bundle (release assets)
         id: stored
         timeout-minutes: 30

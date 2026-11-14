@@ -88,27 +88,45 @@ def _keys(sources: list[dict]) -> list[str]:
     return [re.sub(r"^https?://(www\.)?", "", s.get("u") or "").rstrip("/").lower() for s in sources]
 
 
-def write_profiles(profiles: list[dict], out_dir: Path, log=print, state_dir: Path | None = None) -> int:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    index, written = [], 0
-    for p in profiles:
+class ProfileWriter:
+    """Profile supplements written one at a time: each file as soon as its profile is built, only its index row kept.
+    The export used to hold every profile (about 8,000 on Nov 14, 2026) until the last one was built, on top of the
+    money graph, and the runner ran out of memory (Nov 13: two merge jobs lost, "lost communication with the server")."""
+
+    def __init__(self, out_dir: Path, log=print):
+        self.out_dir, self.log = out_dir, log
+        out_dir.mkdir(parents=True, exist_ok=True)
+        self.index: list[dict] = []
+        self.written = 0
+
+    def add(self, p: dict) -> None:
         name = slug(p.get("key") or p["candidate_id"])
         if p.get("has_new", True):
-            (out_dir / f"{name}.json").write_text(json.dumps({k: v for k, v in p.items() if k != "has_new"}, ensure_ascii=False, indent=1),
-                                                  encoding="utf-8")
-            written += 1
-        index.append({"key": p.get("key"), "candidate_id": p["candidate_id"], "name": p["name"],
-                      "file": f"{name}.json" if p.get("has_new", True) else None,
-                      "depth": p["depth"], "inference_inputs": p["inference_inputs"],
-                      "counts": {k: len(p.get(k) or []) for k in ("positions", "statements", "ratings", "endorsement_items", "votes", "controversies",
-                                                                  "bills", "affiliations", "career", "sources")},
-                      "money": {"total_raised": (p.get("money") or {}).get("total_raised", 0),
-                                "donors": len((p.get("money") or {}).get("donors") or [])}})
-    index.sort(key=lambda x: (x["inference_inputs"], x["name"]))
-    (out_dir / "index.json").write_text(json.dumps({
-        "note": "Profile supplements in Electo's item shapes. inference_inputs counts what Electo's inference would see; "
-                "profiles with fewer than 2 are listed first so research can be aimed at them. file is null when the "
-                "crawler has nothing beyond Electo's own race archive for that person yet.",
-        "profiles": index, "written": written, "thin": sum(1 for x in index if x["inference_inputs"] < 2)}, indent=1), encoding="utf-8")
-    log(f"wrote {written} profile supplements ({len(index)} indexed) to {out_dir}")
-    return written
+            (self.out_dir / f"{name}.json").write_text(json.dumps({k: v for k, v in p.items() if k != "has_new"}, ensure_ascii=False, indent=1),
+                                                       encoding="utf-8")
+            self.written += 1
+        self.index.append({"key": p.get("key"), "candidate_id": p["candidate_id"], "name": p["name"],
+                           "file": f"{name}.json" if p.get("has_new", True) else None,
+                           "depth": p["depth"], "inference_inputs": p["inference_inputs"],
+                           "counts": {k: len(p.get(k) or []) for k in ("positions", "statements", "ratings", "endorsement_items", "votes", "controversies",
+                                                                       "bills", "affiliations", "career", "sources")},
+                           "money": {"total_raised": (p.get("money") or {}).get("total_raised", 0),
+                                     "donors": len((p.get("money") or {}).get("donors") or [])}})
+
+    def finish(self) -> int:
+        index = self.index
+        index.sort(key=lambda x: (x["inference_inputs"], x["name"]))
+        (self.out_dir / "index.json").write_text(json.dumps({
+            "note": "Profile supplements in Electo's item shapes. inference_inputs counts what Electo's inference would see; "
+                    "profiles with fewer than 2 are listed first so research can be aimed at them. file is null when the "
+                    "crawler has nothing beyond Electo's own race archive for that person yet.",
+            "profiles": index, "written": self.written, "thin": sum(1 for x in index if x["inference_inputs"] < 2)}, indent=1), encoding="utf-8")
+        self.log(f"wrote {self.written} profile supplements ({len(index)} indexed) to {self.out_dir}")
+        return self.written
+
+
+def write_profiles(profiles, out_dir: Path, log=print, state_dir: Path | None = None) -> int:
+    w = ProfileWriter(out_dir, log=log)
+    for p in profiles:
+        w.add(p)
+    return w.finish()
