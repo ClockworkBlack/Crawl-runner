@@ -1,0 +1,51 @@
+name: archive-debug-apks
+# One time, on this branch only: Electo's eight debug-APK build artifacts (Nov 7-9, 2026; about 12 GB, filling the
+# account's Actions storage) copied to the private Crawl repository's "archive-debug-apks" release, where nothing reads
+# them. Each copy is checked against the downloaded file (size and SHA-256) before the next. The originals are deleted
+# afterwards, by hand, only once every copy checks out. Nothing on main, crawl-data or any other branch is touched.
+on:
+  push:
+    branches: [archive/debug-apks]
+permissions:
+  contents: read
+jobs:
+  move:
+    if: github.repository == 'ClockworkBlack/Crawl-runner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN }}
+      DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+      SRC: ClockworkBlack/Electo
+      DEST: ClockworkBlack/Crawl
+      TAG: archive-debug-apks
+    steps:
+      - name: Copy each artifact to the Crawl release and check it
+        run: |
+          set -euo pipefail
+          cat > list.txt <<'EOF'
+          13714216405 2026-11-09T215338Z 42705614467 37f4550
+          13712099432 2026-11-09T214202Z 42703718755 e812708
+          13569526724 2026-11-07T093531Z 42359966442 97fdb2e
+          13569331145 2026-11-07T092725Z 42359479514 d54acd9
+          13568946440 2026-11-07T091149Z 42358235456 fe51831
+          13568313729 2026-11-07T092023Z 42358913837 65f4fba
+          13564810998 2026-11-07T064459Z 42347976994 976490e
+          13564314523 2026-11-07T070007Z 42349059507 17e8b24
+          EOF
+          notes="Stored only, nothing reads these: Electo's debug APKs from the build-android runs of Nov 7-9, 2026, moved here from Electo's Actions artifacts (which they had filled). Each file: Electo-debug-<build time>-run<run id>-<commit>.apk; SHA256SUMS lists them."
+          GH_TOKEN="$DATA_TOKEN" gh release view "$TAG" -R "$DEST" >/dev/null 2>&1 || GH_TOKEN="$DATA_TOKEN" gh release create "$TAG" -R "$DEST" --target main --prerelease --latest=false --title "Archived debug APKs (stored only)" --notes "$notes"
+          : > SHA256SUMS
+          while read -r id at run sha; do
+            name="Electo-debug-${at}-run${run}-${sha}.apk"
+            GH_TOKEN="$ELECTO_TOKEN" gh api "repos/$SRC/actions/artifacts/$id/zip" > a.zip
+            unzip -o -q a.zip app-debug.apk && rm -f a.zip && mv app-debug.apk "$name"
+            size=$(stat -c %s "$name"); sum=$(sha256sum "$name" | cut -d' ' -f1)
+            GH_TOKEN="$DATA_TOKEN" gh release upload "$TAG" -R "$DEST" "$name" --clobber
+            got=$(GH_TOKEN="$DATA_TOKEN" gh api "repos/$DEST/releases/tags/$TAG" --jq ".assets[] | select(.name==\"$name\") | \"\(.size) \(.digest)\"")
+            [ "$got" = "$size sha256:$sum" ] || { echo "::error::$name: release has '$got', file is '$size sha256:$sum'"; exit 1; }
+            echo "$sum  $name" >> SHA256SUMS; echo "copied and checked: $name ($size bytes) from artifact $id"
+            rm -f "$name"
+          done < <(sed 's/^ *//' list.txt)
+          GH_TOKEN="$DATA_TOKEN" gh release upload "$TAG" -R "$DEST" SHA256SUMS --clobber
+          echo "all 8 copied and checked" | tee -a "$GITHUB_STEP_SUMMARY"
