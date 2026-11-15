@@ -59,7 +59,9 @@ jobs:
             rm -rf "$RUNNER_TEMP/electo-gc"
             git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$RUNNER_TEMP/electo-gc" || { sleep $((i * 10)); continue; }
             cd "$RUNNER_TEMP/electo-gc"
-            git sparse-checkout set --no-cone /ga/gc_build.py /ga/gc_audit.py /ga/names.py /ga/profiles.json /ga/news.json /ga/pipeline_civics/legislature.json \
+            # every module at the top of ga/ (the builder imports names, textfix, gc_audit...), not a list of them: from Nov 14
+            # the builder needed ga/textfix.py, which the list lacked, and every run failed on the import
+            git sparse-checkout set --no-cone '/ga/*.py' /ga/profiles.json /ga/news.json /ga/pipeline_civics/legislature.json \
               /ga/pipeline_archive/ /ga/crawl/ /tools/data_audit.py
             if [ ! -f ga/gc_build.py ]; then echo "no Grand Cross builder in this Electo"; exit 0; fi
             python3 -I ga/gc_build.py --no-bundle --only money,index $FORCE | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
