@@ -297,3 +297,54 @@ def test_check_warns_of_these(tmp_path):
     ])
     W = check_bundle(b)["warnings"]
     assert any("ballot question filed" in k for k in W) and any("nonpartisan or incumbent mark" in k for k in W)
+
+
+# --- Nov. 15, 2026 (second pass) -------------------------------------------------------------------------------------
+def test_an_independent_who_holds_a_partisan_seat_stays_independent():
+    c = C(y=2014, lvl="legislative", office="State House", dist="145", item="sos_zip:a",
+          o=[['E. Culver "Rusty" Kidd', "I", 9934, 1, "unopposed"]])
+    assert R.repair_contest(c)["o"][0][1] == "I"
+    j = C(y=2012, lvl="judicial", office="Superior Court Judge", item="sos_zip:a", o=[["Ann Lee", "I", 99, 1, "unopposed"]])
+    assert R.repair_contest(j)["o"][0][1] == ""         # a judge: the incumbent mark, as before
+
+
+def test_a_statewide_courts_seats_filed_as_one_contest():
+    o = [["Anne E. Barnes", "", 1004473, 0, "led"], ["A. Harris Adams", "", 995946, 0, ""], ["Debra Bernes", "", 309080, 0, ""],
+         ["Mike Sheffield", "", 207499, 0, ""], ["Howard Mead", "", 207136, 0, ""], ["Thomas Rawlings", "", 250000, 0, ""]]
+    c = C(y=2004, lvl="judicial", office="Appeals Court Judge", t="Appeals Court Judge", item="openelections:a", basis="compiled", o=o)
+    out = R.court_seats(c)
+    assert [(n["t"], len(n["o"]), n["o"][0][4]) for n in out] == [
+        ("Appeals Court Judge, Barnes", 1, "unopposed"), ("Appeals Court Judge, Adams", 1, "unopposed"),
+        ("Appeals Court Judge (open seat)", 4, "led")]
+    assert len({n["office"] for n in out}) == 3
+    real = C(y=2004, lvl="judicial", office="Appeals Court Judge", t="Appeals Court Judge", item="openelections:b", basis="compiled",
+             o=[["Debra Bernes", "", 1109267, 0, "led"], ["Howard Mead", "", 1018419, 0, ""], ["Mike Sheffield", "", 524140, 0, ""]])
+    assert R.court_seats(real) == [real]                # three people for one seat (vote for one): left alone
+
+
+def test_two_seats_of_a_circuit_crossed_in_one_countys_file():
+    a = C(y=2012, lvl="judicial", t="Superior Court Judge, Appalachian Circuit (Mercier)", office="m",
+          o=[["Amanda H. Mercier", "", 10599, 1, "won"], ["Brenda S. Weaver", "", 4977, 1, ""], ["Write-in", "", 85, 0, ""]],
+          cty={"Fannin": [5316, 0, 31], "Gilmer": [0, 4977, 44], "Pickens": [5283, 0, 10]})
+    b = C(y=2012, lvl="judicial", t="Superior Court Judge, Appalachian Circuit (Weaver)", office="w",
+          o=[["Brenda S. Weaver", "", 11003, 1, "won"], ["Amanda H. Mercier", "", 4569, 1, ""], ["Write-in", "", 112, 0, ""]],
+          cty={"Fannin": [5411, 0, 32], "Gilmer": [0, 4569, 21], "Pickens": [5592, 0, 59]})
+    S = Counter()
+    R._mirrored_circuit_seats([a, b], S)
+    assert a["o"] == [["Amanda H. Mercier", "", 15168, 1, "unopposed"], ["Write-in", "", 62, 0, ""]]
+    assert b["o"] == [["Brenda S. Weaver", "", 15980, 1, "unopposed"], ["Write-in", "", 135, 0, ""]]
+    assert a["cty"]["Gilmer"] == [4569, 21] and b["tot"] == 16115
+    # two people who did run against each other in every county: nothing to put back
+    x = C(y=2012, lvl="judicial", t="s1", o=[["A B", "", 60, 0, "won"], ["C D", "", 40, 0, ""]], cty={"X": [30, 20], "Y": [30, 20]})
+    y = C(y=2012, lvl="judicial", t="s2", o=[["A B", "", 10, 0, ""], ["C D", "", 90, 0, "won"]], cty={"X": [5, 45], "Y": [5, 45]})
+    R._mirrored_circuit_seats([x, y], S)
+    assert x["o"][0][2] == 60 and len(x["o"]) == 2
+
+
+def test_a_party_from_a_published_account():
+    c = C(y=1998, date="1998-11-03", lvl="statewide", office="Public Service Commission",
+          o=[["Lauren McDonald", "", 638065, 0, "led"], ["Jim Cole", "", 541817, 0, ""]])
+    other = C(y=1998, date="1998-11-03", lvl="statewide", office="Public Service Commission",
+              o=[["Bobby Baker", "R", 927696, 0, "won"]])
+    R._known_parties([c, other], Counter())
+    assert [x[1] for x in c["o"]] == ["D", ""] and other["o"][0][1] == "R"

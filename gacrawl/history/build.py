@@ -146,6 +146,10 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
         best = _prefer_fec(lst, best, A)
         lst = [best] + [c for c in lst if c is not best]
         _party_from_copies(best, lst[1:], A)
+        if best.get("scope") == "ga":                      # the incumbent mark, where only another copy of the contest has it
+            for x in best["o"]:
+                if not x[3] and isinstance(x[0], str) and any(y[3] and same_person(x[0], y[0]) for c in lst[1:] for y in c["o"] if isinstance(y[0], str)):
+                    x[3] = 1
         bw, _ = _lead(best)
         for other in lst[1:]:
             if other.get("item", "").split(":", 1)[0] == best.get("item", "").split(":", 1)[0]:
@@ -331,7 +335,7 @@ def _party_from_copies(best: dict, others: list[dict], A: dict) -> None:
         for c in others:
             y = next((y for y in c["o"] if y[1] and same_person(x[0], y[0])
                       and x[2] is not None and y[2] is not None and abs(x[2] - y[2]) <= 0.005 * max(x[2], y[2], 1)), None)
-            if y is not None and (y[1] in NAMED or (y[1] == "I" and not x[3])):
+            if y is not None and (y[1] in NAMED or (y[1] == "I" and not x[3] and best.get("lvl") != "judicial")):
                 x[1] = y[1]
                 A["party_from_another_copy"] = A.get("party_from_another_copy", 0) + 1
                 break

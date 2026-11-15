@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 
-from .model import general_day, is_writein_bucket, nice_name, pkey, tag_outcomes, tidy_name, unify_names
+from .model import general_day, is_writein_bucket, nice_name, pkey, same_person, tag_outcomes, tidy_name, unify_names
 
 GA_COUNTIES = 159
 RCV = {"ME": 2018, "AK": 2022}          # ranked-choice general elections for Congress from that year
@@ -148,7 +148,11 @@ def repair_contest(c: dict, stats: Counter | None = None) -> dict | None:
             S["names tidied"] += 1
             x[0] = n
     # the state's files mark the incumbent "(I)"; read as a party it made every sitting nonpartisan official an Independent
-    if src in ("sos_zip", "manual") and c.get("scope") == "ga":
+    # ... but not in a contest for the legislature, Congress or a statewide office: those are partisan, the file has a
+    # party column for them, and "I" in it beside the incumbent mark is an Independent who holds the seat (Rusty Kidd,
+    # State House District 145, 2012 and 2014)
+    partisan = c.get("lvl") in ("legislative", "federal", "statewide")
+    if src in ("sos_zip", "manual") and c.get("scope") == "ga" and not partisan:
         for x in o:
             if x[1] == "I" and x[3]:
                 x[1] = ""
@@ -654,6 +658,124 @@ def county_contests(c: dict, stats: Counter | None = None) -> list[dict]:
     return out
 
 
+def court_seats(c: dict, stats: Counter | None = None) -> list[dict]:
+    """A statewide court's seats a transcription put in one contest: each seat its own.
+
+    OpenElections files the Court of Appeals' July 2004 election as one contest of ten candidates: four judges
+    unopposed for their own seats, each with about a million votes, and six people running for one open seat, with
+    about a million between them. No voter picks one of ten there. Candidates who each have more than 60 percent of
+    the largest count cannot share a seat with it (two in one contest would have more votes than voters), so each is
+    a seat of their own; the rest are one seat when their votes together come to about one seat's."""
+    S = stats if stats is not None else Counter()
+    if not (c.get("scope") == "ga" and c.get("lvl") == "judicial" and not c.get("j") and src_of(c) == "openelections"
+            and _STATEWIDE_COURT.search(str(c.get("t") or ""))):
+        return [c]
+    o = [x for x in c["o"] if isinstance(x[0], str) and not is_writein_bucket(x[0]) and x[2]]
+    if len(o) != len(c["o"]) or len(o) < 3:
+        return [c]
+    top = max(x[2] for x in o)
+    alone = [x for x in o if x[2] > 0.6 * top]
+    rest = [x for x in o if x[2] <= 0.6 * top]
+    if len(alone) < 2 or (rest and not 0.6 * top <= sum(x[2] for x in rest) <= 1.4 * top):
+        return [c]
+    cty = c.get("cty") or {}
+    idx = {id(x): i for i, x in enumerate(c["o"])}
+
+    def seat(rows, title):
+        # judges run without party: an "I" here is the state's incumbent mark, as the transcription read it
+        n = dict(c, t=title, office=title, tot=sum(x[2] for x in rows),
+                 o=[[x[0], "" if x[1] == "I" else x[1], x[2], 1 if x[1] == "I" else x[3], ""] for x in rows])
+        n["cty"] = {k: [v[idx[id(x)]] for x in rows] for k, v in cty.items() if len(v) == len(c["o"])}
+        if len(rows) == 1:
+            n["o"][0][4] = "unopposed"
+        else:
+            max(n["o"], key=lambda x: x[2])[4] = "led"     # what came of an open seat is the later election's to say
+        return n
+    out = [seat([x], f"{c['t']}, {x[0].split()[-1]}") for x in alone]
+    if rest:
+        out.append(seat(rest, f"{c['t']} (open seat)"))
+    S["a statewide court's seats filed as one contest, taken apart"] += 1
+    return out
+
+
+def _mirrored_circuit_seats(cs: list[dict], stats: Counter) -> None:
+    """Two judges of one circuit, each unopposed for their own seat, where one county's file has the two seats the
+    other way round: put back.
+
+    The Appalachian Circuit, July 2012: Fannin and Pickens list Amanda Mercier under one seat and Brenda Weaver under
+    the other; Gilmer lists them the other way. Read by title, each judge came out as the other's opponent in both
+    contests. The sign is exact: two contests of the same day and circuit with the same two people, and in every
+    county each contest has votes for only one of them. Each judge's contest takes every county's votes for that
+    judge (15,168 and 15,980, the transcription's totals), and the county's write-ins go with them."""
+    by: dict = defaultdict(list)
+    for c in cs:
+        if c.get("scope") == "ga" and c.get("lvl") == "judicial" and not c.get("j") and c.get("cty"):
+            real = [x for x in c["o"] if isinstance(x[0], str) and not is_writein_bucket(x[0])]
+            if len(real) == 2:
+                by[(c.get("date"), c.get("stage"), frozenset(pkey(x[0]) for x in real))].append(c)
+    for (_d, _s, names), pair in by.items():
+        if len(pair) != 2 or len(names) != 2:
+            continue
+        a, b = pair
+        if set(a["cty"]) != set(b["cty"]) or len(a["cty"]) < 2:
+            continue
+
+        def holder(c, county):                               # whose votes this contest has in the county
+            v = c["cty"][county]
+            if len(v) != len(c["o"]):
+                return None
+            have = [pkey(x[0]) for i, x in enumerate(c["o"]) if not is_writein_bucket(x[0]) and (v[i] or 0) > 0]
+            return have[0] if len(have) == 1 else None
+        ha = {k: holder(a, k) for k in a["cty"]}
+        hb = {k: holder(b, k) for k in b["cty"]}
+        if None in ha.values() or None in hb.values() or any(ha[k] == hb[k] for k in ha) or len(set(ha.values())) != 2:
+            continue
+        owner_a = Counter(ha.values()).most_common(1)[0][0]
+        owner_b = next(n for n in names if n != owner_a)
+        if Counter(hb.values()).most_common(1)[0][0] != owner_b:
+            continue
+        new = {}
+        for c, owner in ((a, owner_a), (b, owner_b)):
+            x0 = next(x for x in c["o"] if not is_writein_bucket(x[0]) and pkey(x[0]) == owner)
+            votes, wi, cty = 0, 0, {}
+            for k in c["cty"]:
+                src = a if ha[k] == owner else b                # the contest that has this judge's votes in the county
+                v = src["cty"][k]
+                mine = sum((v[i] or 0) for i, x in enumerate(src["o"]) if not is_writein_bucket(x[0]))
+                w = sum((v[i] or 0) for i, x in enumerate(src["o"]) if is_writein_bucket(x[0]))
+                votes += mine
+                wi += w
+                cty[k] = [mine, w] if any(is_writein_bucket(x[0]) for x in c["o"]) else [mine]
+            rows = [[x0[0], x0[1], votes, x0[3], "unopposed"]]
+            if any(is_writein_bucket(x[0]) for x in c["o"]):
+                rows.append([next(x[0] for x in c["o"] if is_writein_bucket(x[0])), "", wi, 0, ""])
+            new[id(c)] = (rows, cty)
+        for c in (a, b):
+            c["o"], c["cty"] = new[id(c)]
+            c["tot"] = sum(x[2] or 0 for x in c["o"])
+        stats["two seats of one circuit crossed in a county's file, put back"] += 1
+
+
+# A party no file on hand names, from a published account of the election. Each entry: the election's date, the
+# office, the candidate, the party, and where it is said. Only the winner of a partisan office, only where every
+# file read leaves the party blank, and never from memory.
+KNOWN_PARTY = [
+    # the special election for the seat Dave Baker left; the state's PDF prints no party column for it
+    ("1998-11-03", "Public Service Commission", "Lauren McDonald", "D",
+     "https://en.wikipedia.org/wiki/1998_Georgia_state_elections"),
+]
+
+
+def _known_parties(cs: list[dict], stats: Counter) -> None:
+    for c in cs:
+        for date, office, name, party, _where in KNOWN_PARTY:
+            if c.get("scope") == "ga" and c.get("date") == date and c.get("office") == office:
+                for x in c["o"]:
+                    if not x[1] and isinstance(x[0], str) and same_person(x[0], name):
+                        x[1] = party
+                        stats["party from a published account of the election"] += 1
+
+
 def repair_all(contests, stats: Counter | None = None) -> list[dict]:
     """Everything above, in order, over every contest read."""
     S = stats if stats is not None else Counter()
@@ -661,7 +783,10 @@ def repair_all(contests, stats: Counter | None = None) -> list[dict]:
     for c in contests:
         c = repair_contest(c, S)
         if c is not None:
-            cs.extend(county_contests(c, S))
+            for n in county_contests(c, S):
+                cs.extend(court_seats(n, S))
+    _mirrored_circuit_seats(cs, S)
+    _known_parties(cs, S)
     reconcile_ga(cs, S)
     cs = fix_federal(cs, S)
     # taking contests apart can leave two with one identity: the fuller stands
