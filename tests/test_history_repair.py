@@ -190,3 +190,110 @@ def test_fec_preferred_unless_its_row_is_broken():
     A = {}
     kept = choose([mk("medsl:x", "NY", "Charles E. Schumer", 4769824, 7447818), mk("fec:y", "NY", "Charles Schumer", 9539648, 11472699)], A)
     assert kept[0]["item"] == "medsl:x" and "does not add up" in kept[0]["alt"]       # the FEC's row counted twice: kept out, said so
+
+
+# --- Nov. 15, 2026: the cases behind Electo's "Share of contests won" chart -------------------------------------------
+def test_ballot_question_filed_as_an_office():
+    c = C(y=1996, t="Ag Products Fees", office="Ag Products Fees",
+          o=[["Amendment #4 - No", "", 1089801, 0, "won"], ["Amendment #4 - Yes", "", 714285, 0, ""]])
+    assert R.repair_contest(c)["lvl"] == "question"
+    c = C(o=[["For Approval", "", 43231, 0, "won"], ["Against Approval", "", 19064, 0, ""]])
+    assert R.repair_contest(c)["lvl"] == "question"
+    c = C(o=[["Yes (Non-Partisan)", "", 18, 0, "won"], ["No (Non-Partisan)", "", 2, 0, ""]])
+    c = R.repair_contest(c)
+    assert c["lvl"] == "question" and [x[0] for x in c["o"]] == ["Yes", "No"]
+    c = C(o=[["Noe Yesenia", "", 18, 0, "won"], ["Ana Forde", "", 2, 0, ""]])       # people, not choices
+    assert R.repair_contest(c)["lvl"] == "local"
+
+
+def test_nonpartisan_and_cut_incumbent_marks_off_names():
+    c = C(y=2008, lvl="judicial", o=[["Gary Andrews Partisan", "", 9, 0, "unopposed"]])
+    assert R.repair_contest(c)["o"][0][0] == "Gary Andrews"
+    c = C(y=2008, lvl="judicial", o=[["Jr. Partisan Charles B. Mikell", "", 9, 0, "unopposed"]])
+    assert R.repair_contest(c)["o"][0][0] == "Charles B. Mikell Jr."
+    c = C(y=2006, lvl="judicial", o=[["Sr. (Non-Partisan) Marvin S. Arrington", "", 9, 0, "unopposed"]])
+    assert R.repair_contest(c)["o"][0][0] == "Marvin S. Arrington Sr."
+    c = C(y=2012, lvl="judicial", o=[["Amanda H. Mercier (I", "", 9, 0, "won"], ["Matthew Ledbetter(I", "", 4, 0, ""]])
+    o = R.repair_contest(c)["o"]
+    assert [(x[0], x[3]) for x in o] == [("Amanda H. Mercier", 1), ("Matthew Ledbetter", 1)]
+
+
+def test_vice_president_rows_and_county_slices_are_not_contests():
+    assert R.repair_contest(C(y=2008, office="Vice President", t="Vice President", j="Not Available",
+                              o=[["Rosa Clemente", "", 13, 0, "won"], ["Jeff Stath", "", 1, 0, ""]])) is None
+    assert R.repair_contest(C(office="U.S. House", dist="7", t="U.S. House District 7", j="Forsyth",
+                              o=[['W. Robert "Bob" Woodall R.', "", 80603, 1, "led"], ["Thomas D. Wight", "D", 60112, 0, ""]])) is None
+    assert R.repair_contest(C(office="U.S. House", dist="7", lvl="federal", t="U.S. House District 7",
+                              o=[["Rob Woodall", "R", 113557, 1, "won"], ["Thomas D. Wight", "D", 60112, 0, ""]])) is not None
+
+
+def test_county_offices_filed_together_are_taken_apart():
+    S = Counter()
+    # one county in its table: that county's contest
+    c = C(y=2012, t="CLERK OF STATE COURT", o=[["Diane B. Webb", "R", 219785, 1, "unopposed"]], cty={"Cobb": [219785]})
+    [c] = R.county_contests(c, S)
+    assert c["j"] == "Cobb" and "cty" not in c
+    # three counties' clerks under one title, one "leader" for all: one contest each, two people of one name kept apart
+    o = [["Ann Lee", "R", 900, 0, "led"], ["Bo Diaz", "R", 300, 0, ""], ["Cy Fox", "R", 700, 0, ""], ["Di Roe", "R", 650, 0, ""],
+         ["Becky Robinson", "R", 500, 0, ""]]
+    cty = {"Fulton": [900, 300, 0, 0, 200], "Gwinnett": [0, 0, 700, 0, 0], "Haralson": [0, 0, 0, 650, 300]}
+    out = R.county_contests(C(y=2012, stage="primary", p="R", t="CLERK, SUPERIOR COURT", o=o, cty=cty), S)
+    by = {c["j"]: c for c in out}
+    assert sorted(by) == ["Fulton", "Gwinnett", "Haralson"]
+    assert [(x[0], x[2], x[4]) for x in by["Fulton"]["o"]] == [("Ann Lee", 900, "won"), ("Bo Diaz", 300, ""), ("Becky Robinson", 200, "")]
+    assert by["Gwinnett"]["o"][0][4] == "unopposed" and by["Haralson"]["tot"] == 950
+    # a circuit's judges ran in every county of the circuit: left as one contest
+    j = C(y=2012, lvl="judicial", t="Superior Court Judge, Alcovy Circuit", o=[["A", "", 60, 0, "won"], ["B", "", 40, 0, ""]],
+          cty={"Newton": [30, 20], "Walton": [30, 20]})
+    assert R.county_contests(j, S) == [j] and not j["j"]
+    # a statewide court is never a county's
+    a = C(y=2012, lvl="judicial", t="Appeals Court Judge, Boggs", o=[["Boggs", "", 9, 0, "unopposed"]], cty={"Appling": [9]})
+    assert R.county_contests(a, S) == [a] and not a["j"]
+
+
+def test_party_from_another_copy_and_from_the_primary():
+    from gacrawl.history.build import _party_from_copies, _party_from_primary, _one_contest_two_titles
+    best = C(y=2000, lvl="federal", office="U.S. Senate", o=[["Zell Miller", "", 1413224, 0, "won"], ["Mack Mattingly", "", 920478, 0, ""]],
+             item="sos_pdf:a")
+    oe = C(y=2000, lvl="federal", office="U.S. Senate", o=[["Zell Miller", "D", 1413224, 0, "won"], ["Mack Mattingly", "R", 920478, 0, ""]],
+           item="openelections:a", basis="compiled")
+    A = {}
+    _party_from_copies(best, [oe], A)
+    assert [x[1] for x in best["o"]] == ["D", "R"]
+    # "I" from the transcription is the state's incumbent mark when the state's file marks the incumbent
+    best = C(y=2012, lvl="legislative", office="State House", dist="89", o=[["Stacey Abrams", "", 23292, 1, "unopposed"]])
+    _party_from_copies(best, [C(y=2012, o=[["Stacey Abrams", "I", 23292, 0, "unopposed"]], item="openelections:b")], A)
+    assert best["o"][0][1] == ""
+    pri = C(y=2012, date="2012-07-31", stage="primary", p="D", lvl="legislative", office="State House", dist="89",
+            o=[["Stacey Abrams", "", 7059, 1, "unopposed"]])
+    S = Counter()
+    _party_from_primary([best, pri], S)
+    assert best["o"][0][1] == "D" and pri["o"][0][1] == ""
+    ind = C(y=2014, lvl="legislative", office="State House", dist="145", o=[["Rusty Kidd", "", 9934, 1, "unopposed"]])
+    _party_from_primary([ind], S)
+    assert ind["o"][0][1] == ""                         # in no primary: no party is made up
+
+
+def test_one_contest_under_two_titles():
+    from gacrawl.history.build import _one_contest_two_titles
+    st = C(y=2000, lvl="statewide", office="Public Service Commission", dist="#2", t="Public Service Commission (seat 2 on the ballot)",
+           o=[["Stan Wise", "R", 1197415, 0, "won"], ["Jim Boyd", "D", 928005, 0, ""]], item="sos_pdf:a")
+    oe = C(y=2000, lvl="statewide", office="Public Service Commission", dist="5", t="Public Service Commission District 5",
+           o=[["Stan Wise", "R", 1197415, 0, "won"], ["Jim Boyd", "D", 928005, 0, ""]], item="openelections:a", basis="compiled")
+    out = _one_contest_two_titles([st, oe], {})
+    assert out == [st] and st["t"] == "Public Service Commission District 5" and st["dist"] == "5"
+    # three seats' candidates in one transcribed contest, each counted by the state under its own title (2010)
+    seats = [C(y=2010, lvl="judicial", t=f"Appeals Court Judge, {n}", o=[[n, "", v, 0, "unopposed"]], item="sos_pdf:b")
+             for n, v in (("Barnes", 1910477), ("Adams", 1894387))]
+    merged = C(y=2010, lvl="judicial", t="Appeals Court Judge", item="openelections:b", basis="compiled",
+               o=[["Barnes", "", 1910477, 0, ""], ["Adams", "", 1894387, 0, ""]])
+    assert _one_contest_two_titles(seats + [merged], {}) == seats
+
+
+def test_check_warns_of_these(tmp_path):
+    b = _bundle(tmp_path, [
+        {"t": "homestead", "lvl": "local", "tot": 20, "o": [["Yes", "", 18, 0, "won"], ["No", "", 2, 0, ""]], "i": 0},
+        {"t": "Probate", "lvl": "judicial", "j": "Fulton", "tot": 9, "o": [["Gary Andrews Partisan", "", 9, 0, "unopposed"]], "i": 1},
+    ])
+    W = check_bundle(b)["warnings"]
+    assert any("ballot question filed" in k for k in W) and any("nonpartisan or incumbent mark" in k for k in W)

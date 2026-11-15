@@ -145,6 +145,7 @@ def choose(contests, audit: dict | None = None) -> list[dict]:
                 A["counties_joined"] = A.get("counties_joined", 0) + 1
         best = _prefer_fec(lst, best, A)
         lst = [best] + [c for c in lst if c is not best]
+        _party_from_copies(best, lst[1:], A)
         bw, _ = _lead(best)
         for other in lst[1:]:
             if other.get("item", "").split(":", 1)[0] == best.get("item", "").split(":", 1)[0]:
@@ -314,13 +315,80 @@ def _graft_counties(official: dict, oe: dict) -> bool:
     return True
 
 
+NAMED = ("D", "R", "L", "G")
+
+
+def _party_from_copies(best: dict, others: list[dict], A: dict) -> None:
+    """A party the kept file leaves blank, from another file's copy of the same contest: the same person with the same
+    votes (within half a percent). The state's PDF of 2000 names no party in its U.S. Senate contest (Zell Miller);
+    OpenElections' copy does. "I" is taken only where the kept file does not mark the candidate as the incumbent:
+    the transcription read the state's "(I)" incumbent mark as Independent (Stacey Abrams, 2012)."""
+    if best.get("scope") != "ga" or best.get("lvl") == "question" or not others:
+        return
+    for x in best["o"]:
+        if x[1] or not isinstance(x[0], str) or is_writein_bucket(x[0]):
+            continue
+        for c in others:
+            y = next((y for y in c["o"] if y[1] and same_person(x[0], y[0])
+                      and x[2] is not None and y[2] is not None and abs(x[2] - y[2]) <= 0.005 * max(x[2], y[2], 1)), None)
+            if y is not None and (y[1] in NAMED or (y[1] == "I" and not x[3])):
+                x[1] = y[1]
+                A["party_from_another_copy"] = A.get("party_from_another_copy", 0) + 1
+                break
+
+
+def _party_from_primary(cs: list[dict], stats: Counter) -> None:
+    """A Georgia general-election candidate with no party on file, who ran in a party's primary for the same seat that
+    year: that party. The state's 2012 general-election file names no party for some unopposed incumbents (Stacey
+    Abrams, District 89); its primary file lists her in the Democratic primary for the seat. A candidate in no
+    primary (an independent, a nonpartisan office) keeps no party."""
+    pri: dict = defaultdict(list)
+    for c in cs:
+        if c.get("scope") == "ga" and c.get("p") in NAMED and "primary" in str(c.get("stage")) and c.get("lvl") != "question":
+            pri[(c["y"], c["office"], str(c.get("dist") or ""), c.get("j") or "")].append(c)
+    for c in cs:
+        if c.get("scope") != "ga" or c.get("lvl") == "question" or "primary" in str(c.get("stage")):
+            continue
+        for x in c["o"]:
+            if x[1] or not isinstance(x[0], str) or is_writein_bucket(x[0]):
+                continue
+            ps = {p["p"] for p in pri.get((c["y"], c["office"], str(c.get("dist") or ""), c.get("j") or ""), [])
+                  if any(same_person(x[0], y[0]) for y in p["o"] if isinstance(y[0], str))}
+            if len(ps) == 1:
+                x[1] = ps.pop()
+                stats["party from the same seat's primary that year"] += 1
+
+
+def _take_district(keep: dict, other: dict) -> None:
+    """The kept copy takes the district a dropped copy's title names, when its own names none: the state's files title
+    a Public Service Commission seat by its place on the ballot, OpenElections by its district."""
+    if re.search(r"District\s+\d", str(keep.get("t"))) or not re.search(r"District\s+\d", str(other.get("t"))):
+        return
+    base = re.sub(r"\s*\(.*?\)\s*$", "", str(keep.get("t"))).strip().lower()
+    if base and str(other.get("t")).lower().startswith(base):
+        keep["t"] = other["t"]
+        if other.get("dist"):
+            keep["dist"] = other["dist"]
+
+
+def _covered(c: dict, others: list[dict]) -> bool:
+    """Every candidate of c is in one of the others, the same person within half a percent of the same votes."""
+    real = [x for x in c["o"] if isinstance(x[0], str) and not is_writein_bucket(x[0]) and x[2]]
+    if not real:
+        return False
+    rows = [y for o in others for y in o["o"] if isinstance(y[0], str) and y[2]]
+    return all(any(same_person(x[0], y[0]) and abs(x[2] - y[2]) <= 0.005 * max(x[2], y[2]) for y in rows) for x in real)
+
+
 def _one_contest_two_titles(cs: list[dict], A: dict) -> list[dict]:
     """A Georgia contest two sources title differently ("Supreme Court Justice" in one, "Supreme Court Justice,
     Hunstein" in the other) is two seats to `choose`, and was shown twice. In one election, two contests from
     different sources with the same candidates' votes are one: the higher-ranked source's stands."""
     by: dict = defaultdict(list)
     for c in cs:
-        if c.get("scope") != "ga" or c.get("lvl") in ("federal", "statewide", "legislative"):
+        # statewide offices too: OpenElections titles a Public Service Commission seat by its district, the state's
+        # files by its place on the ballot ("Public Service Commission (seat 2 on the ballot)"), 2000-2006
+        if c.get("scope") != "ga" or c.get("lvl") in ("federal", "legislative"):
             continue
         votes = tuple(sorted(((x[2] or 0) for x in c["o"] if not is_writein_bucket(x[0])), reverse=True))
         if votes and sum(votes) >= 200:
@@ -334,9 +402,26 @@ def _one_contest_two_titles(cs: list[dict], A: dict) -> list[dict]:
         for c in lst[1:]:
             if src_of(c) != src_of(keep):
                 drop.add(id(c))
+                _take_district(keep, c)
                 keep.setdefault("chk", "agree")
                 A["agree"] = A.get("agree", 0) + 1
                 A["checked"] = A.get("checked", 0) + 1
+                A["same_contest_two_titles"] = A.get("same_contest_two_titles", 0) + 1
+    # a transcription's contest whose every candidate the state's own files count, under other titles: the Court of
+    # Appeals in 2004 (the state's count a few hundred votes higher) and 2010 (three seats' candidates in one contest)
+    el: dict = defaultdict(list)
+    for c in cs:
+        if c.get("scope") == "ga" and c.get("lvl") in ("judicial", "statewide") and id(c) not in drop:
+            el[(c.get("date"), c["stage"], c.get("p") or "")].append(c)
+    for lst in el.values():
+        for c in lst:
+            if src_of(c) != "openelections":
+                continue
+            stronger = [o for o in lst if o is not c and id(o) not in drop and PRIORITY.get(src_of(o), 0) > PRIORITY["openelections"]]
+            if stronger and _covered(c, stronger):
+                drop.add(id(c))
+                if len(stronger) == 1 or sum(1 for o in stronger if _covered(c, [o])) == 1:
+                    _take_district(next(o for o in stronger if _covered(c, [o])) if len(stronger) > 1 else stronger[0], c)
                 A["same_contest_two_titles"] = A.get("same_contest_two_titles", 0) + 1
     return [c for c in cs if id(c) not in drop]
 
@@ -482,6 +567,7 @@ def build(cfg: dict, out: Path, log=print) -> dict:
     sen_class = {(c["y"], c["st"]): c["cl"] for c in read if c.get("cl") and c.get("office") == "U.S. Senate" and not c.get("sp")}
     cs = choose(read, audit)
     _one_name_a_nominee(cs, repairs)
+    _party_from_primary(cs, repairs)
     by_year = defaultdict(list)
     for c in cs:
         by_year[c["y"]].append(c)

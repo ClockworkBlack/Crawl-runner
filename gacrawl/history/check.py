@@ -91,6 +91,13 @@ def check_bundle(bundle: Path) -> dict:
                 if not o:
                     E["a contest with no candidates"].append(t)
                     continue
+                if scope == "ga" and c.get("lvl") != "question" and len(o) >= 2 \
+                        and all(re.search(r"(?:^|[-\u2013]\s*)(?:yes|no|for|against)(?: approval)?$", str(x[0]), re.I) for x in o if not is_writein_bucket(x[0])):
+                    W["a ballot question filed as a contest for an office"].append(t)
+                if scope == "ga" and c.get("lvl") in ("local", "judicial") and not c.get("j") and len(o) > 15:
+                    W["a county office with no county and many candidates (counties' contests filed together?)"].append(f"{t}: {len(o)} candidates")
+                if scope == "ga" and c.get("lvl") == "local" and re.match(r"(?:U\.?S\.? (?:House|Senate)|President|Vice President|Governor)\b", str(c.get("t") or "")):
+                    W["a federal or statewide office filed as a county contest"].append(t)
                 votes = [x[2] for x in o]
                 if any(v is not None and (not isinstance(v, int) or v < 0) for v in votes):
                     E["votes that are not a whole number of votes"].append(t)
@@ -113,6 +120,8 @@ def check_bundle(bundle: Path) -> dict:
                     n = str(x[0] or "")
                     if '""' in n or "�" in n or "#" in n and c.get("lvl") == "federal" or not n.strip():
                         E["a damaged name"].append(f"{t}: {n!r}")
+                    elif re.search(r"Partisan\b|\(I$", n):
+                        W["a ballot's nonpartisan or incumbent mark left on a name"].append(f"{t}: {n!r}")
                     elif c.get("lvl") != "question" and not is_writein_bucket(n):
                         if re.search(r"^No Candidates?\b|\d\s*%|^\d+$", n, re.I):
                             E["a row that is not a candidate"].append(f"{t}: {n!r}")

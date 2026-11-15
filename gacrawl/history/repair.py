@@ -38,6 +38,19 @@ LA_CLOSED = (2008, 2010)               # Louisiana held party primaries for Cong
 TERRITORIES = ("AS", "DC", "GU", "MP", "PR", "VI")
 _PARTY_TAIL = re.compile(r"\s+(?:(D|R|L)\.|\((D|R|L|I)\)|(Dem|Rep|Lib|Ind)\.?)$")
 _PARTY_HEAD = re.compile(r"^(?:Lib|Dem|Rep|Ind|Grn)\s+(?=[A-Z][a-z]+\s+\S)")
+# a ballot question's choices, however a file writes them: "Yes", "Question #5 - No", "For Approval", "YES (Non-Partisan)"
+_CHOICE = re.compile(r"^(?:.*[-\u2013]\s*)?(?:yes|no|for|against)(?:\s+approval)?(?:\s*\(non-?partisan\))?$", re.I)
+# the 2006 and 2008 files' "(Non-Partisan)" column, whole or cut into the name: "Yes (Non-Partisan)", "Gary Andrews
+# Partisan", "Jr. Partisan Charles B. Mikell"
+_NP_MARK = re.compile(r"\s*\(Non-?Partisan\)\s*$", re.I)
+_NP_HEAD = re.compile(r"^((?:Jr|Sr)\.?|II|III|IV)\s+(?:\(Non-?Partisan\)|Partisan)\s+(.+)$", re.I)
+_NP_TAIL = re.compile(r"\s+Partisan$", re.I)
+_INC_CUT = re.compile(r"\s*\(I\)?$")                 # the incumbent mark cut short: "Amanda H. Mercier (I"
+# offices that are never a county's own: a county file's row for one of them is its slice of a district or state contest
+_NOT_COUNTY = re.compile(r"^(?:U\.?S\.? (?:House|Senate|Representative|Senator)|President|Vice President|Governor|"
+                         r"Lieutenant Governor|Secretary of State|Attorney General|State School Superintendent|"
+                         r"Commissioner of (?:Agriculture|Insurance|Labor))\b", re.I)
+_STATEWIDE_COURT = re.compile(r"appeals|supreme", re.I)
 
 
 def src_of(c: dict) -> str:
@@ -76,8 +89,39 @@ def repair_contest(c: dict, stats: Counter | None = None) -> dict | None:
     """One contest put right in place (None: it is not a result and is left out). Safe to run twice."""
     S = stats if stats is not None else Counter()
     src = src_of(c)
-    isq = c.get("lvl") == "question"
     o = c.get("o") or []
+    ga = c.get("scope") == "ga" or c.get("st") == "GA"
+    # names first: a mark a file left on them hides what they are (a question's "Yes (Non-Partisan)")
+    for x in o:
+        if not isinstance(x[0], str):
+            continue
+        n = _NP_HEAD.sub(lambda m: m.group(2) + " " + m.group(1), x[0])
+        n = _NP_MARK.sub("", n)
+        n = _NP_TAIL.sub("", n).strip()
+        if ga and _INC_CUT.search(n) and len(_INC_CUT.sub("", n).split()) >= 2:
+            n = _INC_CUT.sub("", n).strip()
+            x[3] = 1
+            S["incumbent mark cut short taken off a name"] += 1
+        if n and n != x[0]:
+            x[0] = n
+            S["ballot's nonpartisan mark taken off a name"] += 1
+    # a ballot question filed as a contest for an office: about 1,000 county and city referendums (and the 1996-2006
+    # amendments) came in as "local" contests whose candidates were Yes and No, one of them the "winner"
+    if ga and c.get("lvl") != "question":
+        ch = [x for x in o if isinstance(x[0], str) and not is_writein_bucket(x[0])]
+        if len(ch) >= 2 and all(_CHOICE.match(x[0].strip()) for x in ch):
+            c["lvl"] = "question"
+            S["ballot questions filed as offices"] += 1
+    # Georgia elects no Vice President of its own: a write-in tally under that title (2008, 13 votes) is not a contest
+    if ga and re.match(r"^vice president$", str(c.get("office") or c.get("t") or ""), re.I):
+        S["vice-presidential write-in rows left out"] += 1
+        return None
+    # a county file's row for a federal or statewide office is that county's slice of a contest read whole elsewhere
+    # (2014: "U.S. House District 7" filed as a Forsyth County contest, with Rob Woodall listed twice)
+    if ga and c.get("lvl") == "local" and _NOT_COUNTY.match(str(c.get("office") or c.get("t") or "")):
+        S["a county's slice of a district or statewide contest left out"] += 1
+        return None
+    isq = c.get("lvl") == "question"
 
     # a ballot question whose heading the document broke across lines: only its last line was read as the title
     if isq and c.get("t") and str(c["t"])[:1].islower() and "cut off" not in str(c["t"]):
@@ -569,6 +613,47 @@ def fix_federal(cs: list[dict], stats: Counter | None = None) -> list[dict]:
     return out
 
 
+def county_contests(c: dict, stats: Counter | None = None) -> list[dict]:
+    """A county office the state's 2012-2015 archives filed with no county: the contest as each county held it.
+
+    The archives' county files title the same office alike ("CLERK, SUPERIOR COURT"), and the reader put rows of one
+    title together as if they were one contest across counties, as a judicial circuit's is: 78 candidates for clerk in
+    one "contest" with one leader (2012). The county table the reader kept says where each candidate ran. A contest
+    whose county table has one county is that county's; one whose candidates each have votes in one county only is
+    one contest per county; a name with votes in two of the counties is two people of one name the reader put in one
+    row (2012: "Becky Robinson", clerk in Fulton and in Haralson), and has a row in each. A contest its candidates ran
+    in across counties (a circuit's judge, a district attorney) is left as it is, and so is a statewide court's."""
+    S = stats if stats is not None else Counter()
+    cty = c.get("cty")
+    if not (c.get("scope") == "ga" and not c.get("j") and cty and c.get("lvl") in ("local", "judicial")
+            and not _STATEWIDE_COURT.search(str(c.get("t") or c.get("office") or ""))):
+        return [c]
+    o = c["o"]
+    if not all(len(v) == len(o) for v in cty.values()):
+        return [c]
+    if len(cty) == 1:
+        c["j"] = next(iter(cty))
+        c.pop("cty", None)
+        S["county offices given their county"] += 1
+        return [c]
+    real = [i for i, x in enumerate(o) if isinstance(x[0], str) and not is_writein_bucket(x[0])]
+    where = {i: [k for k, v in cty.items() if (v[i] or 0) > 0] for i in real}
+    single = [w[0] for w in where.values() if len(w) == 1]
+    if not real or len(single) < 0.8 * len(real) or len(set(single)) < 2:
+        return [c]
+    out = []
+    for county in sorted({k for w in where.values() for k in w}):
+        v = cty[county]
+        rows = [[x[0], x[1], v[i], x[3], ""] for i, x in enumerate(o) if (v[i] or 0) > 0]
+        n = dict(c, j=county, o=rows, tot=sum(r[2] or 0 for r in rows))
+        n.pop("cty", None)
+        _retag(n, majority=_needs_majority(n))
+        out.append(n)
+    S["county offices filed together, taken apart by county"] += 1
+    S["county contests from them"] += len(out)
+    return out
+
+
 def repair_all(contests, stats: Counter | None = None) -> list[dict]:
     """Everything above, in order, over every contest read."""
     S = stats if stats is not None else Counter()
@@ -576,7 +661,7 @@ def repair_all(contests, stats: Counter | None = None) -> list[dict]:
     for c in contests:
         c = repair_contest(c, S)
         if c is not None:
-            cs.append(c)
+            cs.extend(county_contests(c, S))
     reconcile_ga(cs, S)
     cs = fix_federal(cs, S)
     # taking contests apart can leave two with one identity: the fuller stands
