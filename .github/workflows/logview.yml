@@ -1,0 +1,65 @@
+name: logview
+
+# Runs in the PUBLIC runner repository only, on its free minutes, every hour: the LogView collector
+# (tools/collect.py in the private ClockworkBlack/LogView) gathers the GitHub Actions logs of Electo, electo-data,
+# Crawl and Crawl-runner into LogView, one folder per project and day.
+#
+# Nothing of them stays here: the collector and the logs are only on the runner while it works and are deleted at the
+# end, the step prints the collector's one-line count and no more (the logs name private runs and say what failed in
+# them), and sync-code deletes this run within 15 minutes of its end (it keeps a run's logs, in the private repository
+# only, when the run failed). Collecting further back: Run workflow with the days to look back (GitHub keeps 90).
+#
+# Needs two secrets here (LogView's README says how to make them):
+#   LOGVIEW_READ   reads Actions on Crawl, Crawl-runner, Electo and electo-data, and the contents of Crawl
+#   LOGVIEW_WRITE  writes the contents of LogView only
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days to look back"
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: logview
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Collect into LogView
+        env:
+          GH_TOKEN: ${{ secrets.LOGVIEW_READ }}
+          WRITE: ${{ secrets.LOGVIEW_WRITE }}
+          DAYS: ${{ inputs.days || '3' }}
+        run: |
+          set -uo pipefail
+          if [ -z "$GH_TOKEN" ] || [ -z "$WRITE" ]; then
+            echo "::error title=LogView::the LOGVIEW_READ and LOGVIEW_WRITE secrets are needed here (LogView's README.md says how to make them)"; exit 1
+          fi
+          W="$RUNNER_TEMP/logview"; OUT="$RUNNER_TEMP/collect.out"
+          trap 'rm -rf "$W" "$OUT"' EXIT
+          git clone -q --depth 1 "https://x-access-token:${WRITE}@github.com/ClockworkBlack/LogView.git" "$W" || { echo "::error title=LogView::could not read LogView with LOGVIEW_WRITE"; exit 1; }
+          cd "$W"
+          python3 -I tools/collect.py --days "$DAYS" > "$OUT" 2>&1; rc=$?
+          tail -1 "$OUT"        # the count only
+          [ "$rc" = 0 ] || { echo "::error title=LogView::the collector stopped (exit $rc): could not read the projects; check LOGVIEW_READ"; exit "$rc"; }
+          grep -q "::warning" "$OUT" && echo "::warning title=LogView::some projects could not be read (named above); check LOGVIEW_READ's repositories"
+          git config user.name "LogView collector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for d in electo electo-data crawl crawl-runner; do [ -d "$d" ] && git add -A "$d"; done
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -q -m "Logs: $(tail -1 "$OUT")"
+          # OpenResearch also pushes to LogView: on a race, take its commit and try again
+          for i in 1 2 3 4; do
+            git pull -q --rebase origin main 2>/dev/null && git push -q origin HEAD:main 2>/dev/null && { echo "pushed to LogView"; exit 0; }
+            sleep $((i * 10))
+          done
+          echo "::error title=LogView::could not push to LogView"; exit 1

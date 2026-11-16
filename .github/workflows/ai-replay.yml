@@ -89,7 +89,9 @@ jobs:
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: |
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
-          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /ga/written.py \
+          # every module at the top of Electo's ga/ ('/ga/*.py'), not a list of them: from Nov 14 ga/written.py imports
+          # ga/textfix.py, which the list lacked, and every run failed on the import (as grand-cross did, 4152cefe)
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ '/ga/*.py' \
             /research/train/profile_write_log.jsonl /research/train/news_ai_log.jsonl /research/train/profile_ai_log.jsonl
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"
       - name: Which model (a key in tools/ai/models.json)
@@ -141,7 +143,7 @@ jobs:
           S="$PWD/parts"; mkdir -p "$S"
           ls "$S"/*/part.json >/dev/null 2>&1 || { echo "::error::no part came back"; exit 1; }
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
-          cd /tmp/electo-ai && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ /ga/written.py /research/train/replay.json
+          cd /tmp/electo-ai && git sparse-checkout set --no-cone /tools/ai/ /tools/profile_ai/ '/ga/*.py' /research/train/replay.json
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           for i in 1 2 3 4 5; do
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD

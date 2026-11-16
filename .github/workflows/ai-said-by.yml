@@ -77,7 +77,7 @@ jobs:
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
         run: |
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
-          cd electo && git sparse-checkout set --no-cone /tools/ai/ /ga/held_lines.py /ga/crawl/people.json /ga/crawl/profile_ai.json /ga/crawl/said_by.json
+          cd electo && git sparse-checkout set --no-cone /tools/ai/ '/ga/*.py' /ga/crawl/people.json /ga/crawl/profile_ai.json /ga/crawl/said_by.json
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
       - name: Anything to read? (with nothing for this runner, the model is neither fetched nor installed)
         id: need
