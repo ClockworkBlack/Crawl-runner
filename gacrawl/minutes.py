@@ -21,6 +21,7 @@ record and no vote record.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 from .derive import Deriver, register
@@ -30,11 +31,11 @@ from .topics import tag
 MINUTES_HINT = re.compile(r"\bminutes\b", re.I)
 TITLE_RX = re.compile(r"\b(council\s*(?:member|man|woman|person)|councilmember|councilwoman|councilman|commissioner|alderman|"
                       r"alderwoman|mayor\s+pro\s+tem(?:pore)?|mayor|chair(?:man|woman|person)?|vice[- ]chair(?:man|woman)?|"
-                      r"member|dr|mr|mrs|ms|post\s+\d+|district\s+\d+|ward\s+\d+)\b\.?\s*", re.I)
+                      r"member|dr|mr|mrs|ms|post\s+\d+|district\s+\d+|ward\s+\d+)\b[.\u2024]?\s*", re.I)
 PRESIDING_RX = re.compile(r"\b(mayor(?!\s+pro)|chair(?:man|woman|person)?)\b", re.I)
-NAME = r"(?-i:(?:[A-Z]\.|[A-Z][A-Za-z'’\-]*[A-Za-z])(?:\s+(?:[A-Z]\.|[A-Z][A-Za-z'’\-]*[A-Za-z])){0,3})"
+NAME = r"(?-i:(?:[A-Z][.\u2024]|[A-Z][A-Za-z'’\-]*[A-Za-z])(?:\s+(?:[A-Z][.\u2024]|[A-Z][A-Za-z'’\-]*[A-Za-z])){0,3})"
 TITLE = (r"(?:(?:council\s*(?:member|man|woman|person)|councilmember|commissioner|alder(?:man|woman)|mayor\s+pro\s+tem(?:pore)?|"
-         r"mayor|chair(?:man|woman|person)?|vice[- ]chair(?:man|woman)?|dr|mr|mrs|ms)\.?\s+)?")
+         r"mayor|chair(?:man|woman|person)?|vice[- ]chair(?:man|woman)?|dr|mr|mrs|ms)[.\u2024]?\s+)?")
 WHO = TITLE + NAME
 SEC = r"\s*[,.;]?\s*(?:and\s+|with\s+)?(?:a\s+)?(?:seconded|second(?:ed)?)\s+(?:by\s+)?"
 MOTION_RX = re.compile(
@@ -64,8 +65,50 @@ OPPOSED_RX = re.compile(r"\(?\s*(?P<names>" + NAME + r"(?:\s*(?:,|and)\s*" + NAM
 ROLLCALL_RX = re.compile(r"(?P<name>" + NAME + r")\s*[-–:]\s*(?P<vote>yes|no|aye|nay|yea|abstain(?:ed)?|absent|recused?)\b", re.I)
 PRESENT_RX = re.compile(r"\b(?:members?\s+|those\s+|council\s+members?\s+|commissioners?\s+)?present(?:\s+were|\s+was|\s+included)?"
                         r"\s*[:\-–]?\s*(?P<names>[^.]{5,600}?)(?:\.\s|\n\s*\n|\babsent\b|\balso\s+present\b)", re.I | re.S)
-ORD_RX = re.compile(r"\b(ordinance|resolution)\s*(?:no\.?|number|#)?\s*([0-9]{2,4}[-–][0-9A-Za-z]{1,6}|[0-9]{1,5})\b", re.I)
-NOISE = re.compile(r"\b(motion|vote|carried|passed|none|all|approved|seconded|second|the|was|were|members?|council)\b", re.I)
+ORD_RX = re.compile(r"\b(ordinance|resolution)\s*(?:no[.\u2024]?|number|#)?\s*([0-9]{2,4}[-–][0-9A-Za-z]{1,6}|[0-9]{1,5})\b", re.I)
+NOISE = re.compile(r"\b(motion|vote|carried|passed|none|all|approved|seconded|second|the|was|were|members?|council|"
+                   # agenda headings read as a member's name ("Public Comment - None", "Discussion: no", "Roll Call -
+                   # Maddox: yes", "Public Safety: no report"): "Comment" voted No eight times in Clarke County
+                   r"comments?|discussion|roll|call|public|safety|hearing|reports?|business|agenda|presentations?|"
+                   r"citizens?|staff|budget|old|new|items?|consent|minutes|announcements?|executive|session)\b", re.I)
+
+# The period of an abbreviation is not a sentence's end. Motion texts were cut there ("Approve Mr", "Adjourn at 10:16
+# a"; 224 roll calls in the Nov 2026 bundle): such periods are written as DOT while the minutes are read, and given
+# back as periods in what is stored.
+DOT = "\u2024"
+_TITLE_ABBR = re.compile(r"\b(Mr|Mrs|Ms|Messrs|Dr|Hon|Rev|Gov|Sen|Rep|Lt|Sgt|Capt|Cpt|Col|Gen|Prof|Mt|Ft|St)\.(?=\s+([A-Z][\w'’\-]*))")
+_NO_ABBR = re.compile(r"\b(No|Nos|Num|Ord|Res|Vol|Pg|Pp|Sec|Art|Ch|Item)\.(?=\s*[#\dIVX])", re.I)
+_DOTTED = re.compile(r"\b(?:[A-Za-z]\.){2,}")          # a.m., p.m., U.S., i.e., e.g.
+_END_ABBR = re.compile(r"\b(Inc|Co|Corp|Ltd|LLC|Jr|Sr|Ave|Rd|Blvd|Hwy|Pkwy|Ln|Dr|St|Ste|Dept|Div|Ga|Est|Approx|approx|vs|etc|"
+                       r"Mr|Mrs|Ms|Dr|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.(?=\s*(?:[a-z\d,;:(&]|$))", re.M)
+# a capitalised word after "Dr."/"St." that starts a new sentence: "on Main St. The motion", not "St. Marys"
+_STARTERS = {"The", "This", "That", "These", "Motion", "Mayor", "Council", "Councilmember", "Commissioner", "It", "There",
+             "Vote", "All", "Upon", "A", "An", "After", "With", "Being", "No", "Hearing", "Discussion", "Item", "Meeting",
+             "Ayes", "Nays", "Yes", "He", "She", "They", "We", "I"}
+_INITIAL = re.compile(r"(?<![\w.\u2024])([A-Z])\.(?=\s+([A-Z][A-Za-z'’\-]+))")
+
+
+def _protect(text: str) -> str:
+    text = _DOTTED.sub(lambda m: m.group(0)[:-1].replace(".", DOT) + ".", text)
+    # the last period of a.m./p.m./U.S. too, when the sentence goes on ("at 10:16 a.m. on Monday", "a.m., and")
+    text = re.sub(r"(?<=[A-Za-z]\u2024[A-Za-z])\.(?=\s*(?:[a-z\d,;:(&]|$))", DOT, text, flags=re.M)
+    # a title or "St." before a name: "Mr. Smith", "Dr. Jones", "St. Marys"; "Dr." and "St." after a capitalised word
+    # and before a sentence's first word are a street's ("on Oak Dr. The motion")
+    text = _TITLE_ABBR.sub(lambda m: m.group(1) + (DOT if m.group(2) not in _STARTERS else "."), text)
+    text = _NO_ABBR.sub(lambda m: m.group(1) + DOT, text)
+    text = _END_ABBR.sub(lambda m: m.group(1) + DOT, text)
+    text = _INITIAL.sub(lambda m: m.group(1) + (DOT if m.group(2) not in _STARTERS else "."), text)
+    return text
+
+
+def _restore(v):
+    if isinstance(v, str):
+        return v.replace(DOT, ".")
+    if isinstance(v, list):
+        return [_restore(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _restore(x) for k, x in v.items()}
+    return v
 # the clerk's closing lines, never a motion's words: Hull's "Respectfully submitted, Sandra Pou, City Clerk" (read by
 # OCR as "Re pectfully submitted, Aa/laPoit andra Pou") went out as the motion of the roll call before it (Nov 13, 2026)
 SIGNOFF_RX = re.compile(r"^\W*(re\s?s?pectfully\s+submitted|submitted\s+by|attest(ed)?\b|approved\s*:|minutes\s+(recorded|taken|"
@@ -156,6 +199,7 @@ def _norm_vote(v: str) -> str:
 
 
 def parse_motions(text: str) -> list[dict]:
+    text = _protect(text or "")
     present, presiding = attendees(text)
     voting = [p for p in present if p not in presiding]
     out = []
@@ -253,6 +297,20 @@ def parse_motions(text: str) -> list[dict]:
                     "tally": f"{tally.group(1)}-{tally.group(2)}" if tally else "", "unanimous": unanimous,
                     "votes": list(votes.values()), "ordinance_ref": f"{ref.group(1).title()} {ref.group(2)}" if ref else "",
                     "text": flat[:1200], "present": present})
+    out = [_restore(mo) for mo in out]
+    for mo in out:
+        # "to approve the budget, seconded by Councilmember Smith": the seconder is recorded on its own
+        mo["motion"] = re.sub(r"\s*[,;]\s*(?:and\s+)?(?:was\s+)?seconded\s+by\s+[^,;]*$", "", mo["motion"], flags=re.I)
+        if re.search(r"(?:\b[A-Za-z]\.)+[A-Za-z]$", mo["motion"]):
+            mo["motion"] += "."               # "adjourn at 10:16 a.m", its last period taken as the sentence's
+    # each motion's natural id: its words, not its paragraph's place in the document (OCR that replaced a document's
+    # text shifted the indexes and the same motion was stored twice); a repeated motion is told apart by its turn
+    seen: dict[str, int] = {}
+    for mo in out:
+        norm = re.sub(r"[^a-z0-9]+", " ", (mo["motion"] or mo["text"][:400]).lower()).strip()
+        h = hashlib.sha256(norm.encode()).hexdigest()[:12]
+        seen[h] = seen.get(h, 0) + 1
+        mo["mkey"] = h if seen[h] == 1 else f"{h}~{seen[h]}"
     return out
 
 
@@ -270,7 +328,7 @@ def _derive(src: dict, ctx: dict):
         # ordinals nor "February 27,2025", and nine roll calls went out undated (Nov 13, 2026)
         date = meeting_date(text, title) or find_date(text, title)
     for mo in parse_motions(text):
-        base_key = f"{src['source_id']}|minutes|{url}|{mo['index']}"
+        base_key = f"{_prefix(src)}m:{mo['mkey']}"
         topics = tag(mo["motion"], mo["text"])
         common = {"from": "minutes", "mover": mo["mover"], "seconder": mo["seconder"], "result": mo["result"],
                   "procedural": mo["procedural"],
@@ -286,5 +344,12 @@ def _derive(src: dict, ctx: dict):
                                "votes": mo["votes"], "MatterFile": mo["ordinance_ref"], "EventBodyName": ""})
 
 
+def _prefix(src: dict) -> str:
+    return f"{src['source_id']}|minutes|{src.get('url') or ''}|"
+
+
 # version 2 (Nov 13, 2026): the heading's date when the document has none; a motion's words never the clerk's closing lines
-register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive, version="2"))
+# version 3 (Nov 19, 2026): motions keyed by their words, not their paragraph's index, and a document's earlier motions
+# that a re-read does not find again removed (prune): the pass also removes every index-keyed copy stored before;
+# a motion's words are not cut at an abbreviation's period; agenda headings are not members
+register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive, version="3", prune=_prefix))

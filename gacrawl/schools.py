@@ -891,9 +891,11 @@ NOT_FIRST_NAMES = {"on", "in", "at", "by", "for", "from", "of", "to", "with", "a
 
 
 def _plausible_name(name: str) -> bool:
+    from .personname import plausible_person
+
     w = name.split()
     return (2 <= len(w) <= 4 and not STOP_NAMES.search(name) and all(len(x) <= 20 for x in w) and name[0].isupper()
-            and w[0].lower().rstrip(".,") not in NOT_FIRST_NAMES)
+            and w[0].lower().rstrip(".,") not in NOT_FIRST_NAMES and plausible_person(name))
 
 
 def sites(fetcher: Fetcher, root: Path, store: Store, cfg: dict | None = None, log=print, deadline: float | None = None) -> dict:
@@ -1203,8 +1205,21 @@ def people(root: Path, store: Store, cfg: dict | None = None, log=print) -> dict
     sup_words = [w.lower() for w in pc.get("superintendent_page") or ["superintendent"]]
     seat_rx = pc.get("seat") or SEAT_RX_DEFAULT
     found: dict[str, dict] = {}
+    from .personname import own_page, plausible_person
+    from .registry import load_json
+
+    disc = load_json(root / "state" / "discovered.json") or {}
+
+    def believed(p: dict) -> bool:
+        """A person's name, not a page's phrase or the district's own name; and not read from an Internet Archive copy
+        of another site's page ("Atlanta Children" for DeKalb's superintendent, from an archived news page)."""
+        d = dists.get(p["district_id"]) or {}
+        sites = [x for x in (d.get("website"), (disc.get(p["district_id"]) or {}).get("website")) if x]
+        return plausible_person(p["name"], d.get("name") or "") and own_page(p.get("url") or "", *sites)
 
     def put(p: dict):
+        if not believed(p):
+            return
         k = f"{p['district_id']}|{norm_name(p['name'])}"
         if k in found:
             cur = found[k]
@@ -1222,6 +1237,8 @@ def people(root: Path, store: Store, cfg: dict | None = None, log=print) -> dict
     def sup_cand(prio: int, p: dict):
         """One superintendent per district: the one its superintendent page names, then its board page, then any other
         page (a home page can quote a former or the state's superintendent)."""
+        if not believed(p):
+            return
         cur = sup_best.get(p["district_id"])
         if cur is None or prio < cur[0]:
             sup_best[p["district_id"]] = (prio, p)

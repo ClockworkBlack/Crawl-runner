@@ -78,7 +78,7 @@ jobs:
             echo "::warning title=LegiScan::No LEGISCAN_API_KEY secret in this repository: LegiScan is not read (no backup source, no cross-check). A free key: https://legiscan.com/legiscan"
             exit 0
           fi
-          timeout -s INT -k 2m 25m gacrawl legis legiscan --max-minutes 20 | tail -c 1500 || echo "LegiScan stopped; the next night carries on"
+          (set -o pipefail; timeout -s INT -k 2m 25m gacrawl legis legiscan --max-minutes 20 | tail -c 1500) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "LegiScan stopped; the next night carries on"
       - name: Roll calls from legis.ga.gov (newest session first, at the site's pace, each member list checked)
         if: steps.left.outputs.n != '0'
         run: |
@@ -89,7 +89,7 @@ jobs:
             M=$(( (END - $(date +%s)) / 60 )); [ "$M" -ge 5 ] || break
             try=$((try + 1))
             timeout -s INT -k 3m "$((M + 10))m" gacrawl legis update --votes-only --max-minutes "$M" --max-bills 100000 > try.json \
-              || echo "try $try stopped after $((M + 10)) minutes; what was read is kept"
+              || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "try $try stopped after $((M + 10)) minutes; what was read is kept"
             tail -c 1200 try.json || true
             if grep -qE '"(refused|error)":' try.json && grep -qiE 'unreachable|refused|token' try.json; then
               [ $(( END - $(date +%s) )) -gt 1500 ] || { echo "legis.ga.gov did not answer and too little time is left; the next night carries on"; break; }

@@ -131,9 +131,14 @@ jobs:
           echo "SHARD_I=$I" >> "$GITHUB_ENV"
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           mkdir -p waiting
-          gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name|test("^meetings-handoff(-[0-9]+)?\\.json$")) | "\(.id) \(.name)"' 2>/dev/null |
+          gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name|test("^meetings-handoff(-[0-9]+)?(-r[0-9]+)?\\.json$")) | "\(.id) \(.name)"' 2>/dev/null |
           while read -r ID NAME; do
-            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > "waiting/$NAME" && echo "waiting: $NAME (asset $ID)"
+            if gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > "waiting/$NAME"; then echo "waiting: $NAME (asset $ID)"
+            else
+              rm -f "waiting/$NAME"; echo "::warning::$NAME (asset $ID) could not be downloaded: it stays for the crawl"
+              # this shard's own not carried: its new work goes up under its own name (the crawl applies both)
+              [ "$NAME" = "meetings-handoff-$I.json" ] && echo "HANDOFF_NAME=meetings-handoff-$I-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"
+            fi
           done
           if [ -s "waiting/meetings-handoff-$I.json" ]; then cp "waiting/meetings-handoff-$I.json" waiting.json; echo "this shard's own is carried"; fi
       - name: The open model (Qwen3-8B, 4-bit; kept between runs)
@@ -153,7 +158,10 @@ jobs:
           bash scripts/ci_db.sh pull
           for f in waiting/*.json; do
             [ -s "$f" ] || continue
-            gacrawl model-handoff apply --in "$f" > /dev/null || { echo "$f could not be applied here; it stays for the crawl"; [ "$(basename "$f")" = "meetings-handoff-$SHARD_I.json" ] && rm -f waiting.json; }
+            gacrawl model-handoff apply --in "$f" > /dev/null || {
+              echo "::warning::$f could not be applied here; it stays for the crawl"
+              # this shard's own is then not carried, and the upload must not replace it: its new work goes up beside it
+              if [ "$(basename "$f")" = "meetings-handoff-$SHARD_I.json" ]; then rm -f waiting.json; echo "HANDOFF_NAME=meetings-handoff-$SHARD_I-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"; fi; }
           done
           gacrawl model-handoff mark --out mark.json
           echo "MW_T0=$(date +%s)" >> "$GITHUB_ENV"
@@ -161,19 +169,21 @@ jobs:
         if: steps.need.outputs.go == 'true'
         run: |
           M=${{ inputs.minutes || '290' }}
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" --shard "${{ matrix.shard }}" > read.json || echo "meeting summaries stopped after $((M + 8)) minutes"
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl minutes-ai --max-minutes "$M" --shard "${{ matrix.shard }}" > read.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "meeting summaries stopped after $((M + 8)) minutes"
           cat read.json 2>/dev/null || true
       - name: Hand it to the crawl (meetings-handoff-<i>.json in the private release)
         if: always() && steps.need.outputs.go == 'true'
         run: |
+          set -o pipefail      # a crash of the export is a failure, not "nothing was due" (piped into tee it read as 0)
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
+          OUT="${HANDOFF_NAME:-meetings-handoff-$SHARD_I.json}"
           # only this job's own writing travels: the readings and their training log
           if [ -s waiting.json ]; then
-            gacrawl model-handoff export --mark mark.json --out "meetings-handoff-$SHARD_I.json" --only records,train --kinds meeting_summary --carry waiting.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" --only records,train --kinds meeting_summary --carry waiting.json | tee export.json
           else
-            gacrawl model-handoff export --mark mark.json --out "meetings-handoff-$SHARD_I.json" --only records,train --kinds meeting_summary | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" --only records,train --kinds meeting_summary | tee export.json
           fi
           if grep -q '"has_work": true' export.json; then :
           else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
-          gh release upload "$DATA_TAG" "meetings-handoff-$SHARD_I.json" --clobber
-          echo "uploaded meetings-handoff-$SHARD_I.json, $(du -h "meetings-handoff-$SHARD_I.json" | cut -f1), for the crawl's next merge"
+          gh release upload "$DATA_TAG" "$OUT" --clobber
+          echo "uploaded $OUT, $(du -h "$OUT" | cut -f1), for the crawl's next merge"

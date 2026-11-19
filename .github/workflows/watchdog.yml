@@ -5,7 +5,7 @@
 #   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news), and has not
 #     waited over an hour for Electo's newest commit (else it starts publish-site)
 #   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, meeting-summaries, candidate-news, legis-votes, the ai-* jobs,
-#     grand-cross and grand-cross-check)
+#     grand-cross, grand-cross-check, logview, history, news-research and copy-model)
 #     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
 #     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
 #   - each open-model job still passes its own checker as often as before (Electo tools/ai/health.py): a job that got
@@ -42,12 +42,26 @@ jobs:
       DATA_REPO: ClockworkBlack/Crawl
       SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
       # how old (hours) each sign of life may get before the watchdog acts
-      MAX_CRAWL_H: ${{ vars.WATCH_CRAWL_HOURS || '30' }}
+      MAX_CRAWL_H: ${{ vars.WATCH_CRAWL_HOURS || '10' }}   # runs land about 6 hours apart (back to back); sync-code starts a lost link within 15 minutes
       MAX_POLICE_H: ${{ vars.WATCH_POLICE_HOURS || '30' }}
       MAX_NEWS_H: ${{ vars.WATCH_NEWS_HOURS || '8' }}
       MAX_SITE_H: ${{ vars.WATCH_SITE_HOURS || '8' }}
       MAX_STEP_H: ${{ vars.WATCH_STEP_HOURS || '4' }}    # longest any one step may run (candidate research on the runner is 200 min)
+      # logview needs both secrets; without them it skips its work (logview.yml) and is not restarted here
+      HAS_LOGVIEW: ${{ secrets.LOGVIEW_READ != '' && secrets.LOGVIEW_WRITE != '' }}
     steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "gacrawl\nconfig"}
+      - name: Is the daytime backfill chain on? (gacrawl/backfill.py with the private repository's state/backfill.json)
+        # a crawl started again while the chain is on is started as a link of it (job=backfill), so it chains on
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          mkdir -p state
+          GH_TOKEN="$DATA_TOKEN" gh api "repos/$DATA_REPO/contents/state/backfill.json" -H "Accept: application/vnd.github.raw" > state/backfill.json 2>/dev/null || rm -f state/backfill.json
+          GO=$(PUBLIC_RUNNER=true python3 -c "from gacrawl.backfill import plan; print(str(plan()['go']).lower())" 2>/dev/null || echo unknown)
+          echo "backfill chain: $GO"
+          echo "BACKFILL_GO=$GO" >> "$GITHUB_ENV"
       - name: The open models' pass rates (a job that got worse after a move to another model goes back)
         # Electo tools/ai/health.py: each model job's checker pass rate from its log. It changes tools/ai/models.json
         # itself when a switch went badly; a fall with no switch behind it is reported in the issue below.
@@ -164,11 +178,15 @@ jobs:
               if not force and busy(workflow):
                   repairs.append(f"{workflow}: {why}, but a run is already going; leaving it be")
                   return
-              r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/dispatches", runner_tok, "POST", {"ref": "main"})
+              body = {"ref": "main"}
+              if workflow == "crawl.yml" and os.environ.get("BACKFILL_GO") == "true":
+                  # a plain run (job=crawl) does not hand off to a next link: while the chain is on, start a link of it
+                  body["inputs"] = {"job": "backfill"}
+              r = api(f"repos/{runner_repo}/actions/workflows/{workflow}/dispatches", runner_tok, "POST", body)
               if r.get("_error"):
                   problems.append(f"{workflow}: {why}, and restarting it failed (HTTP {r['_error']}).")
               else:
-                  repairs.append(f"{workflow}: {why}; started it again")
+                  repairs.append(f"{workflow}: {why}; started it again" + (" (as a backfill link)" if "inputs" in body else ""))
 
           MAX_STEP_H = float(os.environ["MAX_STEP_H"])
           checks = [("crawl.yml", ["crawl:"], float(os.environ["MAX_CRAWL_H"])),
@@ -259,6 +277,9 @@ jobs:
                   "model-work": ("model-work.yml", 20), "meeting-summaries": ("meeting-summaries.yml", 20), "candidate-news": ("candidate-news.yml", 20), "ai-outlook": ("ai-outlook.yml", 20),
                   "ai-profiles": ("ai-profiles.yml", 40), "ai-infer": ("ai-infer.yml", 40), "ai-write": ("ai-write.yml", 40), "ai-predict": ("ai-predict.yml", 52), "ai-law-questions": ("ai-law-questions.yml", 52), "ai-said-by": ("ai-said-by.yml", 40), "site-search": ("site-search.yml", 52), "legis-votes": ("legis-votes.yml", 20),
                   "grand-cross": ("grand-cross.yml", 14), "grand-cross-check": ("grand-cross-check.yml", 52),
+                  # hourly, every 6 h, every 3 h, daily, monthly (the 3rd), weekly: twice the gap, plus a margin
+                  "logview": ("logview.yml", 3), "history": ("history.yml", 20), "news-research": ("news-research.yml", 8),
+                  "copy-model": ("copy-model.yml", 52), "ai-replay": ("ai-replay.yml", 24 * 64), "ai-compare-eval": ("ai-compare-eval.yml", 24 * 15),
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)
@@ -274,6 +295,9 @@ jobs:
                   problems.append(f"**{wf}** has failed {fails} times in a row (last: {last.get('conclusion')} at {last.get('at')}). "
                                   f"Its logs are in logs/runner/ in the private Crawl repository.")
               if max_h is None:
+                  continue
+              if name == "logview" and os.environ.get("HAS_LOGVIEW") != "true":
+                  repairs.append("logview.yml: the LOGVIEW_READ / LOGVIEW_WRITE secrets are not set, so it skips its work; not restarted")
                   continue
               if age is not None and age > max_h:
                   restart(wf, f"no successful run in {age:.0f}h")

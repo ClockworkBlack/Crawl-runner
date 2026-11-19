@@ -81,6 +81,9 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       ELECTO_LLM_MODEL: ${{ matrix.model }}
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: Electo (the job logs and the jobs' code)
@@ -107,19 +110,19 @@ jobs:
       - name: Replay
         run: |
           M="${{ inputs.minutes || '230' }}"
-          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/replay.py --task ${{ matrix.task }} \
-            --minutes "$M" --out ../part.json || echo "stopped"
+          cd electo
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/replay.py --task ${{ matrix.task }} \
+            --minutes "$M" --out ../part.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
           [ -f ../part.json ] || echo '{"rows":[]}' > ../part.json
       - name: Did it answer?
         run: |
           python3 -c "import json,sys; r=json.load(open('part.json')).get('rows') or []; print(len(r), 'replayed,', sum(1 for x in r if x.get('ok')), 'passed'); sys.exit(0 if r else 1)" \
             || { echo "::error::nothing replayed by ${{ matrix.model }} on ${{ matrix.task }}: see the step above"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - name: Pass the results on through the private repository's release (never a public attachment)
         if: always()
-        with:
-          name: replay-${{ matrix.model }}-${{ matrix.task }}
-          path: part.json
-          retention-days: 2
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh put replay "replay-${{ matrix.model }}-${{ matrix.task }}" part.json
 
   combine:
     needs: [plan, replay]
@@ -127,11 +130,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - uses: actions/download-artifact@v4
-        with: {pattern: "replay-*", path: parts}
-        continue-on-error: true
+      - name: This run's shard results (from the private repository's release, scripts/ai_handoff.sh)
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh get replay parts
       - name: Combine into Electo
         if: env.IS_MAIN == 'true'
         env:
@@ -156,6 +163,15 @@ jobs:
             [ "$i" -lt 5 ] || { echo "::error::the replay results could not be pushed to Electo"; exit 1; }
             sleep $((i * 10))
           done
+      - name: Remove this run's shard results from the private release (once combined), and any left over 3 days
+        # a run whose combine failed keeps its own for a later look; the 3-day sweep takes them (any AI job's)
+        if: ${{ always() }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          COMBINED: ${{ job.status == 'success' && env.IS_MAIN == 'true' }}
+        run: |
+          if [ "$COMBINED" = "true" ]; then bash scripts/ai_handoff.sh drop parts; else echo "not combined: this run's shard results are kept for the 3-day sweep"; fi
+          bash scripts/ai_handoff.sh clean 3 || echo "::warning::the sweep of old shard results did not finish"
       - name: Remove this run's attachments
         if: always()
         env:

@@ -53,7 +53,9 @@ LIST_MARK = re.compile(r"^(?:[-*•·]|\d{1,2}[.)])\s+")
 
 # the county election offices' own report (every Georgia county's tabulator prints this layout): a contest heading
 # ending "(Vote for 1)", then one line a candidate with the counting groups' columns, the total and the share
-SUMMARY_HEAD = re.compile(r"^(.*\S)\s*\(Vote\s+for\s+(\d+)\)\s*$", re.I)
+# the heading, with the party code some reports print after it on the same line ("... - Rep (Vote for 1) REP", Hall
+# County's runoff report of June 18, 2024)
+SUMMARY_HEAD = re.compile(r"^(.*\S)\s*\(Vote\s+for\s+(\d+)\)(?:\s+(?:DEM|REP|LIB|IND|NP|GRN))?\s*$", re.I)
 SUMMARY_ROW = re.compile(r"^(.+?)\s+((?:\d[\d,]*\s+)*)(\d[\d,]*)\s+(\d{1,3}\.\d+)\s*%$")
 SUMMARY_PARTY = re.compile(r"\s+(DEM|REP|LIB|IND|NP|GRN)$")
 SUMMARY_MAX = 1_500_000
@@ -117,37 +119,65 @@ def _summary_lines(text: str) -> list[str]:
     return out
 
 
+_SUMMARY_BLOCK_META = re.compile(r"^(?:precincts\s+reported|times\s+cast|undervotes|overvotes)\b", re.I)
+_HEAD_PARTY = re.compile(r"(?:\s[-–]\s*|\()(Rep|Dem|Republican|Democrat(?:ic)?)\)?\s*$", re.I)
+
+
+def summary_layout(items: list[tuple]) -> tuple[str, int, int]:
+    """("lead" | "trail", votes for lead, votes for trail). The tabulator's report prints each contest's heading above
+    its table, and most PDFs give the text in that order; others give each table first and its heading after it, with
+    the contest's "Precincts Reported" and "Times Cast" lines just before the heading (South Fulton's Dec. 2, 2025 and
+    Nov. 5, 2025 reports, Hall County's May 21, 2024). Read as headings-first, every contest got the next one's
+    candidates (Gerald Couch, elected sheriff, under Clerk of Superior Court). A heading whose own block lines follow it
+    is a vote for "lead"; one they come just before is a vote for "trail"."""
+    lead = trail = 0
+    for i, it in enumerate(items):
+        if it[0] != "head":
+            continue
+        if i + 1 < len(items) and items[i + 1][0] == "meta":
+            lead += 1
+        if i > 0 and items[i - 1][0] == "meta":
+            trail += 1
+    return ("trail" if trail > lead else "lead"), lead, trail
+
+
 def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
     """Contests from a county's Election Summary Report (also inside a longer document: a board's meeting packet).
-    Official reports print each candidate's share; unofficial ones only the counting groups and the total."""
+    Official reports print each candidate's share; unofficial ones only the counting groups and the total.
+    A report whose layout cannot be told (headings before their tables and after them in like numbers), or whose
+    contests' parties contradict their headings ("Sheriff - Dem" with Republican candidates), gives no contests: a
+    report read with its headings shifted put people under offices they never ran for."""
     text = text[:SUMMARY_MAX]
     if text.count("\n") < text.count("(Vote for") * 3:
         text = _unflatten(text)
-    contests, cur = [], None
+    items: list[tuple] = []       # ("head", contest) | ("cand", candidate) | ("total", n) | ("meta",), in the text's order
     for line in _summary_lines(text):
         h = SUMMARY_HEAD.match(line)
         if h:
-            if cur and cur["candidates"]:
-                contests.append(cur)
             office = _PAGE_STAMP.sub("", h.group(1)).strip(" :-")
             office = _SUMMARY_HEAD_JUNK.sub("", office).strip(" :-")
-            cur = {"office": office, "candidates": [], "runoff": runoff or "runoff" in office.lower(), "vote_for": int(h.group(2))}
+            items.append(("head", {"office": office, "candidates": [], "runoff": runoff or "runoff" in office.lower(),
+                                   "vote_for": int(h.group(2))}))
             continue
-        if cur is None or re.match(r"^(times cast|precincts reported|candidate\b|election day\b|page\b|voting mail\b)", line, re.I):
+        if _SUMMARY_BLOCK_META.match(line):
+            items.append(("meta",))
+            continue
+        if re.match(r"^(candidate\b|election day\b|page\b|voting mail\b)", line, re.I) or \
+                re.search(_MONTHS + r"\s+\d{1,2},\s+\d{4}$", line):   # the report's own date ("December 02, 2025")
             continue
         lp = _SUMMARY_LEAD_PARTY.match(line)
         if lp:                                          # the party of the candidate above, left on its own line
-            if cur["candidates"] and not cur["candidates"][-1]["party"]:
+            last = next((x[1] for x in reversed(items) if x[0] in ("cand", "head")), None)
+            if isinstance(last, dict) and "votes" in last and not last["party"]:
                 _, party, inc = _clean_name("X " + lp.group(1))
-                cur["candidates"][-1]["party"] = party
-                cur["candidates"][-1]["incumbent"] = cur["candidates"][-1]["incumbent"] or inc
+                last["party"] = party
+                last["incumbent"] = last["incumbent"] or inc
             line = lp.group(2).strip()
             if not line:
                 continue
         t = re.match(r"^total votes\s+.*?(\d[\d,]*)$", line, re.I)
         if t:
-            cur["total"] = int(t.group(1).replace(",", ""))
-            cur["closed"] = True                        # what follows is the write-ins block
+            items.append(("total", int(t.group(1).replace(",", ""))))
             continue
         m = SUMMARY_ROW.match(line)
         pct = None
@@ -166,12 +196,54 @@ def parse_summary_report(text: str, runoff: bool = False) -> list[dict]:
             party = {"DEM": "D", "REP": "R", "LIB": "L", "IND": "I"}.get(pm.group(1), "")
         if not name or not NAME_RX.match(re.sub(r",?\s+WRITE-?IN$", "", name, flags=re.I)) or len(name) > 60:
             continue
-        cur["candidates"].append({"name": name, "party": party, "votes": int(votes.replace(",", "")), "pct": pct,
-                                  "incumbent": inc})
-    if cur and cur["candidates"]:
-        contests.append(cur)
+        items.append(("cand", {"name": name, "party": party, "votes": int(votes.replace(",", "")), "pct": pct,
+                               "incumbent": inc}))
+    layout, lead, trail = summary_layout(items)
+    if min(lead, trail) >= 2 and min(lead, trail) * 2 > max(lead, trail):
+        return []                                       # neither order holds: the report is not read rather than misread
+    contests: list[dict] = []
+    if layout == "lead":
+        cur = None
+        for it in items:
+            if it[0] == "head":
+                if cur and cur["candidates"]:
+                    contests.append(cur)
+                cur = it[1]
+            elif cur is not None and it[0] == "cand":
+                cur["candidates"].append(it[1])
+            elif cur is not None and it[0] == "total" and "total" not in cur:
+                cur["total"] = it[1]
+        if cur and cur["candidates"]:
+            contests.append(cur)
+    else:
+        pend: list[dict] = []
+        total = None
+        for it in items:
+            if it[0] == "cand":
+                pend.append(it[1])
+            elif it[0] == "total" and total is None:
+                total = it[1]
+            elif it[0] == "head":
+                c = it[1]
+                if pend:
+                    c["candidates"] = pend
+                    if total is not None:
+                        c["total"] = total
+                    contests.append(c)
+                pend, total = [], None
+        # candidates after the last heading: their heading is past the end of the text; not given one
+    # a party in the heading ("Sheriff - Dem") that its candidates' printed parties contradict: misaligned
+    checked = wrong = 0
     for c in contests:
-        c.pop("closed", None)
+        hp = _HEAD_PARTY.search(c["office"])
+        parties = {x["party"] for x in c["candidates"] if x["party"]}
+        if hp and parties:
+            checked += 1
+            if parties != {hp.group(1)[0].upper()}:
+                wrong += 1
+    if wrong >= 2 and wrong * 2 > checked:
+        return []
+    for c in contests:
         c["total"] = c.get("total") or sum(x["votes"] for x in c["candidates"])
         for x in c["candidates"]:
             if x["pct"] is None:
@@ -448,7 +520,16 @@ def _contest_place(office: str, default: str, jurisdictions: list[dict], by_norm
     return default
 
 
-register(Deriver("elections", "kind IN ('page','document') AND source_id NOT LIKE 'cand:%'", _derive))
+def _prune(src: dict) -> list[str]:
+    """The contests a document gave before: a re-read that no longer finds one (a report now refused as misaligned, a
+    heading that now takes its own candidates) removes it."""
+    return [f"{src['source_id']}|election_result|{src.get('url') or ''}|"]
+
+
+# version 2 (Nov 19, 2026): reports whose PDF text gives each table before its heading are read in that order (they
+# were read with every heading shifted by one: South Fulton, Hall County); a report whose alignment cannot be told is
+# not read; a document's contests not found again are removed
+register(Deriver("elections", "kind IN ('page','document') AND source_id NOT LIKE 'cand:%'", _derive, version="2", prune=_prune))
 
 
 # ----------------------------------------------------------------------------- export (Electo shapes)

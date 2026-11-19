@@ -274,7 +274,8 @@ class WebLane:
                        text="\n".join(excerpts(page["text"], pat, n=3))[:1800],
                        published=_page_date(page["text"]),
                        channel="html", evidence=ev,
-                       meta={"outlet": domain_of(page["url"]), "via": "web_search", "opened": True, "found_by": q}))
+                       meta={"outlet": domain_of(page["url"]), "via": "web_search", "opened": True, "found_by": q,
+                             **({"date_from": "text"} if _page_date(page["text"]) else {})}))
             n += 1
         return n
 

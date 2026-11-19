@@ -45,7 +45,7 @@ jobs:
           GACRAWL_BROWSER_CHANNEL: chrome
         run: |
           set -f
-          gacrawl probe $URLS --browser --out data/ethics_probe || echo "probe stopped"
+          gacrawl probe $URLS --browser --out data/ethics_probe || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "probe stopped"
           bash scripts/ci_runner.sh push-state "ethics probe $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_probe || true
       - name: Click the public data buttons of the current systems (PeachFile, EFile) and record their API calls
         if: inputs.action == 'clicks' || inputs.action == 'bulk'
@@ -53,13 +53,13 @@ jobs:
           GACRAWL_BROWSER_CHANNEL: chrome
           ACTION: ${{ inputs.action }}
         run: |
-          if [ "$ACTION" = bulk ]; then gacrawl ethics bulk --out data/ethics_probe || echo "bulk stopped"
-          else gacrawl ethics clicks --out data/ethics_probe || echo "clicks stopped"; fi
+          if [ "$ACTION" = bulk ]; then gacrawl ethics bulk --out data/ethics_probe || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "bulk stopped"
+          else gacrawl ethics clicks --out data/ethics_probe || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "clicks stopped"; fi
           bash scripts/ci_runner.sh push-state "ethics clicks $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_probe || true
       - name: Explore the search pages
         if: inputs.action == 'explore'
         run: |
-          gacrawl ethics explore --out data/ethics_explore || echo "explore stopped"
+          gacrawl ethics explore --out data/ethics_explore || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "explore stopped"
           bash scripts/ci_runner.sh push-state "ethics explore $(date -u +%Y-%m-%dT%H:%MZ)" data/ethics_explore || true
       - name: Try the reader on an empty database (a few minutes; prints what it read)
         if: inputs.action == 'sample'

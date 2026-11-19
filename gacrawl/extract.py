@@ -15,7 +15,11 @@ def urljoin(base: str, href: str) -> str:
         return ""
 
 
-NOISE = ["script", "style", "noscript", "nav", "footer", "header", "form", "iframe", "svg", "button", "aside"]
+NOISE = ["script", "style", "noscript", "nav", "footer", "header", "iframe", "svg", "button", "aside",
+         "input", "select", "option", "textarea"]
+# A <form> is unwrapped, not deleted: ASP.NET WebForms (Legistar's public pages, CivicPlus, DotNetNuke, SharePoint)
+# wrap the whole page in one form, which used to extract to nothing. Only its controls (above) are dropped.
+UNWRAP = ["form"]
 ORDINANCE_HEADING = re.compile(
     r"^\s*(?:(?:Sec(?:tion)?\.?|§)\s*\d[\w\-.]*|ARTICLE\s+[IVXLC\d]+|CHAPTER\s+\d+[A-Z]?|DIVISION\s+\d+|ORDINANCE\s+(?:NO\.?|NUMBER)\s*[\w\-]+)",
     re.I,
@@ -84,6 +88,8 @@ def html_to_markdown(html: str, base_url: str = "") -> tuple[str, str]:
     title = (soup.title.get_text(strip=True) if soup.title else "") or ""
     for tag in soup(NOISE):
         tag.decompose()
+    for tag in soup(UNWRAP):
+        tag.unwrap()
     if base_url:
         for a in soup.find_all("a", href=True):
             a["href"] = urljoin(base_url, a["href"])
@@ -140,8 +146,26 @@ TEXT_DATE = re.compile(r"\b(January|February|March|April|May|June|July|August|Se
 MONTHS = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
 
 
-def page_date(html: str, text: str = "") -> str | None:
-    """When a page says it was published: meta tags, <time datetime>, JSON-LD, else the first date in its opening text."""
+TEXT_DATE_MAX_AGE_YEARS = 15     # a date read from the page's words, not its metadata, is believed only this far back
+
+
+def page_date(html: str, text: str = "", fetched: str | None = None) -> str | None:
+    """When a page says it was published: meta tags, <time datetime>, JSON-LD, else the first date in its opening text.
+    A date from the text is only the page's own when it is plausible: not more than TEXT_DATE_MAX_AGE_YEARS before the
+    page was fetched (`fetched`, ISO; today when not given) and not more than a year after. The first date of a page's
+    words is often one it mentions: profile items were dated 1956-01-12 and 2001-09-11 that way (Nov 2026)."""
+    return page_date_info(html, text, fetched)["date"]
+
+
+# where a record's date came from (meta.date_from): the page's own markup says when it was published ("meta", "time",
+# "jsonld"); only the first date in its words ("text": the weakest, a date the page may only mention); the feed or API
+# item ("feed"); the source's own data (no date_from: an agenda system's meeting date, a filing's date, a PDF's fields)
+DATE_FROM = ("meta", "time", "jsonld", "text", "feed", "listing", "archive")
+
+
+def page_date_info(html: str, text: str = "", fetched: str | None = None) -> dict:
+    """{"date", "from", "set_aside"}: the date page_date gives, where it was read ("meta", "time", "jsonld", "text" or
+    ""), and a date of the page's words that was not believed (too old or too far ahead of `fetched`)."""
     soup = soup_of(html[:300000])
     for m in soup.find_all("meta"):
         key = (m.get("property") or m.get("name") or m.get("itemprop") or "").lower()
@@ -149,23 +173,41 @@ def page_date(html: str, text: str = "") -> str | None:
             v = (m.get("content") or "").strip()
             d = _iso10(v)
             if d:
-                return d
+                return {"date": d, "from": "meta", "set_aside": None}
     t = soup.find("time", attrs={"datetime": True})
     if t:
         d = _iso10(t["datetime"])
         if d:
-            return d
+            return {"date": d, "from": "time", "set_aside": None}
     for sc in soup.find_all("script", attrs={"type": "application/ld+json"}):
         mm = re.search(r'"datePublished"\s*:\s*"([^"]+)"', sc.get_text() or "")
         if mm:
             d = _iso10(mm.group(1))
             if d:
-                return d
-    head = (text or soup.get_text(" ", strip=True))[:1500]
-    mm = TEXT_DATE.search(head)
-    if mm:
-        return _iso10(mm.group(0))
-    return None
+                return {"date": d, "from": "jsonld", "set_aside": None}
+    d = text_date(text or soup.get_text(" ", strip=True))
+    if d:
+        if _plausible_text_date(d, fetched):
+            return {"date": d, "from": "text", "set_aside": None}
+        return {"date": None, "from": "", "set_aside": d}
+    return {"date": None, "from": "", "set_aside": None}
+
+
+def text_date(text: str) -> str | None:
+    """The first date in a page's opening words (what page_date falls back to), as ISO, or None."""
+    mm = TEXT_DATE.search((text or "")[:1500])
+    return _iso10(mm.group(0)) if mm else None
+
+
+def _plausible_text_date(d: str, fetched: str | None = None) -> bool:
+    import datetime as dt
+
+    try:
+        day = dt.date.fromisoformat(d[:10])
+        ref = dt.date.fromisoformat(fetched[:10]) if fetched else dt.date.today()
+    except ValueError:
+        return False
+    return ref.replace(year=ref.year - TEXT_DATE_MAX_AGE_YEARS, day=min(ref.day, 28)) <= day <= ref + dt.timedelta(days=366)
 
 
 def _iso10(v: str) -> str | None:

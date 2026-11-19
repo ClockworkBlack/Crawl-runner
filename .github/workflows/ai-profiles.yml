@@ -58,6 +58,9 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: Electo (the profiles, the prompts and the checker)
@@ -91,16 +94,14 @@ jobs:
       - name: Sort this runner's share of the profiles
         run: |
           M="${{ inputs.minutes || '300' }}"
-          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profiles_ai.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || echo "stopped"
+          cd electo
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profiles_ai.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
           [ -f ../shard.json ] || echo '{"v":1,"s":{}}' > ../shard.json
           cp research/train/profile_ai_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
-      - uses: actions/upload-artifact@v4
-        with:
-          name: profile-ai-${{ matrix.shard }}
-          path: |
-            shard.json
-            log.jsonl
-          retention-days: 2
+      - name: Pass the results on through the private repository's release (never a public attachment)
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh put profiles "profile-ai-${{ matrix.shard }}" shard.json log.jsonl
 
   combine:
     needs: sort
@@ -108,10 +109,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - uses: actions/download-artifact@v4
-        with: {pattern: "profile-ai-*", path: shards}
+      - name: This run's shard results (from the private repository's release, scripts/ai_handoff.sh)
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh get profiles shards
       - name: Combine into Electo and refresh the public site
         if: env.IS_MAIN == 'true'
         env:
@@ -141,7 +147,16 @@ jobs:
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; git rebase --abort 2>/dev/null || true; sleep $((i*5)); done
           # the profiles written from the records read these labels: folded in on Electo's newest main (ga/written.py)
           [ -f tools/written_publish.sh ] && bash tools/written_publish.sh || echo "written profiles not refreshed"
-          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"
+      - name: Remove this run's shard results from the private release (once combined), and any left over 3 days
+        # a run whose combine failed keeps its own for a later look; the 3-day sweep takes them (any AI job's)
+        if: ${{ always() }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          COMBINED: ${{ job.status == 'success' && env.IS_MAIN == 'true' }}
+        run: |
+          if [ "$COMBINED" = "true" ]; then bash scripts/ai_handoff.sh drop shards; else echo "not combined: this run's shard results are kept for the 3-day sweep"; fi
+          bash scripts/ai_handoff.sh clean 3 || echo "::warning::the sweep of old shard results did not finish"
       - name: Remove this run's attachments
         if: always()
         env:

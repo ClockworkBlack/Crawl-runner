@@ -21,6 +21,10 @@ on:
         description: "Started by the loop that just ended (skip the check for a running loop)"
         required: false
         default: "false"
+      parent:
+        description: "The run that handed over (with handoff: it is not counted as another loop)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -47,12 +51,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HANDOFF: ${{ inputs.handoff }}
+          PARENT: ${{ inputs.parent }}
         run: |
-          if [ "$HANDOFF" = true ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          n=$(gh api "repos/${{ github.repository }}/actions/runs?status=in_progress&per_page=100" \
-                --jq '[.workflow_runs[] | select(.path == ".github/workflows/news.yml" and .id != ${{ github.run_id }})] | length' 2>/dev/null || echo 0)
-          if [ "${n:-0}" -gt 0 ]; then
-            echo "a News loop is already running (it reads the outlets every 10 minutes); this run ends here"
+          # every News run not finished yet counts, not only in_progress ones: during the ~10 s hand-off the next loop
+          # is queued, and an hourly check landing then started a second loop (both chains then handed off past the
+          # check). A hand-off run is no longer waved through either: it ends if any News run other than the one that
+          # handed over (PARENT) has its loop job going.
+          R="${{ github.repository }}"
+          others=$(gh api "repos/$R/actions/workflows/news.yml/runs?per_page=50" \
+                     --jq '.workflow_runs[] | select(.status != "completed" and .id != ${{ github.run_id }}) | .id' 2>/dev/null) \
+            || { echo "::warning::the News runs could not be listed; this run goes on"; others=""; }
+          busy=""
+          for id in $others; do
+            [ "$id" = "${PARENT:-none}" ] && continue
+            if [ "$HANDOFF" = true ]; then
+              # a scheduled check that is only gating ends by itself on seeing this run; a loop counts once its job is on
+              st=$(gh api "repos/$R/actions/runs/$id/jobs" --jq '.jobs[] | select(.name == "news") | .status' 2>/dev/null || true)
+              case "$st" in queued|in_progress|waiting|pending|requested) busy="$busy $id" ;; esac
+            else
+              busy="$busy $id"
+            fi
+          done
+          if [ -n "$busy" ]; then
+            echo "a News loop is already running or about to (run$busy; it reads the outlets every 10 minutes); this run ends here"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
@@ -112,4 +133,4 @@ jobs:
         if: success() && env.IS_MAIN == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run news.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" -f handoff=true || echo "the next loop could not be started; the hourly schedule starts it"
+        run: gh workflow run news.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" -f handoff=true -f parent="${{ github.run_id }}" || echo "the next loop could not be started; the hourly schedule starts it"

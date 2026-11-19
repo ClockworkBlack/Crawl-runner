@@ -65,6 +65,9 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}         # only needed for a private repo
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: Which model
@@ -101,8 +104,9 @@ jobs:
       - name: Predict the hidden votes
         run: |
           M="${{ inputs.minutes || '240' }}"; N="${{ inputs.bench || '120' }}"
-          cd electo && timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/vote_bench.py --n "$N" --minutes "$M" \
-            --shard ${{ matrix.shard }} --of 4 --out ../run.json || echo "stopped"
+          cd electo
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/vote_bench.py --n "$N" --minutes "$M" \
+            --shard ${{ matrix.shard }} --of 4 --out ../run.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
           [ -f ../run.json ] || echo '{"rows":[]}' > ../run.json
           cp research/train/vote_bench_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
       - name: Did it answer?
@@ -111,14 +115,11 @@ jobs:
         run: |
           python3 -c "import json,sys; r=json.load(open('run.json')).get('rows') or []; print(len(r), 'answers,', sum(1 for x in r if x.get('p') is not None), 'readable,', sum(1 for x in r if x.get('pn') is not None), 'with a probability'); sys.exit(0 if r else 1)" \
             || { echo "::error::no answers from ${{ matrix.model }} (part ${{ matrix.shard }}): see the step above"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - name: Pass the results on through the private repository's release (never a public attachment)
         if: always()
-        with:
-          name: predict-bench-${{ matrix.model }}-${{ matrix.shard }}
-          path: |
-            run.json
-            log.jsonl
-          retention-days: 2
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh put predict "predict-bench-${{ matrix.model }}-${{ matrix.shard }}" run.json log.jsonl
 
   check:
     if: github.event.repository.private == false && (inputs.bench == '' || inputs.bench == '0')
@@ -133,6 +134,9 @@ jobs:
       ELECTO_LLM_QUANT: Q4_K_S
       ELECTO_LLM_NAME: Phi-4
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: Electo (the records, the page's inferences and the ledger)
@@ -168,16 +172,13 @@ jobs:
           if [ ! -f tools/predict/ledger.py ] || [ "${{ steps.need.outputs.go }}" != "true" ]; then
             echo "nothing for this runner"; echo '{"entries":[]}' > ../part.json; : > ../log.jsonl; exit 0
           fi
-          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/ledger.py --run --shard ${{ matrix.shard }} --of 4 --minutes "$M" --out ../part.json || echo "stopped"
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/predict/ledger.py --run --shard ${{ matrix.shard }} --of 4 --minutes "$M" --out ../part.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
           [ -f ../part.json ] || echo '{"entries":[]}' > ../part.json
           cp research/train/predict_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
-      - uses: actions/upload-artifact@v4
-        with:
-          name: predict-check-${{ matrix.shard }}
-          path: |
-            part.json
-            log.jsonl
-          retention-days: 2
+      - name: Pass the results on through the private repository's release (never a public attachment)
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh put predict "predict-check-${{ matrix.shard }}" part.json log.jsonl
 
   combine:
     needs: [bench, check]
@@ -185,11 +186,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: This repository's scripts (scripts/ai_handoff.sh passes the results on; config/runner.json names the data repository)
+        uses: actions/checkout@v4
+        with: {persist-credentials: false, sparse-checkout: "scripts\nconfig"}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - uses: actions/download-artifact@v4
-        with: {pattern: "predict-*", path: parts}
-        continue-on-error: true
+      - name: This run's shard results (from the private repository's release, scripts/ai_handoff.sh)
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: bash scripts/ai_handoff.sh get predict parts
       - name: Parts that sent nothing (named, with the inputs that run only them again)
         if: inputs.bench != '' && inputs.bench != '0'
         env:
@@ -244,9 +249,18 @@ jobs:
             [ "$i" -lt 5 ] || { echo "::error::the prediction results could not be pushed to Electo"; exit 1; }
             sleep $((i * 10))
           done
-          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"
           # what could be combined is kept either way; a disagreement among the inputs still fails the run, so it is seen
           [ "$RC" = 0 ] || { echo "::error::tools/predict/combine.sh ended with $RC (see its lines above)"; exit "$RC"; }
+      - name: Remove this run's shard results from the private release (once combined), and any left over 3 days
+        # a run whose combine failed keeps its own for a later look; the 3-day sweep takes them (any AI job's)
+        if: ${{ always() }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          COMBINED: ${{ job.status == 'success' && env.IS_MAIN == 'true' }}
+        run: |
+          if [ "$COMBINED" = "true" ]; then bash scripts/ai_handoff.sh drop parts; else echo "not combined: this run's shard results are kept for the 3-day sweep"; fi
+          bash scripts/ai_handoff.sh clean 3 || echo "::warning::the sweep of old shard results did not finish"
       - name: Remove this run's attachments
         if: always()
         env:

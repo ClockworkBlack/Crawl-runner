@@ -21,6 +21,9 @@ set -euo pipefail
 cmd="${1:-}"; shift || true
 CFG=config/runner.json
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-state-base"     # what pull-state started this job from (scripts/state_sync.py)
+
 json() { python3 -c "import json,sys;d=json.load(open('$CFG'));print(d.get(sys.argv[1]) or '')" "$1" 2>/dev/null || true; }
 
 case "$cmd" in
@@ -53,7 +56,10 @@ case "$cmd" in
     git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data
     git -C .data sparse-checkout set --no-cone /state/ /imports/screens/ /data/openrecords/ /data/verified/ /data/rumor_mill/ \
       /data/manual_tasks.md /data/seed_gaps.md /data/seed_review.md /data/train/ /config/private/ /imports/history/
-    for p in config/private state imports/screens imports/history data/openrecords data/verified data/rumor_mill data/manual_tasks.md data/seed_gaps.md data/seed_review.md data/train; do
+    kept=(config/private state imports/screens imports/history data/openrecords data/verified data/rumor_mill data/manual_tasks.md data/seed_gaps.md data/seed_review.md data/train)
+    # what this job starts from, so push-state writes only what the run changed (scripts/state_sync.py)
+    rm -rf "$BASE"; python3 "$HERE/state_sync.py" record "$BASE" .data "${kept[@]}" || { echo "::warning::no record of the pulled state: push-state removes nothing"; rm -rf "$BASE"; }
+    for p in "${kept[@]}"; do
       if [ -e ".data/$p" ]; then mkdir -p "$(dirname "$p")"; rm -rf "$p"; cp -r ".data/$p" "$p"; fi
     done
     rm -rf .data
@@ -63,8 +69,12 @@ case "$cmd" in
     name="$1"; shift
     mkdir -p upload
     have=(); for p in "$@"; do [ -e "$p" ] && have+=("$p"); done
-    [ ${#have[@]} -gt 0 ] || have=(.)  # never an empty bundle
+    # nothing to bundle: an empty archive (not the whole checkout, which was the fallback: "." packed the Electo clone
+    # and everything else in the workspace)
+    [ ${#have[@]} -gt 0 ] || { echo "pack $name: none of $* exists; an empty bundle"; have=(-T /dev/null); }
     if [ "${PUBLIC_RUNNER:-false}" = "true" ]; then
+      # never fall back to a plain bundle here, nor encrypt with an empty key: either would be readable by anyone
+      [ -n "${DATA_TOKEN:-}" ] || { echo "::error::public runner without the DATA_TOKEN secret: nothing can be attached"; exit 1; }
       tar -cf - "${have[@]}" | gzip -1 | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:DATA_TOKEN -out "upload/$name.enc"
     else
       tar -czf "upload/$name.tar.gz" "${have[@]}"
@@ -83,20 +93,30 @@ case "$cmd" in
     if [ "${PUBLIC_RUNNER:-false}" = "true" ]; then
       # each try copies this run's kept files over a fresh clone of the private repository, so a push another job made
       # first (the police job also keeps state/blocked.json; fec-reread data/coverage.md) is built on, never rebased
-      # into a conflict that would fail every later try
+      # into a conflict that would fail every later try. Only what this run changed is written, and only what it removed
+      # (a screenshot moved to processed/) is removed: a screenshot uploaded to imports/screens/ or an owner's edit made
+      # while the job ran stays, and state/blocked.json is merged host by host (scripts/state_sync.py; until Nov 19 each
+      # path was replaced whole with the runner's hours-old copy, `rm -rf` then `cp -r`)
+      paths=()
+      for p in "$@"; do
+        [ -e "$p" ] || continue
+        case "$p" in data/openrecords*) continue ;; esac   # the tracker is written only by the private repository's mail run
+        paths+=("$p")
+      done
+      [ ${#paths[@]} -gt 0 ] || { echo "nothing new to keep"; exit 0; }
       for i in 1 2 3 4 5; do
         rm -rf .data
         git clone -q --depth 1 "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" .data || { sleep $((i*5)); continue; }
-        for p in "$@"; do
-          [ -e "$p" ] || continue
-          case "$p" in data/openrecords*) continue ;; esac   # the tracker is written only by the private repository's mail run
-          mkdir -p ".data/$(dirname "$p")"; rm -rf ".data/$p"; cp -r "$p" ".data/$p"
-        done
+        python3 "$HERE/state_sync.py" apply "$BASE" . .data "${paths[@]}"
         git -C .data config user.name "gacrawl-bot"; git -C .data config user.email "gacrawl-bot@users.noreply.github.com"
         for p in "$@"; do if [ -e ".data/$p" ]; then git -C .data add -A "$p"; fi; done
         git -C .data diff --cached --quiet && { echo "nothing new to keep"; rm -rf .data; exit 0; }
         git -C .data commit -qm "$msg"
-        git -C .data push -q && { echo "kept in $DATA_REPO"; rm -rf .data; exit 0; }
+        if git -C .data push -q; then
+          # a later push from this job (history.yml keeps its progress each round) starts from what was kept just now
+          [ -d "$BASE" ] && { python3 "$HERE/state_sync.py" record "$BASE" .data "${paths[@]}" || rm -rf "$BASE"; }
+          echo "kept in $DATA_REPO"; rm -rf .data; exit 0
+        fi
         sleep $((i*5))
       done
       exit 1

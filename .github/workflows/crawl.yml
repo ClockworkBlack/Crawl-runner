@@ -250,6 +250,7 @@ jobs:
       - name: Fetch database
         run: bash scripts/ci_db.sh pull
       - name: Crawl
+        id: crawlrun
         timeout-minutes: 120
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}   # council meeting channels (listing uses 1-unit calls)
@@ -263,14 +264,19 @@ jobs:
           # watchdog: the crawler checks its budget between requests, but one long OCR or page render can outlast it.
           # SIGINT lets it flush what it has (the delta below still runs); a hard kill only if it ignores that.
           MIN=${{ needs.prepare.outputs.minutes }}
-          timeout -s INT -k 2m "$((MIN + 6))m" gacrawl run $ARGS || echo "crawl stopped by the watchdog after $((MIN + 6)) minutes"
+          timeout -s INT -k 2m "$((MIN + 6))m" gacrawl run $ARGS || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "crawl stopped by the watchdog after $((MIN + 6)) minutes" fatal
+      # a crashed crawl fails this shard (above) but still hands over what it read, as a stopped one does
       - name: Delta
+        id: delta
+        if: ${{ !cancelled() && (steps.crawlrun.outcome == 'success' || steps.crawlrun.outcome == 'failure') }}
         run: |
           mkdir -p out/deltas out/state
           gacrawl delta --since "${{ needs.prepare.outputs.started }}" --out out/deltas/shard-${{ matrix.shard }}.db
           cp state/progress.json state/channels.json state/blocked.json out/state/ 2>/dev/null || true
       - run: bash scripts/ci_runner.sh pack shard out
+        if: ${{ !cancelled() && steps.delta.outcome == 'success' }}
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.delta.outcome == 'success' }}
         with: {name: "shard-${{ matrix.shard }}", path: upload/, retention-days: 1}
 
   merge:
@@ -406,9 +412,13 @@ jobs:
           # its own runner, its articles, leads, Rumor Mill items and news progress, handed over the same way
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           rm -f modeld/applied
-          # the meeting-summaries job's shards hand over one file each (meetings-handoff-<i>.json); every one waiting is applied
-          MEET=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[].name' 2>/dev/null | grep -E '^meetings-handoff(-[0-9]+)?\.json$' | sort || true)
-          for NAME in model-handoff.json news-handoff.json $MEET; do
+          # the meeting-summaries job's shards hand over one file each (meetings-handoff-<i>.json); every one waiting is applied.
+          # A job that could not carry the waiting hand-off uploads its own beside it (<name>-r<run id>.json): those are
+          # applied after the one they sit beside, oldest run first
+          ALL=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[].name' 2>/dev/null | grep -E '^(model|news|meetings)-handoff(-[0-9]+)?(-r[0-9]+)?\.json$' || true)
+          SIDE=$(echo "$ALL" | grep -E -- '-r[0-9]+\.json$' | sed -E 's/^(.*)-r([0-9]+)\.json$/\2 \1-r\2.json/' | sort -n | cut -d' ' -f2 || true)
+          MEET=$(echo "$ALL" | grep -E '^meetings-handoff(-[0-9]+)?\.json$' | sort || true)
+          for NAME in model-handoff.json news-handoff.json $MEET $SIDE; do
             ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$NAME\") | \"\(.id) \(.updated_at)\"" 2>/dev/null || true)
             if [ -n "$ID" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${ID%% *}" > "modeld/$NAME" 2>/dev/null && [ -s "modeld/$NAME" ]; then
               gacrawl model-handoff apply --in "modeld/$NAME" && echo "$NAME $ID" >> modeld/applied && echo "$NAME applied"
@@ -469,7 +479,7 @@ jobs:
           part() {    # minutes, then the command; SIGINT after the minutes lets the part save what it read
             local B; B=$(bash scripts/budget.sh "$1"); shift
             [ "$B" -gt 0 ] || { echo "no time left for: $*"; return 0; }
-            timeout -s INT -k 1m "$((B + 4))m" "$@" --max-minutes "$B" || echo "$* stopped after $((B + 4)) minutes"
+            timeout -s INT -k 1m "$((B + 4))m" "$@" --max-minutes "$B" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "$* stopped after $((B + 4)) minutes"
           }
           # the registry changes a few times a year (weekly, NCES EDGE)
           if [ "$WEEKLY" = "true" ] || [ "${{ inputs.job }}" = "all" ] || [ ! -f state/schools.json ]; then
@@ -505,7 +515,7 @@ jobs:
           [ "$M" -gt 15 ] && M=15
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || echo "police news stopped after $((M + 5)) minutes"
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl police news --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "police news stopped after $((M + 5)) minutes"
       - name: County election reports (the 2021 and 2023 city seats the state's results do not hold)
         continue-on-error: true      # a search that fails leaves the next run to try; it must not stop the derive or the export
         timeout-minutes: 25
@@ -515,7 +525,7 @@ jobs:
           M=${{ vars.ELECTION_REPORTS_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left for election reports; the next run does them"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl elections reports --max-minutes "$M" --cap 90 > /tmp/er.json || echo "stopped after $((M + 5)) minutes"
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl elections reports --max-minutes "$M" --cap 90 > /tmp/er.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped after $((M + 5)) minutes"
           python3 -c "import json;d=json.load(open('/tmp/er.json'));print({k:d.get(k) for k in ('searched','found','stored','not_found','skipped')});[print(' ',x) for x in d.get('kept',[])];print({k:{a:b for a,b in v.items() if a!='missing'} for k,v in (d.get('status') or {}).items()})" 2>/dev/null || true
       - name: State meetings (state boards' own pages; the General Assembly's committee schedule)
         continue-on-error: true      # a board's page that does not answer is read on the next run; the export goes on
@@ -526,9 +536,9 @@ jobs:
           # for the export's state_meetings.json, which Electo's Committee Meetings tab reads
           M=${{ vars.STATE_MEETINGS_MINUTES || '8' }}; [ "$IS_MAIN" != "true" ] && M=2
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left for state meetings; the next run reads them"; exit 0; }
-          timeout -s INT -k 2m "$((M + 4))m" gacrawl agencies --max-minutes "$M" > /tmp/ag.json || echo "agencies stopped after $((M + 4)) minutes"
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl agencies --max-minutes "$M" > /tmp/ag.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "agencies stopped after $((M + 4)) minutes"
           python3 -c "import json;d=json.load(open('/tmp/ag.json'));print({k:d.get(k) for k in ('agencies','pages','meetings','new')});[print(' ',k,v) for k,v in d.get('by',{}).items()];[print('  error:',e) for e in d.get('errors',[])]" || true
-          timeout -s INT -k 1m 7m gacrawl legis meetings --max-minutes 5 > /tmp/lm.json || echo "the legislature's schedule stopped after 7 minutes"
+          timeout -s INT -k 1m 7m gacrawl legis meetings --max-minutes 5 > /tmp/lm.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the legislature's schedule stopped after 7 minutes"
           python3 -c "import json;print(json.load(open('/tmp/lm.json')).get('meetings'))" || true
       - name: Sources that refuse the crawler, from the Internet Archive's copies (gacrawl/archive_sources.py)
         continue-on-error: true
@@ -536,7 +546,7 @@ jobs:
         run: |
           # before deriving, so tonight's derive reads the minutes and results found this way
           M=$(bash scripts/budget.sh 18); [ "$M" -le 0 ] && { echo "no time left for the archive; the next run reads it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 4))m" gacrawl archive refused --max-minutes "$M" || echo "the archive step stopped after $((M + 4)) minutes"
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl archive refused --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the archive step stopped after $((M + 4)) minutes"
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
         continue-on-error: true      # an error here leaves last run's derived data; it must not stop the export and the site
         timeout-minutes: 20
@@ -599,9 +609,9 @@ jobs:
           M=$(bash scripts/budget.sh "$M" "${{ vars.RESEARCH_KEEPS || '120' }}"); [ "$M" -le 0 ] && { echo "no time left in this run for research; the next run does it"; exit 0; }
           # watchdog as on the crawl: SIGINT after the budget lets research finish the candidates in hand and save
           if [ "$PUBLIC_RUNNER" = "true" ]; then
-            timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" --workers 12 || echo "research stopped by the watchdog after $((M + 5)) minutes"
+            timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" --workers 12 || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "research stopped by the watchdog after $((M + 5)) minutes"
           else
-            timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" || echo "research stopped by the watchdog after $((M + 5)) minutes"
+            timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "research stopped by the watchdog after $((M + 5)) minutes"
           fi
       - name: General Assembly (members, bills, roll calls; per-candidate records)
         run: |
@@ -613,8 +623,8 @@ jobs:
             [ "$PUBLIC_RUNNER" = "true" ] && M=30
             M=$(bash scripts/budget.sh "$M")
             if [ "$M" -le 0 ]; then echo "no time left in this run for the legislature; the next run does it"
-            elif [ "$PUBLIC_RUNNER" = "true" ]; then timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" --max-bills 400 || echo "the legislature step stopped after $((M + 5)) minutes"
-            else timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" || echo "the legislature step stopped after $((M + 5)) minutes"; fi
+            elif [ "$PUBLIC_RUNNER" = "true" ]; then timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" --max-bills 400 || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the legislature step stopped after $((M + 5)) minutes"
+            else timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the legislature step stopped after $((M + 5)) minutes"; fi
           fi
           gacrawl legis people || true      # local: per-candidate records for tonight's export
       - name: Why bills passed, were vetoed or died (outlets' own news APIs)
@@ -624,13 +634,13 @@ jobs:
           M=${{ vars.BILL_REASONS_MINUTES || '30' }}; [ "$IS_MAIN" != "true" ] && M=2
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for bill reasons; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 4))m" gacrawl legis reasons --max-minutes "$M" || echo "bill reasons stopped after $((M + 4)) minutes"
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl legis reasons --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "bill reasons stopped after $((M + 4)) minutes"
       - name: Political news for the News tab (outlets' news APIs and feeds)
         run: |
           # every run: the last ten days of Georgia government and politics stories from the outlets in
           # config/outlets.yaml (their WordPress news APIs, else the feeds their home pages link to)
           M=${{ vars.NEWS_MINUTES || '6' }}; [ "$IS_MAIN" != "true" ] && M=2
-          timeout -s INT -k 1m "$((M + 2))m" gacrawl news --max-minutes "$M" || echo "news stopped after $((M + 2)) minutes"
+          timeout -s INT -k 1m "$((M + 2))m" gacrawl news --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "news stopped after $((M + 2)) minutes"
       - name: The open model for discovery (Qwen3-8B, 4-bit; kept between runs)
         uses: actions/cache@v4
         with:
@@ -650,7 +660,7 @@ jobs:
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for discovery; the next run does it"; exit 0; }
           pip install -q --prefer-binary "llama-cpp-python>=0.3.9" huggingface_hub \
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || { echo "llama.cpp did not install; no discovery this run"; exit 0; }
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl discover-ai --max-minutes "$M" || echo "discovery stopped after $((M + 8)) minutes"
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl discover-ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "discovery stopped after $((M + 8)) minutes"
       - name: Committee hearing video (each bill's committee steps, then the official recordings of those days)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
@@ -662,9 +672,9 @@ jobs:
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for hearing video; the next run does it"; exit 0; }
           # the data service and the channels' APIs any time; the legislature's own pages only inside the off-peak window
           if gacrawl window | grep -q '"good_time": true'; then
-            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --with-hearings --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
+            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --with-hearings --max-minutes "$M" > /tmp/lv.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped after $((M + 4)) minutes"
           else
-            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --no-pages --with-hearings --max-minutes "$M" > /tmp/lv.json || echo "stopped after $((M + 4)) minutes"
+            timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --no-pages --with-hearings --max-minutes "$M" > /tmp/lv.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped after $((M + 4)) minutes"
           fi
           python3 -c "import json;d=json.load(open('/tmp/lv.json'));print({k:d.get(k) for k in ('histories','video','hearings')})" 2>/dev/null || true
       - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
@@ -680,7 +690,7 @@ jobs:
           # gacrawl/federal_bills.py: the first runs read each Congress from its zip (resumable); then only what changed
           M=${{ vars.FEDERAL_BILLS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=3
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 10))m" gacrawl federal-bills --max-minutes "$M" || echo "the federal bills step stopped after $((M + 10)) minutes"
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl federal-bills --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the federal bills step stopped after $((M + 10)) minutes"
       - name: Campaign finance and organizations
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
@@ -696,9 +706,9 @@ jobs:
           # --defer-reread: while the fec-reread job's hand-offs keep arriving (2 days) the campaigns awaiting the re-read
           # are left to it (the same pages read here at the same time cost the one FEC key twice); otherwise as before
           if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --defer-reread --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
           else
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --defer-reread --max-minutes "$M" || echo "the finance step stopped after $((M + 15)) minutes"
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
           fi
       - name: Georgia state and local money (State Ethics Commission)
         run: |
@@ -710,7 +720,7 @@ jobs:
           # while the ga-money job hands its reading over (applied above, within two days) it owns the full histories and
           # this step reads only the newest lines; otherwise (no hand-off) this step reads the full histories itself.
           # Then it gives donor ids to every new line (the ga-money job's too) and drops lines amended reports replaced
-          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --mode auto --max-minutes "$M" || echo "the Georgia money step stopped after $((M + 10)) minutes"
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --mode auto --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the Georgia money step stopped after $((M + 10)) minutes"
       - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
@@ -719,12 +729,12 @@ jobs:
           # registries' bulk files and searches; the open model writes its background from them (model-work.yml)
           M=${{ vars.ORGS_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=3
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl finance orgs --max-minutes "$M" || echo "organization lookups stopped after $((M + 5)) minutes"
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl finance orgs --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "organization lookups stopped after $((M + 5)) minutes"
       - name: Rumor Mill pages (each unverified item's page read once, for the open model's reading)
         run: |
           M=5; [ "$IS_MAIN" != "true" ] && M=2
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 1m "$((M + 2))m" gacrawl rumors-text --max-minutes "$M" || echo "rumor pages stopped after $((M + 2)) minutes"
+          timeout -s INT -k 1m "$((M + 2))m" gacrawl rumors-text --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "rumor pages stopped after $((M + 2)) minutes"
       - name: Meeting channels by the open model (taught by the owner's channel decisions)
         run: |
           # gacrawl/channel_ai.py: every channel still in the Rumor Mill - Video bucket judged against the owner's decisions
@@ -732,7 +742,7 @@ jobs:
           # else listed in data/channel_review.md
           M=${{ vars.CHANNEL_AI_MINUTES || '5' }}; [ "$IS_MAIN" != "true" ] && M=1
           python3 -c "import llama_cpp" 2>/dev/null || { echo "llama.cpp is not installed; no channel readings this run"; exit 0; }
-          timeout -s INT -k 2m "$((M + 4))m" gacrawl channel-ai --max-minutes "$M" || echo "channel readings stopped after $((M + 4)) minutes"
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl channel-ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "channel readings stopped after $((M + 4)) minutes"
       - name: Meeting videos read by the open model (captions as transcripts; what each meeting did)
         run: |
           # gacrawl/video_ai.py: official channels' meeting videos only; captions through yt-dlp (no key). If YouTube asks
@@ -741,9 +751,9 @@ jobs:
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           pip install -q --prefer-binary yt-dlp || { echo "yt-dlp did not install; no meeting videos read this run"; exit 0; }
           if python3 -c "import llama_cpp" 2>/dev/null; then
-            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --max-minutes "$M" || echo "video readings stopped after $((M + 6)) minutes"
+            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "video readings stopped after $((M + 6)) minutes"
           else
-            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --captions-only --max-minutes "$M" || echo "captions stopped after $((M + 6)) minutes"
+            timeout -s INT -k 2m "$((M + 6))m" gacrawl video-ai --captions-only --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "captions stopped after $((M + 6)) minutes"
           fi
       - name: Open records requests (replies, follow-ups, new batch)
         env:
@@ -772,7 +782,7 @@ jobs:
           # an hour or more later in the same run the site usually answers again, so it is asked once more here
           [ -f state/legis_refused.json ] || { echo "the legislature step was not refused this run"; exit 0; }
           M=$(bash scripts/budget.sh 15); [ "$M" -le 0 ] && { echo "no time left in this run for a second try; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --if-refused --max-minutes "$M" --max-bills 200 || echo "the second try stopped after $((M + 5)) minutes"
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl legis update --if-refused --max-minutes "$M" --max-bills 200 || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the second try stopped after $((M + 5)) minutes"
           gacrawl legis people || true
       - name: Screenshot inbox (imports/screens/)
         continue-on-error: true
@@ -862,7 +872,7 @@ jobs:
           # minutes, scripts/budget.sh), at most 20 minutes. Until Nov 13, 2026 it always had 20, and a run that
           # reached this step late went into the export with too little time
           LEFT=$(( MERGE_LIMIT - ($(date +%s) - MERGE_T0) / 60 - 60 )); [ "$LEFT" -gt 20 ] && LEFT=20
-          if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300 || echo "linking stopped; the next run finishes it"
+          if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then (set -o pipefail; timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "linking stopped; the next run finishes it"
           elif [ "$n" = "1" ]; then echo "money applied; no time left to link it in this run (the next run links it)"
           else echo "no money hand-off arrived while this run worked"; fi
       - name: Memory to spare for the export (swap on the runner's disk)
@@ -1126,8 +1136,17 @@ jobs:
             git diff --cached --quiet && { echo "Electo already up to date"; return 0; }
             git diff --cached --stat | tail -1
             git commit -qm "Import from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1
-            git push -q origin HEAD:main || return 1
-            echo "imported into Electo ($(git rev-parse --short HEAD))"
+            # a refused push (another job pushed meanwhile) is rebased onto Electo's newest main, the import's files
+            # winning a conflict, instead of importing again from a fresh clone (Nov 14: three full imports, each
+            # refused, and the run went green without them); only a rebase that cannot go through imports again
+            for t in 1 2 3 4 5; do
+              if git push -q origin HEAD:main; then echo "imported into Electo ($(git rev-parse --short HEAD))"; return 0; fi
+              echo "the push was refused (try $t): rebasing on Electo's newest main"
+              sleep $((t * 5))
+              git fetch -q origin main || continue
+              git rebase -q -X theirs FETCH_HEAD || { git rebase --abort 2>/dev/null || true; return 1; }
+            done
+            return 1
           }
           for i in 1 2 3; do
             if (import_once); then exit 0; else rc=$?; fi
@@ -1136,7 +1155,7 @@ jobs:
               { echo "### Electo import stopped"; echo; echo '```'; tail -n 25 /tmp/import-last-step.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
-            echo "Electo's main moved while importing (or the push was refused): importing again on its newest commit"
+            echo "Electo's main moved while importing and the import could not be rebased on it: importing again on its newest commit"
             sleep $((i * 10))
           done
           exit 1
@@ -1175,7 +1194,7 @@ jobs:
           [ -d /tmp/electo-full/.git ] || git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-full || true
           cd /tmp/electo-full || { echo "site data not refreshed (no copy of Electo)"; exit 0; }
           git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || echo "::warning title=Site data::Electo's newest main not fetched; building from the import's copy"
-          [ -f tools/site_data.sh ] && timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          [ -f tools/site_data.sh ] && timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"
       - name: Remove this run's attachments (public runner keeps nothing once the data is in the private repository)
         timeout-minutes: 10
         if: always() && env.PUBLIC_RUNNER == 'true'
@@ -1190,3 +1209,10 @@ jobs:
             fi
             GH_TOKEN="$RUN_TOKEN" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id (run $run)"
           done
+      - name: The Electo import failed (everything else was saved above)
+        # the import is continue-on-error so the state, the site data and the cleanup still run; the run is then failed
+        # here, so a refused or crashed import is seen (Nov 14: run 43592205300 was green with no import)
+        if: always() && steps.imported.outcome == 'failure'
+        run: |
+          echo "::error title=Electo import::the import into Electo failed (see its step); the crawl's data is stored, but Electo does not have it"
+          exit 1

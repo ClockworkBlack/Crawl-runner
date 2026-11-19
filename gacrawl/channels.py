@@ -96,6 +96,12 @@ class Probe:
         return self.latency / max(1, self.items)
 
 
+
+def date_meta(di: dict) -> dict:
+    """meta fields saying where a page's date came from (extract.page_date_info): date_from, and a date of its words
+    that was set aside as not the page's own (too old or ahead of the fetch)."""
+    return {**({"date_from": di["from"]} if di.get("from") else {}), **({"date_set_aside": di["set_aside"]} if di.get("set_aside") else {})}
+
 def choose(probes: list[Probe]) -> Probe | None:
     """Fastest working structured channel; else best unstructured fallback by priority."""
     ok = [p for p in probes if p.ok and p.items > 0]
@@ -461,8 +467,9 @@ def _page_record(fetcher: Fetcher, sid: str, url: str, src: dict, ctx: CrawlCont
     title, md = extract.html_to_markdown(r.text, r.url)
     if not md:
         return None
-    rec = Record(sid, src.get("kind", "page"), r.url, title=title, text=md, markdown=md, channel="html", meta={"opened": True},
-                 published=extract.page_date(r.text, md))
+    di = extract.page_date_info(r.text, md)
+    rec = Record(sid, src.get("kind", "page"), r.url, title=title, text=md, markdown=md, channel="html",
+                 meta={"opened": True, **date_meta(di)}, published=di["date"])
     rec.extras = list(page_extras(fetcher, sid, src, r, r.text))  # transcripts etc. linked from this page
     return rec
 
@@ -571,7 +578,10 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                 yield Record(sid, "post" if src.get("kind") == "campaign" else src.get("kind", "page"), p.get("link", ""),
                              title=extract.soup_of(p.get("title", {}).get("rendered", "")).get_text(),
                              text=md, markdown=md, published=p.get("date"), channel="wp_json",
-                             meta={"wp_id": p.get("id"), "opened": True})
+                             # the post's id under a name the record's key does not take (store.ID_FIELDS): the same
+                             # address read by the coverage crawl is the same record, not a second one; a post with no
+                             # address keeps the id in its key
+                             meta={("wp_post_id" if p.get("link") else "wp_id"): p.get("id"), "opened": True})
             page += 1
         yield from _coverage(fetcher, src, ctx, max_pages)
         return
@@ -591,8 +601,12 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                     page.channel = "feed"
                     # the feed's own date first: the page's is read from its text, where the first date is often
                     # one the story mentions (a release of Nov. 17 announcing a Dec. 15 hearing was dated Dec. 15)
-                    page.published = item["published"] or page.published
-                    page.meta["guid"] = item["id"]
+                    if item["published"]:
+                        page.published = item["published"]
+                        page.meta = {**{k: v for k, v in page.meta.items() if k != "date_set_aside"}, "date_from": "feed"}
+                    # not "guid", which store.ID_FIELDS puts in the key: the coverage crawl reads the same page with
+                    # none, and each run stored it twice (news/budget-hearing under "g-1" and under no id)
+                    page.meta["feed_guid"] = item["id"]
                     yield from with_extras(page)
                     continue
             yield Record(sid, "feed_item", item["link"], title=item["title"], text=item["summary"],

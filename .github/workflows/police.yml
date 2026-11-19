@@ -97,27 +97,41 @@ jobs:
           [ -n "${{ inputs.only }}" ] && FLAG="$FLAG --only ${{ inputs.only }}"
           [ "${{ inputs.refresh }}" = "true" ] && FLAG="$FLAG --refresh"
           # watchdog: SIGINT lets it save what it has
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl police all --max-minutes "$M" $FLAG || echo "police stopped after $((M + 5)) minutes"
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl police all --max-minutes "$M" $FLAG || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "police stopped after $((M + 5)) minutes"
       - name: Commit state
         if: always() && steps.window.outputs.go == 'true'
         run: |
-          bash scripts/ci_runner.sh push-state "police: $(date -u +%Y-%m-%dT%H:%MZ)" state/police.json state/media.json state/police_roster.json state/blocked.json
+          bash scripts/ci_runner.sh push-state "police: $(date -u +%Y-%m-%dT%H:%MZ)" state/police.json state/media.json state/police_roster.json state/sheriffs.json state/blocked.json
       - name: Patch the Electo bundle (police.json, media.json, records_contacts.json)
         if: always() && steps.window.outputs.go == 'true'
         run: |
           # the crawl's merge job stores a newer bundle now and then: when it did while this one was being patched, the
           # newer one is patched instead (uploading this copy would put the older bundle back)
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-          at() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="electo-bundle.tar.gz") | "\(.id) \(.updated_at)"' 2>/dev/null || true; }
+          at() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="'"${1:-electo-bundle.tar.gz}"'") | "\(.id) \(.updated_at)"' 2>/dev/null || true; }
+          # the patched copy goes up under its own name first, and takes the bundle's name only if the bundle is still
+          # the one it was made from: deleting that asset by its id fails when the crawl has replaced it since (and a
+          # rename onto a name the crawl took meanwhile fails too), so a newer bundle is never replaced by this older,
+          # patched one. (Until Nov 19 the check came before an upload with --clobber, which replaced whatever was there.)
+          TMPNAME="electo-bundle.police-${GITHUB_RUN_ID}.tar.gz"
+          drop_tmp() { local t; t=$(at "$TMPNAME"); [ -z "$t" ] || gh api -X DELETE "repos/$REPO/releases/assets/${t%% *}" >/dev/null 2>&1 || true; }
           for i in 1 2 3; do
             A0=$(at); [ -n "$A0" ] || { echo "no bundle yet; the nightly export will carry these"; exit 0; }
             rm -rf patch && mkdir -p patch
             gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/${A0%% *}" > patch/electo-bundle.tar.gz
             tar -xzf patch/electo-bundle.tar.gz -C patch
             gacrawl export --policing-only --out patch/electo
-            tar -cf - -C patch electo | gzip -1 > electo-bundle.tar.gz
-            if [ "$(at)" = "$A0" ]; then gh release upload "$DATA_TAG" electo-bundle.tar.gz --clobber; exit 0; fi
-            echo "the crawl stored a newer bundle while this one was patched: patching that one"
+            tar -cf - -C patch electo | gzip -1 > "$TMPNAME"
+            drop_tmp; gh release upload "$DATA_TAG" "$TMPNAME"
+            T=$(at "$TMPNAME"); [ -n "$T" ] || { echo "::warning title=Bundle::the patched bundle did not upload"; exit 1; }
+            if [ "$(at)" = "$A0" ] && gh api -X DELETE "repos/$REPO/releases/assets/${A0%% *}" >/dev/null 2>&1; then
+              if gh api -X PATCH "repos/$REPO/releases/assets/${T%% *}" -f name=electo-bundle.tar.gz >/dev/null; then
+                echo "the bundle is patched (asset ${T%% *})"; exit 0
+              fi
+              drop_tmp; echo "the crawl stored a bundle in the moment between: that one is kept, and patched next"
+            else
+              drop_tmp; echo "the crawl stored a newer bundle while this one was patched: patching that one"
+            fi
           done
           echo "::warning title=Bundle::the bundle kept changing; not patched this run (the next export carries the Policing files)"
       - name: Push the Policing files to Electo and import them there
@@ -132,27 +146,48 @@ jobs:
           # on a fresh clone each try: the crawl's import, the money pushes and the AI jobs push to Electo too, and a
           # rebase over their files stops on a conflict that fails every later try (explicit returns: errexit is off
           # inside a function whose status is tested)
+          # a partial clone of what the importer reads (ga/, research/, tools/, the bundle's top files and federal bills;
+          # not data/crawl/profiles or packets, 3.5 GB): a full clone took about 3m45s a try, and three refused pushes
+          # used the step up on Nov 16. A refused push is rebased on Electo's newest main (up to five tries), the
+          # importer's files winning a conflict; only a rebase that cannot go through starts again on a fresh clone.
+          FILES="manifest.json jurisdictions.json police.json media.json records_contacts.json police_incidents.json"
           push_once() {
             rm -rf /tmp/electo
-            git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo || return 1
+            git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo || return 1
+            git -C /tmp/electo sparse-checkout set --no-cone '/*' '!/*/' /ga/ /research/ /tools/ \
+              "/${ELECTO_PATH}/*.json" "/${ELECTO_PATH}/federal_bills/" "/${ELECTO_PATH}/profiles/index.json" || return 1
             mkdir -p "/tmp/electo/${ELECTO_PATH}"
             # only these files: the nightly run replaces the whole folder, this one never removes anything
-            for f in manifest.json jurisdictions.json police.json media.json records_contacts.json police_incidents.json; do
+            for f in $FILES; do
               [ -e "$P/$f" ] && cp "$P/$f" "/tmp/electo/${ELECTO_PATH}/"
             done
             cd /tmp/electo || return 1
             git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
-            # Electo's own importer, here (its crawl-policing workflow would spend Electo's minutes)
-            CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only | tail -1 | cut -c1-300 || true
-            git add "${ELECTO_PATH}"
+            # Electo's own importer, here (its crawl-policing workflow would spend Electo's minutes). Its own exit status
+            # is tested (piped into tail and cut with `|| true`, a crash committed whatever it had written)
+            CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only 2>&1 | tail -n 5 | cut -c1-300
+            rc=${PIPESTATUS[0]}
+            [ "$rc" = 0 ] || { echo "::error title=Policing import::ga/crawl_import.py --policing-only ended with exit $rc; nothing committed to Electo"; return 2; }
+            for f in $FILES; do [ -e "${ELECTO_PATH}/$f" ] && git add "${ELECTO_PATH}/$f"; done
             # the Policing tab's files; not donors.json, which this bundle holds as old as the crawl's last export while
             # the money jobs push newer money every round (committing it here put older money back on the Donors tab)
             for f in police media records sites police_news bill_reasons; do [ -e "ga/crawl/$f.json" ] && git add "ga/crawl/$f.json"; done
             git diff --cached --quiet && { echo "no change"; return 0; }
             git commit -qm "police data: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1
-            git push -q origin HEAD:main
+            for t in 1 2 3 4 5; do
+              git push -q origin HEAD:main && { echo "pushed to Electo"; return 0; }
+              echo "the push was refused (try $t): rebasing on Electo's newest main"
+              sleep $((t * 5))
+              git fetch -q origin main || continue
+              git rebase -q -X theirs FETCH_HEAD || { git rebase --abort 2>/dev/null || true; return 1; }
+            done
+            return 1
           }
-          for i in 1 2 3; do (push_once) && exit 0; sleep $((i * 10)); done
+          for i in 1 2; do
+            if (push_once); then exit 0; else rc=$?; fi
+            [ "$rc" != 2 ] || exit 1
+            sleep $((i * 10))
+          done
           exit 1
       - name: Summary
         if: always()

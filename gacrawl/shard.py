@@ -103,9 +103,20 @@ def merge_delta(store: Store, delta: Path) -> dict:
                 "value=excluded.value, updated_at=excluded.updated_at WHERE excluded.updated_at >= cursors.updated_at"
             ).rowcount
             db.execute("COMMIT")
+            # where the delta's dated pages got their dates (meta.date_from; "source" where the record carries none: an
+            # agenda system's, a filing's, a document's own fields), and dates of a page's words set aside as not its own
+            dates = {}
+            try:
+                for how, n in db.execute(
+                        "SELECT coalesce(json_extract(meta, '$.date_from'), 'source'), count(*) FROM d.records "
+                        "WHERE published IS NOT NULL AND published <> '' GROUP BY 1"):
+                    dates[how] = n
+                dates["set_aside"] = db.execute("SELECT count(*) FROM d.records WHERE json_extract(meta, '$.date_set_aside') IS NOT NULL").fetchone()[0]
+            except Exception:  # noqa: BLE001  an old delta's meta that is not JSON: the count only
+                pass
         finally:
             db.execute("DETACH DATABASE d")
-    return {"records": n_rec, "urls": n_url, "cursors": n_cur, "file": str(delta)}
+    return {"records": n_rec, "urls": n_url, "cursors": n_cur, "file": str(delta), "dates": dates}
 
 
 # --------------------------------------------------------------------------- state files

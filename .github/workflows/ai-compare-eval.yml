@@ -87,8 +87,8 @@ jobs:
           TIER: ${{ inputs.tier || 'small' }}
         run: |
           cd /tmp/electo-ce && mkdir -p /tmp/ce
-          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label "now ($(git rev-parse --short HEAD))" --out /tmp/ce/now.json || echo "::warning::the page now: the run stopped (what it asked is kept)"
-          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label baseline --page /tmp/base_page.html --out /tmp/ce/baseline.json || echo "::warning::the baseline page: the run stopped (what it asked is kept)"
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label "now ($(git rev-parse --short HEAD))" --out /tmp/ce/now.json || echo "::warning::the page now: the run stopped with exit $? (what it asked is kept)"
+          node qa/compare_eval.js --llm http://127.0.0.1:8080/v1 --tier "$TIER" --n "$N" --minutes 70 --label baseline --page /tmp/base_page.html --out /tmp/ce/baseline.json || echo "::warning::the baseline page: the run stopped with exit $? (what it asked is kept)"
       - name: Summary
         if: always()
         env:

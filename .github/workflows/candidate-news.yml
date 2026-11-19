@@ -61,25 +61,31 @@ jobs:
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="news-handoff.json") | .id' 2>/dev/null || true)
           if [ -n "$ID" ]; then
-            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+            # a waiting hand-off this job could not read or apply is not carried: this run's own then goes up under its own name
+          # (<name>-r<run id>.json, which the crawl applies too), so the upload never replaces the waiting one with a
+          # file that lacks it
+            if gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json; then echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+            else rm -f waiting.json; echo "HANDOFF_NAME=news-handoff-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"; echo "::warning::the waiting hand-off (asset $ID) could not be downloaded: it stays for the crawl, and this run's goes up beside it"; fi
           fi
           bash scripts/ci_db.sh pull
-          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
+          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "::warning::the waiting hand-off could not be applied here; it stays for the crawl, and this run's goes up beside it (news-handoff-r${GITHUB_RUN_ID}.json)"; rm -f waiting.json; echo "HANDOFF_NAME=news-handoff-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"; }; fi
           gacrawl model-handoff mark --out mark.json
       - name: Candidates' news (GDELT), until the minutes are up
         run: |
           M=${{ inputs.minutes || '270' }}
-          timeout -s INT -k 3m "$((M + 10))m" gacrawl candidates research --news-only --max-minutes "$M" || echo "news stopped after $((M + 10)) minutes"
+          timeout -s INT -k 3m "$((M + 10))m" gacrawl candidates research --news-only --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "news stopped after $((M + 10)) minutes"
       - name: Hand it to the crawl (news-handoff.json in the private release)
         if: always()
         run: |
+          set -o pipefail      # a crash of the export is a failure, not "nothing was due" (piped into tee it read as 0)
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
+          OUT="${HANDOFF_NAME:-news-handoff.json}"
           if [ -s waiting.json ]; then
-            gacrawl model-handoff export --mark mark.json --out news-handoff.json --carry waiting.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" --carry waiting.json | tee export.json
           else
-            gacrawl model-handoff export --mark mark.json --out news-handoff.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" | tee export.json
           fi
           if grep -q '"has_work": true' export.json; then :
           else echo "nothing new found (nothing was due); no hand-off uploaded"; exit 0; fi
-          gh release upload "$DATA_TAG" news-handoff.json --clobber
-          echo "uploaded $(du -h news-handoff.json | cut -f1) for the crawl's next merge"
+          gh release upload "$DATA_TAG" "$OUT" --clobber
+          echo "uploaded $OUT, $(du -h "$OUT" | cut -f1), for the crawl's next merge"

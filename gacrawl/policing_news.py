@@ -280,7 +280,13 @@ class PoliceNews:
                               jname, county):
                 continue
             pub = a.get("seendate", "")
-            pub = f"{pub[:4]}-{pub[4:6]}-{pub[6:8]}" if len(pub) >= 8 else (extract.page_date(r.text, text) or None)
+            if len(pub) >= 8:
+                pub, dfrom = f"{pub[:4]}-{pub[4:6]}-{pub[6:8]}", {"date_from": "listing"}   # the news index's own date
+            else:
+                from .channels import date_meta
+
+                di = extract.page_date_info(r.text, text)
+                pub, dfrom = di["date"], date_meta(di)
             names = names_in(text)
             cues = sorted({m.group(1).lower() for m in CUE.finditer(text)})[:8]
 
@@ -289,7 +295,7 @@ class PoliceNews:
                          evidence=self.classify(r.url) or "reported",
                          meta={"department": dept.get("name"), "department_kind": dept.get("kind"), "outlet": domain_of(r.url),
                                "names": names, "cues": cues, "opened": True, "checked": dt.date.today().isoformat(),
-                               "search": phrase, "v": NEWS_VERSION})
+                               "search": phrase, "v": NEWS_VERSION, **dfrom})
             n += self.store.add(rec)
         return n
 

@@ -52,7 +52,7 @@ jobs:
       - name: Political news (outlets' news APIs and feeds, the last ten days)
         run: |
           M=5
-          timeout -s INT -k 1m $((M + 2))m gacrawl news --max-minutes $M --export dist/news/news.json || echo "news stopped after $((M + 2)) minutes"
+          timeout -s INT -k 1m $((M + 2))m gacrawl news --max-minutes $M --export dist/news/news.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "news stopped after $((M + 2)) minutes"
       - name: Electo's research files and the public site
         if: env.HAS_ELECTO_TOKEN == 'true' && env.IS_MAIN == 'true'
         env:
@@ -77,4 +77,4 @@ jobs:
             git commit -qm "News research from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
             for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
           fi
-          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "site data not refreshed"
+          [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"

@@ -42,7 +42,9 @@ jobs:
         run: |
           set -uo pipefail
           if [ -z "$GH_TOKEN" ] || [ -z "$WRITE" ]; then
-            echo "::error title=LogView::the LOGVIEW_READ and LOGVIEW_WRITE secrets are needed here (LogView's README.md says how to make them)"; exit 1
+            # not a failure: until both secrets are added the job has nothing to do (it failed every hour until Nov 19,
+            # 14 times in a row, and the watchdog does not restart it while they are missing)
+            echo "::notice title=LogView::skipped: the LOGVIEW_READ and LOGVIEW_WRITE secrets are not set here (LogView's README.md says how to make them)"; exit 0
           fi
           W="$RUNNER_TEMP/logview"; OUT="$RUNNER_TEMP/collect.out"
           trap 'rm -rf "$W" "$OUT"' EXIT

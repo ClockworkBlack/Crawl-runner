@@ -142,8 +142,12 @@ class RefusedArchive:
                 title, md = extract.html_to_markdown(html, cap["original"])
                 if not md or len(md) < 200:
                     continue
+                from .channels import date_meta
+
+                di = extract.page_date_info(html, md, fetched=day(cap["timestamp"]))
+                meta = {**meta, **date_meta(di)}
                 rec = Record(sid, src.get("kind") or "page", shown, title=title, text=md, markdown=md,
-                             published=extract.page_date(html, md) or None, jurisdiction=src.get("jurisdiction", ""),
+                             published=di["date"], jurisdiction=src.get("jurisdiction", ""),
                              channel="archive", evidence="primary", key=key_doc, meta=meta)
                 self.stats["pages"] += 1
             self.store.add(rec)

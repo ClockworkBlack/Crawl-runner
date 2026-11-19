@@ -98,7 +98,7 @@ jobs:
             round=$((round + 1))
             M=$(( LEFT - 4 < 40 ? LEFT - 4 : 40 ))
             echo "::group::round $round: up to $M minutes"
-            timeout -s INT -k 2m "$((M + 6))m" python -m gacrawl.history run --max-minutes "$M" ${ONLY:+--only "$ONLY"} | tee run.out || echo "the round stopped; what it read is kept"
+            (set -o pipefail; timeout -s INT -k 2m "$((M + 6))m" python -m gacrawl.history run --max-minutes "$M" ${ONLY:+--only "$ONLY"} | tee run.out) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the round stopped; what it read is kept"
             echo "::endgroup::"
             read -r READ LEFTOVER < <(tail -n 1 run.out | python3 -c "import json,sys
           try:

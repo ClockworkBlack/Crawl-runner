@@ -138,7 +138,7 @@ def _tidy_name(n: str) -> str:
     return re.sub(r"^(e-?mail|contact|call|message|meet|write to)\s+", "", _clean(n), flags=re.I)
 
 
-def _name_ok(n: str) -> bool:
+def _name_ok(n: str, jurisdiction: str = "") -> bool:
     """A person's name as a page prints it: two to five words, none of them a department word ("Jr. Fire" was read as
     Valdosta's chief) or a link's words ("Read More" as Fulton County's sheriff), not starting with a suffix, every word
     capitalized, and at least two words longer than an initial."""
@@ -148,7 +148,11 @@ def _name_ok(n: str) -> bool:
     if not all(x[0].isupper() for x in w if x[0].isalpha()):
         return False
     full = [x for x in w if len(x.strip(".,'’")) > 1 and not SUFFIX_FIRST.match(x)]
-    return len(full) >= 2
+    if len(full) < 2:
+        return False
+    from .personname import plausible_person
+
+    return plausible_person(n, jurisdiction)
 
 
 def official_email(addr: str, *sites: str) -> bool:
@@ -230,8 +234,10 @@ def find_emails(html: str, *sites: str) -> list[str]:
     soup = extract.soup_of(html)
     mails = [a["href"][7:].split("?")[0] for a in soup.find_all("a", href=True) if a["href"].lower().startswith("mailto:")]
     mails += [m.group(0).rstrip(".") for m in EMAIL_RX.finditer(html)]
+    from .personname import clean_email
+
     out = []
-    for m in (x.strip().lower() for x in mails):
+    for m in (clean_email(x) for x in mails):
         if m and m not in out and official_email(m, *sites) and not re.search(r"@example\.(com|org|net)$|noreply|no-reply|donotreply|sentry|wixpress|\.png$|\.jpg$", m):
             out.append(m)
     return out[:8]
@@ -1002,7 +1008,22 @@ def department_list(root: Path, jurisdictions: list[dict]) -> tuple[list[tuple[d
 
 
 # ----------------------------------------------------------------------------- export
+def _clean_email_rows(rows: list) -> list:
+    """A department's e-mail rows ({"address", "src"} or bare strings) with each address cleaned (personname.clean_email);
+    rows whose address cannot be written to are left out."""
+    from .personname import clean_email
+
+    out, seen = [], set()
+    for r in rows or []:
+        a = clean_email(r.get("address") if isinstance(r, dict) else r)
+        if a and a not in seen:
+            seen.add(a)
+            out.append(dict(r, address=a) if isinstance(r, dict) else a)
+    return out
+
+
 def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dict:
+    from .personname import clean_emails
     from .registry import load_json, load_yaml
 
     state = root / "state"
@@ -1011,6 +1032,7 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
     _p = root / "config" / "private" / "openrecords.yaml"
     orr = load_yaml(_p if _p.exists() else root / "config" / "openrecords.yaml")
     roster_asof = ((load_json(state / "police_roster.json") or {}).get("as_of") or "")
+    sheriffs = load_json(state / "sheriffs.json") or {}
     by_id = {j["id"]: j for j in jurisdictions}
     pairs, others, counts = department_list(root, jurisdictions)
     depts = []
@@ -1019,8 +1041,16 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
         if d.get("chief"):
             # read before the name check knew a link's words ("Read More", "Email Janet Moon"): tidied, or left out
             # until the page is read again
+            # and checked again by the shared name check: page phrases ("To Date With Your", "Quick Links", "Hiring
+            # New"), the place's own name ("West Point"), a name read from an archive copy of another site's page
+            from .personname import own_page
+
             cn = _tidy_name(d["chief"].get("name") or "")
-            d = dict(d, chief=dict(d["chief"], name=cn) if _name_ok(cn) else None)
+            ok = _name_ok(cn, j["name"]) and _name_ok(cn, place_of(j)) and \
+                own_page(d["chief"].get("src") or "", d.get("url") or "", j.get("website") or "", (disc.get(j["id"]) or {}).get("website") or "")
+            d = dict(d, chief=dict(d["chief"], name=cn) if ok else None)
+        if d.get("emails"):
+            d = dict(d, emails=_clean_email_rows(d["emails"]))
         depts.append({"jurisdiction": j["id"], "jurisdiction_name": j["name"], "jurisdiction_kind": j.get("kind"),
                       "county": (j.get("counties") or [None])[0] if j.get("kind") != "county" else j["name"].replace(" County", ""),
                       **{k: d.get(k) for k in ("kind", "url", "chief", "phones", "emails", "address", "precincts",
@@ -1036,6 +1066,10 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
                 "FBI lists them) and their own pages have not been read yet; `others` are the roster's other agencies "
                 "in each county (campus, school-system, transit and airport police, marshals, State Patrol posts).",
         "roster": {"source": ROSTER_SITE, "as_of": roster_asof},
+        # each county's sitting sheriff as the Georgia Sheriffs' Association lists them (gacrawl/sheriffs.py)
+        "sheriffs": {"source": sheriffs.get("source") or "", "site": sheriffs.get("site") or "", "as_of": sheriffs.get("as_of") or "",
+                     "via": sheriffs.get("via") or "", "captured": sheriffs.get("captured") or "",
+                     "counties": sheriffs.get("sheriffs") or {}},
         "departments": depts,
         "others": [{k: o.get(k) for k in ("county", "jurisdiction", "kind", "name", "ori")} for o in others]},
         ensure_ascii=False, indent=1), encoding="utf-8")
@@ -1061,7 +1095,10 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
         if not (rc.get("emails") or rc.get("portal") or approved.get(jid)):
             continue
         j = by_id.get(jid) or {}
-        contacts[jid] = {"name": j.get("name", jid), "kind": j.get("kind"), "emails": ([approved[jid]] if approved.get(jid) else []) + [e for e in rc.get("emails") or [] if e != approved.get(jid)],
+        emails = clean_emails(([approved[jid]] if approved.get(jid) else []) + list(rc.get("emails") or []))
+        if not (emails or rc.get("portal")):
+            continue
+        contacts[jid] = {"name": j.get("name", jid), "kind": j.get("kind"), "emails": emails,
                          "portal": rc.get("portal"), "page": rc.get("page"), "website": d.get("website")}
     (out_dir / "records_contacts.json").write_text(json.dumps({
         "note": "Open-records contacts found on each government's own site (a clerk or records address on its domain, "

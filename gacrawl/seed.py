@@ -365,7 +365,11 @@ def find_records_contact(fetcher: Fetcher, home_html: str, home_url: str) -> dic
         mails = [m.group(0).rstrip(".") for m in EMAIL_RX.finditer(page)]
         mails += [a["href"][7:].split("?")[0] for a in extract.soup_of(page).find_all("a", href=True)
                   if a["href"].lower().startswith("mailto:")]
-        mails = [m for m in dict.fromkeys(x.strip().lower() for x in mails) if _official_email(m, home_url)]
+        # each address as it can be written to: "%20jastevens@...", "//openrecords@...", "u003eclerk@..." cleaned;
+        # placeholders (test@test.gov) and another state's addresses dropped (gacrawl/personname.py)
+        from .personname import clean_email
+
+        mails = [m for m in dict.fromkeys(clean_email(x) for x in mails) if m and _official_email(m, home_url)]
         records_first = sorted(mails, key=lambda m: (not re.search(r"record|foia|ora|clerk", m), len(m)))
         portal = RECORDS_PORTALS.search(page)
         if records_first or portal:

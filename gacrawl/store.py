@@ -31,6 +31,7 @@ from typing import Iterable, Iterator
 from .textfix import fix_text
 
 SCHEMA_VERSION = 2
+TOO_LARGE_RETRY_DAYS = 30      # a file over the size limit is not asked for again for this long (Store.fresh)
 
 
 def utcnow() -> str:
@@ -436,10 +437,14 @@ class Store:
         return dict(r) if r else None
 
     def fresh(self, url: str, max_age_days: float) -> bool:
-        """Fetched successfully within max_age_days (so it can be skipped)."""
+        """Fetched successfully within max_age_days (so it can be skipped). A file found too large (413, noted by the
+        readers when the download passed the size limit) counts as fresh for TOO_LARGE_RETRY_DAYS: it used to be
+        downloaded up to the limit again on every run."""
         r = self.url_seen(url)
-        if not r or r["status"] != 200:
+        if not r or r["status"] not in (200, 413):
             return False
+        if r["status"] == 413:
+            max_age_days = min(max_age_days, TOO_LARGE_RETRY_DAYS)
         age = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(r["fetched_at"])
         return age.total_seconds() < max_age_days * 86400
 
@@ -541,6 +546,91 @@ class Store:
                 "AND NOT EXISTS (SELECT 1 FROM records r WHERE r.url = urls.url)", (since,)).rowcount
             self._maybe_commit(force=True)
         return n
+
+    def set_aside_text_dates(self, max_age_years: int = 15) -> dict:
+        """Web pages dated by the first date of their own words when that date is more than max_age_years before the
+        page was first read (profile items dated 1956-01-12 and 2001-09-11, Nov 2026): the date is the page's text,
+        not its publication, so it is cleared and kept as meta.date_set_aside, and meta.date_from says "text". A page
+        whose markup or feed gave the date (meta.date_from set) and documents (dated from their own fields) are left."""
+        from .extract import text_date
+
+        out = {"checked": 0, "set_aside": 0}
+        now = utcnow()
+        with self._lock:
+            self._begin()
+            rows = self.db.execute(
+                "SELECT rid, published, first_seen, text, markdown, meta FROM records WHERE published IS NOT NULL AND published <> '' "
+                "AND kind NOT IN ('document', 'meeting', 'vote', 'agenda_item', 'election_result', 'ballot_question', 'bill', 'filing', "
+                "'contribution', 'expenditure', 'policy', 'ordinance', 'official') "
+                "AND channel IN ('html', 'browser', 'feed', 'wp_json', 'archive', 'web', 'wayback') "
+                "AND substr(published, 1, 10) < date(first_seen, ?)", (f"-{int(max_age_years)} years",)).fetchall()
+            for r in rows:
+                out["checked"] += 1
+                try:
+                    meta = json.loads(r["meta"] or "{}")
+                except ValueError:
+                    continue
+                if meta.get("date_from") and meta.get("date_from") != "text":
+                    continue
+                d = (r["published"] or "")[:10]
+                if text_date(r["text"] or r["markdown"] or "") != d:
+                    continue                                      # not the first date of its words: from elsewhere
+                meta = {**meta, "date_from": "text", "date_set_aside": d}
+                self.db.execute("UPDATE records SET published=NULL, meta=?, changed_at=?, version=version+1 WHERE rid=?",
+                                (json.dumps(meta, ensure_ascii=False, sort_keys=True), now, r["rid"]))
+                out["set_aside"] += 1
+            self._maybe_commit(force=True)
+        return out
+
+    def rekey_feed_pages(self) -> dict:
+        """Pages read through a feed or posts API used to carry the item's guid or post id in their key, and the same
+        address read by the coverage crawl had none: two records of one page. Each such record is filed under the
+        address-only key; where that key is already taken, the one changed last is kept."""
+        out = {"rekeyed": 0, "dropped": 0}
+        with self._lock:
+            self._begin()
+            rows = self.db.execute(
+                "SELECT rid, key, source_id, kind, url, meta, changed_at FROM records WHERE channel IN ('feed', 'wp_json') "
+                "AND kind <> 'feed_item' AND url <> '' AND (meta LIKE '%\"guid\"%' OR meta LIKE '%\"wp_id\"%')").fetchall()
+            for r in rows:
+                try:
+                    meta = json.loads(r["meta"] or "{}")
+                except ValueError:
+                    continue
+                nid = next((str(meta[f]) for f in ID_FIELDS if meta.get(f) not in (None, "")), "")
+                field_ = next((f for f in ID_FIELDS if meta.get(f) not in (None, "")), "")
+                if field_ not in ("guid", "wp_id") or r["key"] != f"{r['source_id']}|{r['kind']}|{r['url']}|{nid}":
+                    continue
+                new_key = f"{r['source_id']}|{r['kind']}|{r['url']}|"
+                meta["feed_guid" if field_ == "guid" else "wp_post_id"] = meta.pop(field_)
+                other = self.db.execute("SELECT rid, changed_at FROM records WHERE key=?", (new_key,)).fetchone()
+                if other and (other["changed_at"] or "") >= (r["changed_at"] or ""):
+                    self.db.execute("DELETE FROM records WHERE rid=?", (r["rid"],))
+                    out["dropped"] += 1
+                    continue
+                if other:
+                    self.db.execute("DELETE FROM records WHERE rid=?", (other["rid"],))
+                    out["dropped"] += 1
+                self.db.execute("UPDATE records SET key=?, id=?, meta=?, changed_at=? WHERE rid=?",
+                                (new_key, hashlib.sha256(new_key.encode()).hexdigest()[:24],
+                                 json.dumps(meta, ensure_ascii=False, default=str), utcnow(), r["rid"]))
+                out["rekeyed"] += 1
+            self._maybe_commit(force=True)
+        return out
+
+    def prune_prefix(self, prefix: str, keep: set[str]) -> int:
+        """Remove records whose key starts with `prefix`, except the keys in `keep` (a deriver's records of one source
+        record that a re-parse did not make again). A range on the key index, not a scan."""
+        with self._lock:
+            self._begin()
+            rows = self.db.execute("SELECT rid, key FROM records WHERE key >= ? AND key < ?",
+                                   (prefix, prefix + "\U0010ffff")).fetchall()
+            gone = [r["rid"] for r in rows if r["key"].startswith(prefix) and r["key"] not in keep]
+            for i in range(0, len(gone), 500):
+                part = gone[i:i + 500]
+                self.db.execute(f"DELETE FROM records WHERE rid IN ({','.join('?' * len(part))})", part)
+            self._maybe_commit()
+        return len(gone)
 
     def delete_where(self, where: str, params: tuple = ()) -> int:
         with self._lock:

@@ -26,7 +26,7 @@
   gacrawl candidates list|research [--candidate ID] [--max-minutes M] [--since DATE] [--skip step,step]
   gacrawl rumor list|add|corroborate|debunk|retract
   gacrawl records status|plan|contacts|find|send|check|follow-up|withdraw [--limit N] [--dry-run] [--max-minutes M]
-  gacrawl police [police|media|news|all] [--max-minutes M] [--only ID] [--refresh]   police departments, sheriffs, media tip lines; news: reported incidents
+  gacrawl police [police|media|news|roster|sheriffs|all] [--max-minutes M] [--only ID] [--refresh]   police departments, sheriffs, media tip lines; news: reported incidents
                                          Georgia Open Records Act requests for codes of ordinances
   gacrawl export [--out DIR] [--no-packets]   build the Electo import bundle
   gacrawl derive [--only NAME,...] [--full] [--max-minutes M]   parse crawled pages/documents into structured records
@@ -273,13 +273,35 @@ def cmd_merge(cfg, args):
 
     store = config.make_store(cfg)
     try:
+        dates = {}
         for d in args.deltas:
-            print(json.dumps(merge_delta(store, Path(d))))
+            res = merge_delta(store, Path(d))
+            print(json.dumps(res))
+            for k, v in (res.get("dates") or {}).items():
+                dates[k] = dates.get(k, 0) + v
+        if dates:
+            # one line per run for the logs (LogView files it with the run): how the pages read this run were dated
+            print("::notice title=Dates::dated records this run by where the date came from: "
+                  + ", ".join(f"{k} {v}" for k, v in sorted(dates.items()) if k != "set_aside")
+                  + f"; dates of a page's words set aside as not its own: {dates.get('set_aside', 0)}")
         # once: PDFs the frontier says were read while crawl shards were dying in the PDF reader, with no record
         if not store.kv_get("repair:unrecorded_documents"):
             n = store.forget_unrecorded_documents("2026-11-07")
             store.kv_set("repair:unrecorded_documents", f"{dt.date.today().isoformat()}: {n}")
             print(json.dumps({"unrecorded_documents_to_read_again": n}))
+        # once: pages a feed or posts API stored under the item's guid or post id beside the coverage crawl's copy
+        # once: pages dated by a date their words only mention, long before they were read (gacrawl/extract.py's
+        # page_date_info now records where every page's date came from, meta.date_from)
+        if not store.kv_get("repair:text_dates"):
+            n = store.set_aside_text_dates()
+            store.kv_set("repair:text_dates", f"{dt.date.today().isoformat()}: {json.dumps(n)}")
+            print(json.dumps({"text_dates_set_aside": n}))
+            print(f"::notice title=Dates::{n['set_aside']} stored pages had a date their own text only mentions "
+                  f"(more than 15 years before they were read); cleared, kept as meta.date_set_aside")
+        if not store.kv_get("repair:feed_page_keys"):
+            n = store.rekey_feed_pages()
+            store.kv_set("repair:feed_page_keys", f"{dt.date.today().isoformat()}: {json.dumps(n)}")
+            print(json.dumps({"feed_pages_rekeyed": n}))
     finally:
         store.close()
     if args.state:
@@ -1454,6 +1476,15 @@ def cmd_police(cfg, args):
             print(json.dumps(read_roster(_fetcher(cfg, deadline), cfg["state_dir"], refresh=args.refresh and args.action == "roster")))
         except Exception as exc:  # noqa: BLE001  the departments' own pages are still read
             print(f"police roster: {type(exc).__name__}: {exc}"[:200])
+    if args.action in ("sheriffs", "all"):
+        # every county's sitting sheriff, from the Georgia Sheriffs' Association's list (its site, else the Internet
+        # Archive's copy of it): once a week
+        from .sheriffs import read as read_sheriffs
+
+        try:
+            print(json.dumps(read_sheriffs(_fetcher(cfg, deadline), config.ROOT, cfg["state_dir"], refresh=args.refresh and args.action == "sheriffs")))
+        except Exception as exc:  # noqa: BLE001  the departments' own pages are still read
+            print(f"sheriffs: {type(exc).__name__}: {exc}"[:200])
     if args.action in ("police", "all"):
         n = discover_police(_fetcher(cfg, deadline), registry.jurisdictions(config.ROOT), cfg["state_dir"], deadline,
                             only=args.only, refresh=args.refresh)
@@ -1599,7 +1630,7 @@ def build_parser() -> argparse.ArgumentParser:
     for flag in ("--candidate", "--url", "--claim", "--author", "--id", "--evidence", "--note"):
         ru.add_argument(flag)
     e = sub.add_parser("export"); e.add_argument("--out"); e.add_argument("--no-packets", action="store_true"); e.add_argument("--policing-only", action="store_true")
-    po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "roster", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
+    po = sub.add_parser("police", help="police departments, sheriffs and media tip lines from official pages"); po.add_argument("action", nargs="?", default="all", choices=["police", "media", "news", "roster", "sheriffs", "all"]); po.add_argument("--max-minutes", type=float); po.add_argument("--only"); po.add_argument("--refresh", action="store_true"); po.add_argument("--limit", type=int)
     dv = sub.add_parser("derive"); dv.add_argument("--only"); dv.add_argument("--full", action="store_true"); dv.add_argument("--max-minutes", type=float)
     tr = sub.add_parser("transcripts"); tr.add_argument("--max-minutes", type=float); tr.add_argument("--limit", type=int)
     fi = sub.add_parser("finance"); fi.add_argument("action", nargs="?", default="run", choices=["run", "probe", "export-kv", "apply", "export-money", "orgs", "link"])

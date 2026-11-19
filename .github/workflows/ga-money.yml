@@ -103,7 +103,7 @@ jobs:
             round=$((round + 1))
             M=$(( LEFT - 10 < 60 ? LEFT - 10 : 60 ))          # a round, and minutes for its push
             echo "::group::round $round: $M minutes of reading"
-            timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || echo "the read stopped after $((M + 8)) minutes; what it read is kept"
+            timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the read stopped after $((M + 8)) minutes; what it read is kept"
             tail -c 3000 run.out
             echo "::endgroup::"
             PAGES=$(tail -n 1 run.out | python3 -c "import json,sys

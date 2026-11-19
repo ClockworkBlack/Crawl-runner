@@ -60,7 +60,11 @@ jobs:
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           ID=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq '.assets[] | select(.name=="model-handoff.json") | .id' 2>/dev/null || true)
           if [ -n "$ID" ]; then
-            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json && echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+            # a waiting hand-off this job could not read or apply is not carried: this run's own then goes up under its own name
+          # (<name>-r<run id>.json, which the crawl applies too), so the upload never replaces the waiting one with a
+          # file that lacks it
+            if gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$ID" > waiting.json; then echo "a hand-off is still waiting (asset $ID): it is carried into this run's"
+            else rm -f waiting.json; echo "HANDOFF_NAME=model-handoff-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"; echo "::warning::the waiting hand-off (asset $ID) could not be downloaded: it stays for the crawl, and this run's goes up beside it"; fi
           fi
       - name: The open model (Qwen3-8B, 4-bit; kept between runs)
         if: steps.need.outputs.go == 'true'
@@ -77,7 +81,7 @@ jobs:
         if: steps.need.outputs.go == 'true'
         run: |
           bash scripts/ci_db.sh pull
-          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "the waiting hand-off could not be applied here; it stays for the crawl"; rm -f waiting.json; }; fi
+          if [ -s waiting.json ]; then gacrawl model-handoff apply --in waiting.json || { echo "::warning::the waiting hand-off could not be applied here; it stays for the crawl, and this run's goes up beside it (model-handoff-r${GITHUB_RUN_ID}.json)"; rm -f waiting.json; echo "HANDOFF_NAME=model-handoff-r${GITHUB_RUN_ID}.json" >> "$GITHUB_ENV"; }; fi
           gacrawl model-handoff mark --out mark.json
           echo "MW_T0=$(date +%s)" >> "$GITHUB_ENV"
       - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
@@ -87,33 +91,35 @@ jobs:
         run: |
           # gacrawl/registries.py: the registries' bulk files and searches, so the model has a registration to write
           # from for every organization and committee in them (only 17 had one when lookups waited for a name search)
-          timeout -s INT -k 2m 48m gacrawl finance orgs --max-minutes 40 || echo "organization lookups stopped after 48 minutes"
+          timeout -s INT -k 2m 48m gacrawl finance orgs --max-minutes 40 || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "organization lookups stopped after 48 minutes"
       - name: Donor backgrounds (organizations and PACs, biggest donors first)
         if: steps.need.outputs.go == 'true'
         run: |
           ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( (ALL - USED) * 50 / 100 )); [ "$M" -lt 5 ] && M=5
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl donors-ai --max-minutes "$M" || echo "donor backgrounds stopped after $((M + 8)) minutes"
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl donors-ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "donor backgrounds stopped after $((M + 8)) minutes"
       - name: Rumor Mill pages (each item's page read once) and readings
         if: steps.need.outputs.go == 'true'
         run: |
-          timeout -s INT -k 1m 12m gacrawl rumors-text --max-minutes 10 || echo "rumor pages stopped after 12 minutes"
+          timeout -s INT -k 1m 12m gacrawl rumors-text --max-minutes 10 || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "rumor pages stopped after 12 minutes"
           ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( (ALL - USED) / 2 )); [ "$M" -lt 5 ] && M=5
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl rumors-ai --max-minutes "$M" || echo "rumor readings stopped after $((M + 8)) minutes"
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl rumors-ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "rumor readings stopped after $((M + 8)) minutes"
       - name: Federal bill descriptions
         if: steps.need.outputs.go == 'true'
         run: |
           ALL=${{ inputs.minutes || '280' }}; USED=$(( ($(date +%s) - MW_T0) / 60 )); M=$(( ALL - USED )); [ "$M" -lt 5 ] && M=5
-          timeout -s INT -k 2m "$((M + 8))m" gacrawl federal-bills --ai --max-minutes "$M" || echo "descriptions stopped after $((M + 8)) minutes"
+          timeout -s INT -k 2m "$((M + 8))m" gacrawl federal-bills --ai --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "descriptions stopped after $((M + 8)) minutes"
       - name: Hand it to the crawl (model-handoff.json in the private release)
         if: always() && steps.need.outputs.go == 'true'
         run: |
+          set -o pipefail      # a crash of the export is a failure, not "nothing was due" (piped into tee it read as 0)
           [ -f mark.json ] || { echo "nothing was started"; exit 0; }
+          OUT="${HANDOFF_NAME:-model-handoff.json}"
           if [ -s waiting.json ]; then
-            gacrawl model-handoff export --mark mark.json --out model-handoff.json --carry waiting.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" --carry waiting.json | tee export.json
           else
-            gacrawl model-handoff export --mark mark.json --out model-handoff.json | tee export.json
+            gacrawl model-handoff export --mark mark.json --out "$OUT" | tee export.json
           fi
           if grep -q '"has_work": true' export.json; then :
           else echo "nothing new written (nothing was due); no hand-off uploaded"; exit 0; fi
-          gh release upload "$DATA_TAG" model-handoff.json --clobber
-          echo "uploaded $(du -h model-handoff.json | cut -f1) for the crawl's next merge"
+          gh release upload "$DATA_TAG" "$OUT" --clobber
+          echo "uploaded $OUT, $(du -h "$OUT" | cut -f1), for the crawl's next merge"

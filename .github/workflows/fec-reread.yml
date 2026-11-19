@@ -115,7 +115,7 @@ jobs:
             round=$((round + 1))
             M=$(( LEFT - 6 < 45 ? LEFT - 6 : 45 ))          # a round, and a few minutes for its push
             echo "::group::round $round: $M minutes of reading"
-            timeout -s INT -k 3m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || echo "the re-read stopped; what it read is kept"
+            timeout -s INT -k 3m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the re-read stopped; what it read is kept"
             echo "::endgroup::"
             bash scripts/fec_handoff.sh
             n=$(python3 scripts/fec_left.py); echo "old FEC lines left after round $round: $n"

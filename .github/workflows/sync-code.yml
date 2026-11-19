@@ -120,9 +120,19 @@ jobs:
           # adds no commits): the watchdog reads it to find a job that keeps failing or has stopped running, which the
           # deleted runs would otherwise hide
           mkdir -p status && GH_TOKEN="$DATA_TOKEN" gh release download crawl-data -R ClockworkBlack/Crawl -p runner-status.json -D status --clobber 2>/dev/null || true
-          python3 - "$rows" status/runner-status.json <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
+          python3 - "$rows" status/runner-status.json logs-repo/logs/runner <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
           import json, os, sys
-          rows, path = sys.argv[1], sys.argv[2]
+          rows, path, logs = sys.argv[1], sys.argv[2], sys.argv[3]
+          def timed_out(created, name, rid):
+              """A cancelled run counts as a failure when a job of it hit its time limit: GitHub ends that job
+              "cancelled", not "timed_out" (fec-reread's ten kills at 345 minutes, Nov 13-17, left fails_in_row at 0).
+              Its error notes are in the <run>.jobs.json kept beside its logs above."""
+              try:
+                  d = json.load(open(os.path.join(logs, created[:7], f"{created[:10]}_{name}_{rid}.jobs.json")))
+              except (OSError, ValueError):
+                  return False
+              return any("maximum execution time" in (n.get("message") or "")
+                         for j in d.get("jobs") or [] for n in j.get("notes") or [])
           try:
               st = json.load(open(path))
           except (OSError, ValueError):
@@ -141,8 +151,10 @@ jobs:
               if concl == "success":
                   w["last_success"] = {"id": rid, "at": updated}
                   w["fails_in_row"] = 0
-              elif concl in ("failure", "timed_out", "startup_failure"):
+              elif concl in ("failure", "timed_out", "startup_failure") or (concl == "cancelled" and timed_out(created, name, rid)):
                   w["fails_in_row"] = w.get("fails_in_row", 0) + 1
+                  if concl == "cancelled":
+                      w["last"]["conclusion"] = "cancelled (time limit)"
           if seen:
               os.makedirs(os.path.dirname(path), exist_ok=True)
               json.dump(st, open(path, "w"), indent=1, sort_keys=True)
@@ -162,3 +174,46 @@ jobs:
           cd ..
           # only now that they are saved: delete those runs (logs and attachments) from this public repository
           for id in $done_ids; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$id" >/dev/null && echo "removed run $id"; done
+      - name: Keep the crawl going (the next link of the chain when none is running or queued)
+        # The runner's crawl runs back to back (config/backfill.json runner.continuous): each run queues the next as it
+        # ends. When that hand-off is lost (a failed dispatch, a cancelled or replaced run), nothing ran until the next
+        # scheduled start or the watchdog's 30-hour check: gaps of 21 and 37 hours (Nov 11-14, 2026). Every 15 minutes,
+        # with no crawl run on main running or waiting, the next link is started here. A run that failed within minutes
+        # is not started again for an hour (the watchdog reports what keeps failing).
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          on=$(python3 - <<'PY'
+          import datetime as dt, json, pathlib
+          try:
+              c = json.loads(pathlib.Path("pub/config/backfill.json").read_text())
+          except (OSError, ValueError):
+              print("no"); raise SystemExit
+          r = c.get("runner") or {}
+          until = r.get("until") if "until" in r else c.get("until")
+          live = not until or dt.datetime.now() < dt.datetime.fromisoformat(until)
+          print("yes" if c.get("enabled") and r.get("continuous") and live else "no")
+          PY
+          )
+          [ "$on" = "yes" ] || { echo "the continuous crawl is off (config/backfill.json): nothing to keep going"; exit 0; }
+          busy=0
+          for st in in_progress queued waiting pending requested; do
+            n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/crawl.yml/runs?branch=main&status=$st&per_page=1" --jq '.total_count' 2>/dev/null || echo "?")
+            [ "$n" = "?" ] && { echo "could not list crawl runs ($st): nothing started"; exit 0; }
+            busy=$((busy + n))
+          done
+          [ "$busy" -gt 0 ] && { echo "a crawl run is going or waiting ($busy): nothing to do"; exit 0; }
+          last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/crawl.yml/runs?branch=main&status=completed&per_page=1" \
+                   --jq '.workflow_runs[0] | "\(.conclusion) \(.run_started_at) \(.updated_at)"' 2>/dev/null || echo "")
+          read -r concl started ended <<< "$last"
+          if [ "${concl:-}" = "failure" ] && [ -n "${ended:-}" ]; then
+            mins=$(( ($(date -u -d "$ended" +%s) - $(date -u -d "$started" +%s)) / 60 ))
+            since=$(( ($(date -u +%s) - $(date -u -d "$ended" +%s)) / 60 ))
+            if [ "$mins" -lt 20 ] && [ "$since" -lt 60 ]; then
+              echo "the last crawl run failed after $mins minutes, $since minutes ago: not started again before an hour has passed"; exit 0
+            fi
+          fi
+          gh workflow run crawl.yml --ref main -f job=backfill && echo "::notice title=Crawl::no crawl run was going or waiting; started the next link of the chain"

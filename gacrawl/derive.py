@@ -32,6 +32,11 @@ class Deriver:
     # a change in what the deriver writes: a new version reads every source record again, once (resumably: a pass that
     # runs out of time keeps its place like any other)
     version: str = ""
+    # the key prefix under which this deriver files everything it makes from one source record (src -> prefix), or
+    # None. When given, a source record's earlier derived records under that prefix that this pass did not make again
+    # are removed: a re-parse whose natural ids shifted (minutes motions after OCR replaced a document's text) would
+    # otherwise leave the old copies beside the new ones
+    prune: Callable[[dict], str | list[str]] | None = None
 
 
 REGISTRY: list[Deriver] = []
@@ -74,12 +79,19 @@ def run(store: Store, only: set[str] | None = None, context: dict | None = None,
                 break
             seen += 1
             try:
+                keys = set()
                 for rec in d.fn(src, context) or ():
                     rec.jurisdiction = rec.jurisdiction or src.get("jurisdiction", "")
                     rec.evidence = rec.evidence or src.get("evidence") or "primary"
                     rec.meta.setdefault("derived_from", src["id"])
                     rec.meta.setdefault("derived_url", src["url"])
                     made += store.add(rec)
+                    keys.add(rec.natural_key())
+                if d.prune:
+                    prefixes = d.prune(src) or ()
+                    for prefix in ([prefixes] if isinstance(prefixes, str) else prefixes):
+                        if prefix:
+                            store.prune_prefix(prefix, keys)
             except Exception as exc:  # noqa: BLE001 — one bad document must not stop the run
                 log(f"  {d.name}: {src['id']} {type(exc).__name__}: {exc}"[:300])
             last = src
