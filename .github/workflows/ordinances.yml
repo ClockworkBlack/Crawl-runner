@@ -1,0 +1,165 @@
+name: ordinances
+
+# Ordinances downloaded by hand (imports/ordinances/ in the private Crawl repository): read every file there into
+# sections and send the result to Electo's data/ordinances/, then start publish-site.
+#
+# Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes, like the crawl,
+# police and history. It reads imports/ordinances/ from the private repository (config/runner.json data_repo) with the
+# DATA_TOKEN secret the runner's jobs already use, into this run's own runner, and sends only to Electo; the files are
+# never committed to the public repository (sync-code copies the code only). The files are public documents (codes,
+# charters, ordinances), and the log names only their file names and what each became (place, kind, sections), as the
+# crawl's log names the pages it reads. sync-code keeps every run's log in the private repository (logs/runner/) and
+# then deletes the run here. Until Nov 19, 2026 this ran in the private repository on paid minutes: the chain of runs
+# below, for a backlog of about 685 files, would have spent about 75 minutes a link there.
+#
+# Started: by a change to the reader or to this file (sync-code's copy of them), every 6 hours on the schedule, by the
+# chain below, and by hand (Crawl-runner, Actions, ordinances). Nothing in the private repository can start a run here:
+# an upload there, and code-finder's and records-send's starts after a download, start this workflow there, where it
+# ends skipped at once (no minutes); the next scheduled run here reads the new files.
+#
+# Files read before are not read again (Electo's copy is the cache), so a run with nothing new takes a few minutes.
+# Reading has a time limit (--max-minutes): scans take minutes each to OCR, and a run killed at the job's limit sends
+# nothing, so from Nov 10 to 15, 2026 every run read the same files again and none reached Electo. Now the files left
+# when time is up are listed as pending, what was read is sent, and the run starts the next one, which goes on from there.
+# Needs DATA_TOKEN (reads the files), and ELECTO_TOKEN (or DATA_TOKEN) with contents write on Electo; without the
+# latter the run only checks the files.
+
+on:
+  push:
+    branches: [main]
+    paths: ["gacrawl/ordinance_files.py", ".github/workflows/ordinances.yml"]
+  schedule:
+    - cron: "34 3,9,15,21 * * *"     # 09:34 UTC (4:34 AM Eastern) follows code-finder; the other three pick up records-send's and hand uploads
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write     # start the next run while files are pending, and publish-site once Electo has the files
+
+concurrency:
+  group: ordinances
+  cancel-in-progress: false
+
+jobs:
+  send:
+    # the public runner only: in the private repository every start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    # 120 minutes of reading, plus setup (the files' copy and the OCR engine, up to 15 minutes each when slow) and the send
+    timeout-minutes: 160
+    env:
+      DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job opens downloaded files: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The downloaded files (imports/ordinances/ from the private repository)
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          [ -n "$DATA_TOKEN" ] || { echo "::error title=Ordinances::no DATA_TOKEN secret: the files in the private repository cannot be read"; exit 1; }
+          DATA_REPO=$(python3 -c "import json; print(json.load(open('config/runner.json')).get('data_repo') or '')" 2>/dev/null || true)
+          DATA_REPO="${DATA_REPO:-ClockworkBlack/Crawl}"
+          T="$RUNNER_TEMP/ordinances-inbox"
+          rm -rf "$T" imports/ordinances
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/${DATA_REPO}.git" "$T"
+          git -C "$T" sparse-checkout set --no-cone /imports/ordinances/
+          mkdir -p imports
+          [ -d "$T/imports/ordinances" ] && mv "$T/imports/ordinances" imports/ordinances
+          rm -rf "$T"      # its git folder, with the token in its remote, goes; only the files stay
+          # an empty or missing copy is never read: a build of nothing would take every document off Electo
+          N=0; [ -d imports/ordinances ] && N=$(find imports/ordinances -type f ! -name README.md | wc -l)
+          [ "$N" -gt 0 ] || { echo "::error title=Ordinances::no file came from the private repository's imports/ordinances/; nothing is read or sent"; exit 1; }
+          echo "$N files from the private repository's imports/ordinances/"
+      - name: OCR engine, only when there are PDFs or images (scanned pages)
+        timeout-minutes: 15
+        run: |
+          if find imports/ordinances -type f \( -iname "*.zip" -o -iname "*.pdf" -o -iname '*.png' -o -iname '*.jp*g' -o -iname '*.tif*' -o -iname '*.webp' \) | grep -q .; then
+            # Ubuntu's mirror once failed to resolve for a few minutes (Nov 11, 2026) and the whole run failed: try three
+            # times, a little apart. Without the engine no scanned page could be read, so the run stops after the third.
+            for i in 1 2 3; do
+              command -v tesseract >/dev/null && break
+              timeout 120 sudo apt-get update -qq || true
+              timeout 240 sudo apt-get install -y -qq -o Acquire::Retries=3 tesseract-ocr && break
+              [ "$i" = 3 ] && { echo "::error title=OCR engine::tesseract could not be installed (three tries); the next run tries again"; exit 1; }
+              sleep $((i * 30))
+            done
+          fi
+      - name: Electo's current copy (files read before are reused from it)
+        timeout-minutes: 15
+        run: |
+          mkdir -p /tmp/electo/data/ordinances
+          if [ -n "$ELECTO_TOKEN" ]; then
+            rm -rf /tmp/electo
+            git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo
+            git -C /tmp/electo sparse-checkout set data/ordinances
+            mkdir -p /tmp/electo/data/ordinances
+          fi
+      - name: Read the files
+        env:
+          PYTHONUNBUFFERED: "1"    # each file's line reaches the log as it is read, not in bursts
+        run: |
+          gacrawl ordinances build --max-minutes 120 --out dist/ordinances --prev /tmp/electo/data/ordinances \
+            --report /tmp/ordinances-report.md --status /tmp/ordinances-status.json
+          # the report (files not read yet, with no place, or unreadable: file names only) in the summary and in the
+          # log too: the run, its summary with it, is deleted here within about an hour, and its log is kept
+          tee -a "$GITHUB_STEP_SUMMARY" < /tmp/ordinances-report.md
+      - name: Send to Electo (data/ordinances/)
+        id: send
+        if: env.ELECTO_TOKEN != ''
+        run: |
+          # a build with no document never replaces Electo's: the files were not read (the guard above should stop it first)
+          docs() { python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1])).get("documents") or []))' "$1" 2>/dev/null || echo 0; }
+          NOW=$(docs dist/ordinances/index.json); WAS=$(docs /tmp/electo/data/ordinances/index.json)
+          if [ "$NOW" = 0 ] && [ "$WAS" != 0 ]; then
+            echo "::error title=Ordinances::this build has no document and Electo has $WAS: not sent"; exit 1
+          fi
+          rsync -a --delete dist/ordinances/ /tmp/electo/data/ordinances/
+          cd /tmp/electo
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add -A data/ordinances
+          if git diff --cached --quiet; then echo "Electo already has these" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          git commit -qm "Downloaded ordinances from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then
+              echo "Sent to Electo (data/ordinances/)" >> "$GITHUB_STEP_SUMMARY"
+              echo "sent=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep $((i*5))
+          done
+          exit 1
+      - name: Publish the site now
+        # publish-site's own schedule fires about once an hour in this repository (Electo's ordinances workflow, which
+        # this push starts, publishes the codes' own branch of the site)
+        if: ${{ !cancelled() && steps.send.outputs.sent == '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
+      - name: Start the next run for the files not read yet
+        # Only after this run's documents reached Electo (the next run reuses them from there), and only when it
+        # finished at least one file for good: otherwise the next run would read exactly the same files, and so on.
+        # Without the token nothing is sent, so nothing restarts. The schedule tries again in any case.
+        if: steps.send.outputs.sent == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r PENDING FINISHED < <(python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s["pending"], s["finished"])' /tmp/ordinances-status.json)
+          if [ "$PENDING" -gt 0 ] && [ "$FINISHED" -gt 0 ]; then
+            if gh workflow run ordinances.yml -R "$GITHUB_REPOSITORY" --ref main; then
+              echo "$PENDING files not read yet: the next run is started" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning title=Next run::could not start the next run; the next scheduled run reads the $PENDING pending files"
+            fi
+          elif [ "$PENDING" -gt 0 ]; then
+            echo "$PENDING files not read yet, and this run finished none: not started again (the next scheduled run tries)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: No token
+        if: env.ELECTO_TOKEN == ''
+        run: |
+          echo "Not sent: add the ELECTO_TOKEN secret (README, Secrets) so the files reach Electo" >> "$GITHUB_STEP_SUMMARY"
