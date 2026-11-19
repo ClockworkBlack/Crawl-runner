@@ -5,11 +5,16 @@
 #   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news), and has not
 #     waited over an hour for Electo's newest commit (else it starts publish-site)
 #   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, meeting-summaries, candidate-news, legis-votes, the ai-* jobs,
-#     grand-cross, grand-cross-check, logview, history, news-research and copy-model)
+#     grand-cross, grand-cross-check, logview, history, news-research, copy-model and ordinances)
 #     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
 #     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
 #   - each open-model job still passes its own checker as often as before (Electo tools/ai/health.py): a job that got
 #     worse after it was moved to another model goes back to the earlier one; any other fall is reported
+#   - the jobs of the private repositories (Crawl's records-send and code-finder; Electo's and
+#     electo-data's scheduled ones), which sync-code does not record: two runs in a row that did not succeed, or no
+#     success for about twice the job's usual gap, are reported (in the issue only: those runs are private)
+#   - the outputs a green run can leave unwritten (Electo's said_by.json, outlook.json, meeting videos, LegiScan's roll
+#     calls in vote_model.json) are not older than they should be, and the API keys the runner's jobs need are set
 #   - the tokens the chain depends on are not about to expire (it cannot renew them; it warns two weeks ahead)
 # Anything it can't fix, or that stays broken after a restart, goes into one "Watchdog" issue in the private Crawl
 # repository (GitHub emails you); the issue closes itself once everything is healthy again. No Claude needed.
@@ -42,16 +47,20 @@ jobs:
       DATA_REPO: ClockworkBlack/Crawl
       SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
       # how old (hours) each sign of life may get before the watchdog acts
-      MAX_CRAWL_H: ${{ vars.WATCH_CRAWL_HOURS || '10' }}   # runs land about 6 hours apart (back to back); sync-code starts a lost link within 15 minutes
+      MAX_CRAWL_H: ${{ vars.WATCH_CRAWL_HOURS || '10' }}   # runs land about 6 hours apart (back to back); sync-code starts a lost link within about an hour
       MAX_POLICE_H: ${{ vars.WATCH_POLICE_HOURS || '30' }}
       MAX_NEWS_H: ${{ vars.WATCH_NEWS_HOURS || '8' }}
       MAX_SITE_H: ${{ vars.WATCH_SITE_HOURS || '8' }}
       MAX_STEP_H: ${{ vars.WATCH_STEP_HOURS || '4' }}    # longest any one step may run (candidate research on the runner is 200 min)
       # logview needs both secrets; without them it skips its work (logview.yml) and is not restarted here
       HAS_LOGVIEW: ${{ secrets.LOGVIEW_READ != '' && secrets.LOGVIEW_WRITE != '' }}
+      # whether the keys the runner's jobs read are set here (true or false; their values never reach this job): without
+      # them those sources are skipped and the runs still succeed (YouTube unread from Nov 7, LegiScan never read)
+      HAS_YOUTUBE_KEY: ${{ secrets.YOUTUBE_API_KEY != '' }}
+      HAS_LEGISCAN_KEY: ${{ secrets.LEGISCAN_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
-        with: {persist-credentials: false, sparse-checkout: "gacrawl\nconfig"}
+        with: {persist-credentials: false, sparse-checkout: "gacrawl\nconfig\n.github/workflows"}
       - name: Is the daytime backfill chain on? (gacrawl/backfill.py with the private repository's state/backfill.json)
         # a crawl started again while the chain is on is started as a link of it (job=backfill), so it chains on
         continue-on-error: true
@@ -72,8 +81,11 @@ jobs:
           [ -n "$T" ] || { echo "no token for Electo"; exit 0; }
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/${ELECTO_REPO}.git" /tmp/electo-health
           cd /tmp/electo-health
+          # with said_by's own account (ga/crawl/said_by.json: when readings last came in, how many wait, a failed exam)
+          # and outlook's log and output, so their rules judge them here; not the jobs' inputs (people.json, 33 MB)
           git sparse-checkout set --no-cone /tools/ai/ /research/train/health.json /research/predict/rule_watch.json /research/train/news_ai_log.jsonl \
-            /research/train/profile_write_log.jsonl /research/train/profile_ai_log.jsonl /research/train/infer_ai_log.jsonl
+            /research/train/profile_write_log.jsonl /research/train/profile_ai_log.jsonl /research/train/infer_ai_log.jsonl \
+            /research/train/outlook_ai_log.jsonl /ga/crawl/said_by.json /ga/outlook.json
           [ -f tools/ai/health.py ] || { echo "no pass-rate watch in this Electo"; exit 0; }
           git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
           for i in 1 2 3; do
@@ -85,6 +97,10 @@ jobs:
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD; sleep $((i * 5))
           done
       - name: Check the chain and repair what can be repaired
+        env:
+          # reads Actions on Crawl, Electo and electo-data for the LogView collector (logview.yml): the private repositories'
+          # runs are read with it when the token of the repository itself has no Actions: read
+          LOGVIEW_READ: ${{ secrets.LOGVIEW_READ }}
         run: |
           python3 - <<'PY'
           import datetime as dt, json, os, time, urllib.request, urllib.error
@@ -92,11 +108,11 @@ jobs:
           now = dt.datetime.now(dt.timezone.utc)
           problems, repairs = [], []
 
-          def api(path, token, method="GET", body=None, headers_out=None):
+          def api(path, token, method="GET", body=None, headers_out=None, accept="application/vnd.github+json"):
               req = urllib.request.Request("https://api.github.com/" + path, method=method,
                                            data=json.dumps(body).encode() if body is not None else None)
               req.add_header("Authorization", f"Bearer {token}")
-              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("Accept", accept)
               req.add_header("User-Agent", "crawl-watchdog")
               try:
                   with urllib.request.urlopen(req, timeout=30) as r:
@@ -245,7 +261,8 @@ jobs:
               problems.append(f"Couldn't read {os.environ['SITE_DATA_REPO']} ({sc.get('_error') if isinstance(sc, dict) else 'empty'}); check the site token.")
 
           # 3b. Electo commits the site hasn't been rebuilt from (a change to the page or a hand import waits for
-          #     publish-site, whose 20-minute schedule GitHub sometimes skips under load)
+          #     publish-site's schedule: it asks for every 20 minutes, and GitHub runs about one an hour in this
+          #     repository; the jobs that push to Electo start it themselves)
           if isinstance(sc, list) and sc:
               head = api(f"repos/{os.environ['ELECTO_REPO']}/commits/main", os.environ.get("ELECTO_TOKEN") or data_tok)
               cur = api(f"repos/{os.environ['SITE_DATA_REPO']}/contents/current.json", site_tok)
@@ -280,6 +297,7 @@ jobs:
                   # hourly, every 6 h, every 3 h, daily, monthly (the 3rd), weekly: twice the gap, plus a margin
                   "logview": ("logview.yml", 3), "history": ("history.yml", 20), "news-research": ("news-research.yml", 8),
                   "copy-model": ("copy-model.yml", 52), "ai-replay": ("ai-replay.yml", 24 * 64), "ai-compare-eval": ("ai-compare-eval.yml", 24 * 15),
+                  "ordinances": ("ordinances.yml", 20),       # every 6 h; here since Nov 19, 2026 (the private repository before)
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)
@@ -317,11 +335,154 @@ jobs:
           except OSError:
               pass
 
+          # 3e. the jobs of the private repositories: sync-code records only this repository's runs, so a private job
+          #     that kept failing went unseen (records-send failed three weekdays in a row, Nov 16-18; no ordinances run
+          #     succeeded from Nov 10 to 15: eight runs, seven of them cut at the time limit; ordinances runs here since
+          #     Nov 19, so 3c watches it). Each job's last runs on
+          #     main are read with the first token here that can read that repository's Actions. Two runs in a row that
+          #     did not succeed, or no success for about twice the job's usual gap, are told in the issue only, not in
+          #     this public log.
+          private = []                  # problems told in the issue only
+          tokens = {"DATA_TOKEN": data_tok, "ELECTO_TOKEN": os.environ.get("ELECTO_TOKEN", ""),
+                    "SITE_TOKEN": os.environ.get("SITE_TOKEN", ""), "LOGVIEW_READ": os.environ.get("LOGVIEW_READ", "")}
+          # repository: (the tokens to try, in order; workflow file: (hours a success may be apart, or None for a job that
+          # runs only when something asks for it; whether a cancelled run counts as not succeeding))
+          watched = {
+              data_repo: (("DATA_TOKEN", "LOGVIEW_READ"), {
+                  "records-send.yml": (24 * 4, True),         # weekdays: Friday's success, then Monday's
+                  "code-finder.yml": (52, True)}),            # daily
+              os.environ["ELECTO_REPO"]: (("ELECTO_TOKEN", "DATA_TOKEN", "LOGVIEW_READ"), {
+                  "bill-details.yml": (52, True), "incidents.yml": (52, True), "copy-model-public.yml": (52, True)}),
+              os.environ["SITE_DATA_REPO"]: (("SITE_TOKEN", "LOGVIEW_READ"), {
+                  "pages.yml": (4, False),                    # hourly and on each build; a newer build cancels a deploy
+                  "apps.yml": (24 * 15, True),                # Mondays (a run is also marked failed when no Mac was free)
+                  "apps-catch-up.yml": (24 * 3, True)}),      # mornings but Mondays
+          }
+          for repo, (names, wfs) in watched.items():
+              tok, tried = None, []
+              for n in names:
+                  t = tokens.get(n)
+                  if not t or t in tried:
+                      continue
+                  tried.append(t)
+                  probe = api(f"repos/{repo}/actions/runs?per_page=1", t)
+                  if isinstance(probe, dict) and "_error" not in probe:
+                      tok = t
+                      break
+              if tok is None:
+                  print(f"::notice title=Watchdog::the jobs of {repo} are not watched: none of {', '.join(names)} can read "
+                        f"its Actions runs here. Give one of them Actions: Read-only on {repo} (LOGVIEW_READ is meant to have it).")
+                  repairs.append(f"{repo}: its jobs are not watched (no token here can read its Actions runs; one of "
+                                 f"{', '.join(names)} needs Actions: Read-only)")
+                  continue
+              for wf, (max_h, cancel_counts) in wfs.items():
+                  r = api(f"repos/{repo}/actions/workflows/{wf}/runs?branch=main&status=completed&per_page=10", tok)
+                  if not isinstance(r, dict) or r.get("_error"):
+                      if not (isinstance(r, dict) and r.get("_error") == 404):      # 404: no such workflow (renamed or removed)
+                          repairs.append(f"{repo} {wf}: runs not read ({r.get('_error') if isinstance(r, dict) else 'empty'})")
+                      continue
+                  bad = ("failure", "timed_out", "startup_failure") + (("cancelled",) if cancel_counts else ())
+                  ended = [w for w in r.get("workflow_runs") or [] if w.get("conclusion") in ("success",) + bad]
+                  if not ended:
+                      continue                    # no run yet (a new workflow), or only skipped ones
+                  in_row = next((i for i, w in enumerate(ended) if w["conclusion"] == "success"), len(ended))
+                  ok = next((w for w in ended if w["conclusion"] == "success"), None)
+                  why = []
+                  if in_row >= 2:
+                      w = ended[0]
+                      why.append(f"{in_row}{'+' if in_row == len(ended) else ''} runs in a row did not succeed "
+                                 f"(last: {w['conclusion']} at {w.get('updated_at')}, {w.get('html_url')})")
+                  if max_h is not None and ok and hours_since(ok["updated_at"]) > max_h:
+                      why.append(f"no success in {hours_since(ok['updated_at']):.0f} hours (its usual gap allows {max_h})")
+                  if why:
+                      private.append(f"**{wf}** in {repo}: " + "; ".join(why) + ".")
+
+          # 3f. outputs a green run can leave unwritten: a job whose open model did not load or answer ends green with
+          #     nothing written (all of ai-said-by's runs succeeded while Electo's said_by.json stayed at Nov 12), and a
+          #     missing API key only skips the sources it opens. One read of each file on Electo's main.
+          def scheduled(wf):
+              try:
+                  return "schedule:" in open(f".github/workflows/{wf}", encoding="utf-8").read()
+              except OSError:
+                  return False
+
+          def electo_file(path):
+              for t in (os.environ.get("ELECTO_TOKEN") or data_tok, os.environ.get("LOGVIEW_READ")):
+                  if t:
+                      f = api(f"repos/{os.environ['ELECTO_REPO']}/contents/{path}", t, accept="application/vnd.github.raw")
+                      if isinstance(f, dict) and "_error" not in f:
+                          return f
+              repairs.append(f"Electo's {path} not read")
+              return None
+
+          def age_h(at):
+              try:
+                  return hours_since(at)
+              except (AttributeError, TypeError, ValueError):
+                  return None
+
+          has_yt = os.environ.get("HAS_YOUTUBE_KEY") == "true"
+          has_ls = os.environ.get("HAS_LEGISCAN_KEY") == "true"
+          if not has_yt:
+              problems.append(f"**YOUTUBE_API_KEY is not set** in {runner_repo}, where the crawl runs: no council, county or "
+                              "school board channel is listed, and the runs still succeed. Add it there (Settings, Secrets "
+                              "and variables, Actions).")
+          if not has_ls:
+              problems.append(f"**LEGISCAN_API_KEY is not set** in {runner_repo}, where legis-votes runs: LegiScan is not read "
+                              "(no backup source and no cross-check for roll calls). A free key: https://legiscan.com/legiscan")
+          if scheduled("ai-said-by.yml"):
+              f = electo_file("ga/crawl/said_by.json")
+              h = age_h((f or {}).get("at"))
+              # "at" moves only when readings come in, so it ages when nothing is left to read: "waiting" (Electo
+              # tools/ai/said_by.py, the sentences still to read when it last wrote) at 0 is quiet. "stalled_since":
+              # the model has failed its exam on every runner since then, and so reads nothing
+              waiting = f.get("waiting") if isinstance(f, dict) else None
+              waiting = waiting if isinstance(waiting, int) and not isinstance(waiting, bool) else None
+              if f is not None and (h is None or h > 72) and waiting != 0:
+                  when = "at an unknown time" if h is None else f"{h / 24:.0f} days ago"
+                  left = "" if waiting is None else f" with {waiting:,} sentences waiting"
+                  if f.get("stalled_since"):
+                      e = f.get("exam") if isinstance(f.get("exam"), dict) else {}
+                      why = (f"its model ({e.get('m') or f.get('m') or 'the open model'}) has failed its exam on every "
+                             f"runner since {f['stalled_since']}, so it reads nothing until the prompt or the model changes "
+                             "(Electo tools/ai/said_by.py SYSTEM and SHOTS, tools/ai/models.json; the ai-said-by run's "
+                             "\"Said by\" warning names the sentences it held)")
+                  else:
+                      why = "a run of it that ended green wrote nothing (its logs are in logs/runner/)"
+                  private.append(f"**ga/crawl/said_by.json** in Electo was last written {when} ({f.get('at')}){left}, although "
+                                 f"ai-said-by runs twice a day: {why}.")
+          if scheduled("ai-outlook.yml"):
+              f = electo_file("ga/outlook.json")
+              h = age_h((f or {}).get("at"))
+              if f is not None and (h is None or h > 30):
+                  aged = "of an unknown age" if h is None else f"{h:.0f} hours old"
+                  private.append(f"**ga/outlook.json** in Electo is {aged} ({f.get('at')}); ai-outlook should write it every 6 hours.")
+          f = electo_file("ga/crawl/meeting_videos.json")
+          if f is not None:
+              import re
+              newest = max((v["d"][:10] for v in f.get("videos") or []
+                            if isinstance(v, dict) and re.match(r"\d{4}-\d\d-\d\d", str(v.get("d") or ""))), default="")
+              h = age_h(newest + "T00:00:00Z") if newest else None
+              if h is None or h > 24 * 14:
+                  private.append(f"**ga/crawl/meeting_videos.json** in Electo: the newest meeting video is from {newest or 'nowhere'}"
+                                 + ("" if h is None else f", {h / 24:.0f} days ago")
+                                 + (" (YOUTUBE_API_KEY is not set, above)." if not has_yt
+                                    else ": see the crawl's YouTube channels step (its logs are in logs/runner/)."))
+          f = electo_file("data/crawl/vote_model.json")
+          if f is not None and ((f.get("sources") or {}).get("legiscan_roll_calls") or 0) == 0:
+              private.append("**data/crawl/vote_model.json** in Electo has no roll call from LegiScan "
+                             "(sources.legiscan_roll_calls is 0)"
+                             + (" (LEGISCAN_API_KEY is not set, above)." if not has_ls
+                                else ": the key is set, so see legis-votes' LegiScan step (a key added today shows after "
+                                     "the next night's run)."))
+
           # 4. report: one issue in the private repo, opened/updated on problems, closed when healthy
           print("\n".join(["repairs:"] + repairs + ["problems:"] + problems))
+          print(f"private repositories' jobs and outputs: {len(private)} problem(s), told in the issue only")
           issues = api(f"repos/{data_repo}/issues?state=open&labels=watchdog&per_page=5", data_tok)
           open_issue = issues[0] if isinstance(issues, list) and issues else None
           stamp = now.strftime("%Y-%m-%d %H:%M UTC")
+          problems += private
           if problems:
               body = (f"Checked {stamp}.\n\n**Needs you:**\n" + "\n".join(f"- {p}" for p in problems)
                       + ("\n\n**Repaired automatically:**\n" + "\n".join(f"- {r}" for r in repairs) if repairs else "")

@@ -7,7 +7,11 @@ shooting, use of force, a lawsuit or settlement, a firing or suspension, an indi
 an investigation, a pursuit or in-custody death). Each becomes a `police_incident` record: title, date, outlet,
 an excerpt around the first incident cue, and the officers named with a rank beside the name (Officer, Sgt.,
 Lt., Capt., Deputy, Chief, Sheriff...). Nothing is inferred from a bare name: a person is listed only when the
-article prints a rank or title with the name. Profiles (export) group mentions by name within a department, each
+article prints a police rank right before the name (or right after it, after a comma). A rank word that is another
+office's title where it stands (a newsroom's "Bureau Chief", a "Chief Judge", a "Deputy Coroner", a fire captain) does
+not count, and neither does a "name" made of titles ("Assistant District Attorney"). The article is read without its
+page furniture (headings, lists of links such as "TRENDING STORIES", sign-up and copyright lines, Markdown marks), so
+nothing is taken from another story's link on the page. Profiles (export) group mentions by name within a department, each
 with its articles, so the Policing tab can show what the record says and link every line to the article.
 
 Run: gacrawl police news [--max-minutes M]. State: the records in the store (source police:<jid>) and
@@ -37,42 +41,262 @@ CUE = re.compile(r"\b(shot|shooting|shoot|killed|death|died|dies|use of force|ex
                  r"suspended|resign(?:ed|s)?|body[\s-]?cam(?:era)?|dash[\s-]?cam|misconduct|complaint|internal affairs|"
                  r"investigat(?:ion|ed|ing)|GBI|pursuit|chase|crash|in custody|wrongful|brutality|civil rights|"
                  r"discriminat\w+|harass\w+|DUI|domestic|assault)\b", re.I)
-RANK = (r"(?:Chief of Police|Police Chief|Deputy Chief|Assistant Chief|Interim Chief|Interim Police Chief|Chief|Assistant Chief|Interim Chief|Sheriff|Chief Deputy|Undersheriff|Major|Maj\.|"
-        r"Captain|Capt\.|Lieutenant|Lt\.|Sergeant|Sgt\.|Corporal|Cpl\.|Officer|Ofc\.|Patrolman|Deputy|Detective|Det\.|"
-        r"Investigator|Trooper|Marshal|Commander|Cmdr\.)")
-NAME = r"([A-Z][a-z'’\-]+(?:\s(?:[A-Z]\.|[A-Z][a-z'’\-]+)){1,2}(?:,?\s(?:Jr|Sr|II|III|IV)\.?)?)"
-RANK_NAME = re.compile(r"\b(?:former\s|ex-)?(" + RANK + r")\s+" + NAME)
-NAME_RANK = re.compile(NAME + r",\s+(?:an?\s|the\s)?(?:former\s)?(" + RANK + r")\b")
-STOP = re.compile(r"\b(Department|Police|County|City|Office|Sheriff|Georgia|Atlanta|Monday|Tuesday|Wednesday|Thursday|"
-                  r"Friday|Saturday|Sunday|January|February|March|April|May|June|July|August|September|October|November|"
-                  r"December|Street|Avenue|Road|Drive|Highway)\b")
+# The ranks, longest first: a regex alternation takes the first one that fits, and with "Chief" listed before "Chief
+# Deputy" the reader took "Chief Deputy Gary Taylor" as Chief + a person called "Deputy Gary Taylor" (Nov 19: two
+# sheriff's chief deputies were listed so). "Deputy Jailer" is a sheriff's office post: read whole, the jailer is named.
+# The State Patrol's "Trooper First Class" and "Sergeant First Class" are ranks too: read as "Trooper", the trooper was
+# listed as "First Class Jacob".
+RANKS = ("Chief of Police", "Police Chief", "Interim Police Chief", "Deputy Police Chief", "Assistant Police Chief",
+         "Deputy Chief", "Assistant Chief", "Interim Chief", "Chief Deputy", "Deputy Sheriff", "Deputy Jailer", "Undersheriff",
+         "Chief", "Sheriff", "Major", "Maj.", "Captain", "Capt.", "Lieutenant", "Lt.", "Sergeant First Class", "Sergeant", "Sgt.",
+         "Corporal", "Cpl.", "Officer", "Ofc.", "Patrolman", "Deputy", "Detective", "Det.", "Investigator", "Trooper First Class",
+         "Trooper", "Marshal", "Commander", "Cmdr.")
+RANK = "(?:" + "|".join(re.escape(r) for r in sorted(RANKS, key=len, reverse=True)) + ")"
+STOP_WORDS = (r"Department|Police|County|City|Office|Sheriff|Georgia|Atlanta|Monday|Tuesday|Wednesday|Thursday|Friday|"
+              r"Saturday|Sunday|January|February|March|April|May|June|July|August|September|October|November|December|"
+              r"Street|Avenue|Road|Drive|Highway")
+STOP = re.compile(r"\b(" + STOP_WORDS + r")\b")
+# Words that are never part of a person's name: titles of other offices, newsroom jobs, ranks, and the nouns of the
+# units and products that follow a rank word ("Major Crimes Unit", "Major League Baseball", "Flock Safety"). Nov 19 the
+# Policing tab listed "Assistant District Attorney", "Superior Court Judge", "Judge R. Stan" and "Coroner Luann Stone"
+# as officers: the reader took whatever capitalised words followed a rank for a name.
+TITLE_WORDS = (r"Judge|Justice|Magistrate|Attorney|Solicitor|Prosecutor|District|Superior|State|Court|Coroner|Examiner|Clerk|"
+               r"Commissioner|Mayor|Council\w*|Senator|Governor|General|Secretary|Superintendent|Principal|Administrator|"
+               r"Manager|Warden|Reporter|Anchor|Correspondent|Editor|Producer|Photographer|Meteorologist|Bureau|Channel|News|"
+               r"Fire|Rescue|Battalion|Medical|Financial|Executive|Operating|Information|Probation|Parole|Unit|Crimes|"
+               r"Division|League|Baseball|Football|Safety|Team|Task|Squad|Academy|Services?|Patrol|Cameras?|Systems?|Jail|"
+               r"Detention|Hospital|School|University|College|Assistant|Interim|Chief|Deputy|Undersheriff|Major|Captain|"
+               r"Lieutenant|Sergeant|Corporal|Officer|Patrolman|Detective|Investigator|Trooper|Marshal|Commander|Jailer|Agent|"
+               r"Director|Sgt|Lt|Capt|Cpl|Det|Ofc|Cmdr|Maj|First|Class")
+TITLE = re.compile(r"\b(?:" + TITLE_WORDS + r")\b")
+# One word of a name. A capital inside the word does not end it ("McGuffey", "DeBisschop", "VanHoozer", "JaMarcus",
+# "DeLaCruz"), nor does an apostrophe or a hyphen with more name after it ("O'Neal", "Dent-Smith"): the old pattern
+# stopped at the second capital and after a hyphen, and listed "Michael Mc", "Zack De" and "Joyce Dent-". A possessive
+# ("Lau’s") is not part of the word, so "Matthew Lau’s" is "Matthew Lau", and neither is a lower-case word after a
+# hyphen ("Officer John Doe-led team" names John Doe).
+_PART = r"[A-Z][a-z]+(?:[A-Z][a-z]+){0,2}"
+_WORD = r"(?:O['’]|D['’])?" + _PART + r"(?:-" + _PART + r"|['’][A-Za-z][a-z]+(?:[A-Z][a-z]+){0,2})?"
+_NAME_WORD = r"(?!(?:" + TITLE_WORDS + "|" + STOP_WORDS + r")\b)" + _WORD
+# A name never ends inside a word: where the last word goes on in a way the pattern does not read ("McCOY", a fourth
+# capital, a hyphen before a capital it cannot follow), no name is read rather than the front of one.
+NAME_END = r"(?![A-Za-z]|-[A-Z])"
+NAME = (r"(" + _NAME_WORD + r"(?:[ \t](?:[A-Z]\.|" + _NAME_WORD + r")){1,2}" + NAME_END +
+        r"(?:,?[ \t](?:Jr|Sr|II|III|IV)\.?)?)")
+# The rank comes directly before the name (or right after it, set off by a comma), on one line of the article
+RANK_NAME = re.compile(r"\b(?:former[ \t]|ex-)?(" + RANK + r")[ \t]+" + NAME)
+NAME_RANK = re.compile(r"\b" + NAME + r",[ \t]+(?:an?[ \t]|the[ \t])?(?:former[ \t])?(" + RANK + r")(?!\w)")
+# A word right before a rank word that makes it another office's title: a newsroom's "Bureau Chief", a fire
+# department's chief, captain or marshal, a court's or a company's officer, the military's ranks. Nov 19: "Channel 2
+# Gwinnett County Bureau Chief Matt Johnson", a TV reporter, was the Gwinnett police officer named most often. A unit
+# of any service ("Team", "Section") is not one of them: "SWAT Team Sgt." and "Special Operations Section Lt." are police
+# ranks, and "Fire Team Capt." or "Rescue Team Capt." is still another office's by its other word.
+NOT_POLICE = frozenset("""bureau fire battalion rescue emergency ems crew station editor financial executive operating
+    information technology medical compliance probation parole hearing code control loan election elections program health
+    private insurance court judge justice tribal army navy marine marines air guard military staff warrant petty
+    gunnery flight news desk managing coroner examiner defense campaign""".split())
+# Rank words that end a post's title ("Public Information Officer", "Narcotics Investigator"): a rank right after one
+# begins the post holder's own title ("Public Information Officer Sgt. Jane Doe")
+RANK_WORDS = frozenset("""officer ofc deputy sergeant sgt lieutenant lt corporal cpl detective det investigator trooper
+    captain capt major maj""".split())
+# The old reader's name words were [A-Z][a-z'’-]+, so a stored name can end in the front of a word: "Michael Mc"
+# (McGuffey), "Zack De" (DeBisschop), "Stuart Van" (VanHoozer), "Shaquille O’" (O’Neal), "Joyce Dent-" (a double
+# surname). These are never a whole surname; "Le", "Du", "La" and "Di" can be ("Officer Thanh Le"), so they are kept
+# unless the excerpt shows the word going on.
+_CUT_SURNAMES = {"Mc", "Mac", "De", "Van", "Von"}
 
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def _name_form(name: str) -> str:
+    """A name as printed, without the possessive or the punctuation around it ("Mike Allen’s" -> "Mike Allen")."""
+    name = re.sub(r"\s+", " ", name or "").strip(" ,.-")
+    return re.sub(r"['’]s$", "", name).strip(" ,.-'’")
+
+
+def _is_name(name: str) -> bool:
+    """Two words or more, none of them a title, a rank, a place, a day or a month."""
+    return len(name.split()) >= 2 and not STOP.search(name) and not TITLE.search(name)
+
+
+def _police_rank(text: str, a: int, b: int) -> bool:
+    """The rank word at text[a:b] is a police rank where it stands: the capitalised words right before it (a title is
+    capitalised, "a recall election for Sheriff Gerald Couch" is not one) do not make it another office's title
+    ("Bureau Chief", "Fire Capt.", "Code Enforcement Officer", "Chief Financial Officer") and the word after it is not
+    another office ("Chief Judge", "Deputy Coroner", "Deputy District Attorney")."""
+    # words run together with spaces only: a word that ends a sentence ("...said the Court. Officer Jane Doe") or a
+    # clause is not part of the rank's title
+    m = re.search(r"((?:[A-Z](?:[\w’'&.-]*[\w’'&-])?[ \t]+){1,2})$", text[max(0, a - 60):a])
+    before = [re.sub(r"(?:['’]s|['’.])$", "", w).lower() for w in (m.group(1).split() if m else [])]
+    # after a rank word the rank begins its own title, and the post before it is the holder's: a department's
+    # spokesperson ("Public Information Officer Sgt. Jane Doe") is its sergeant, while another service's post ("Fire
+    # Investigator Lt.", "Court Officer Sgt.") still makes it another office's
+    if before and before[-1] in RANK_WORDS:
+        before = [w for w in before[:-1] if w != "information"]
+    # "Staff Sgt." is the army's rank; a department's "Chief of Staff Maj. John Doe" is its major
+    if before[-1:] == ["staff"] and not text[a:b].startswith(("Sgt", "Sergeant")):
+        before = before[:-1]
+    if any(w in NOT_POLICE for w in before):
+        return False
+    if text[a:b].startswith(("Officer", "Ofc")) and "chief" in before:
+        return False
+    nxt = re.match(r"[ \t]+([A-Z][a-z]+)", text[b:])
+    return not (nxt and TITLE.fullmatch(nxt.group(1)))
+
+
 def names_in(text: str) -> list[dict]:
-    """People the article names with a rank: [{name, rank}], first mention first, each name once."""
+    """People the article names with a police rank: [{name, rank}], first mention first, each name once. The text is
+    read as article_text() gives it (one paragraph per line), so a rank and a name in different paragraphs never pair."""
     out, seen = [], set()
 
-    def add(rank: str, name: str):
-        name = re.sub(r"\s+", " ", name).strip(" ,.")
+    def add(rank: str, name: str, a: int, b: int):
+        name = _name_form(name)
         rank = re.sub(r"\s+", " ", rank).strip(" ,.")
-        if STOP.search(name) or len(name.split()) < 2 or name.lower() in seen:
+        if not _is_name(name) or not _police_rank(text, a, b) or name.lower() in seen:
             return
         seen.add(name.lower())
         out.append({"name": name, "rank": rank})
 
     for m in RANK_NAME.finditer(text):
-        add(m.group(1), m.group(2))
+        add(m.group(1), m.group(2), m.start(1), m.end(1))
     for m in NAME_RANK.finditer(text):
-        add(m.group(2), m.group(1))
+        # "Judge Jane Roe, Deputy Mark Lee": the rank after the comma is the next person's, and a name printed after
+        # a title ("Judge", "Bureau Chief") is that office's person, not one the rank after the comma describes
+        if RANK_NAME.match(text, m.start(2)):
+            continue
+        pw = re.search(r"([A-Za-z]+)\.?[ \t]+$", text[max(0, m.start(1) - 40):m.start(1)])
+        if pw and (TITLE.fullmatch(pw.group(1)) or pw.group(1).lower() in NOT_POLICE):
+            continue
+        add(m.group(2), m.group(1), m.start(2), m.end(2))
     return out[:12]
 
 
+def _whole_name(raw: str, x: str) -> str:
+    """A name the old reader stored, whole: as stored where the excerpt prints it so, completed where the excerpt
+    shows its last word going on ("Zack De" + "Ofc. Zack DeBisschop"), and "" where it was cut and the excerpt does
+    not show the rest ("Joyce Dent-", "Michael Mc"). An apostrophe after one capital ("O’") was cut before the rest
+    of the word; after a whole word ("Jones’") it is a possessive."""
+    cut = raw.endswith("-") or bool(re.search(r"\b[A-Z]['’]$", raw))
+    if not cut and re.search(r"\b" + re.escape(raw) + NAME_END, x):
+        return raw
+    m = re.search(r"\b" + re.escape(raw) + r"[A-Z][A-Za-z]*(?:[-'’][A-Z][A-Za-z]*)*", x)
+    if m:
+        return m.group(0)
+    return "" if cut or raw.split()[-1] in _CUT_SURNAMES else raw
+
+
+def recheck_names(names: list[dict], excerpt: str) -> list[dict]:
+    """The names stored with an incident by an earlier reader, held to today's rules. Stored incidents are never read
+    again (an article is opened once), so the export applies the rules to what was kept: a rank read as the name's first
+    word goes back to the rank ("Chief" + "Deputy Gary Taylor" is Chief Deputy Gary Taylor), a name cut short inside
+    "McGuffey", "DeBisschop" or a double surname is completed from the excerpt or left out, a title for a name
+    ("Assistant District Attorney", "Coroner Luann Stone") is left out, and so is a name the excerpt prints after
+    another office's rank ("Bureau Chief")."""
+    x = clean_excerpt(excerpt)
+    out, seen = [], set()
+    for nm in names or []:
+        # the name as stored, with its ends: "Joyce Dent-" was cut at its hyphen, and once the hyphen is trimmed
+        # it would look whole
+        raw, rank = re.sub(r"\s+", " ", nm.get("name") or "").strip(" ,."), re.sub(r"\s+", " ", nm.get("rank") or "").strip(" ,")
+        w = raw.split()
+        if w and re.fullmatch(RANK, f"{rank} {w[0]}"):
+            rank, raw = f"{rank} {w[0]}", " ".join(w[1:])       # Chief + Deputy, Deputy + Jailer
+        elif w and re.fullmatch(RANK, w[0]):
+            rank, raw = w[0], " ".join(w[1:])                   # "Lieutenant Chris Bryant" stored under Sergeant
+        name = _name_form(_whole_name(raw, x)) if raw else ""
+        if not _is_name(name) or name.lower() in seen:
+            continue
+        # left out when every rank the excerpt prints with the name is another office's ("Bureau Chief Matt Johnson")
+        seen_as = [_police_rank(x, m.start(1), m.end(1))
+                   for m in re.finditer(r"(" + RANK + r")[ \t]+" + re.escape(name) + r"\b", x)]
+        if seen_as and not any(seen_as):
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "rank": rank})
+    return out
+
+
+# Page furniture in an article read as Markdown. Nov 19: 230 of 478 excerpts on the Policing tab carried it, among them
+# "**TRENDING STORIES:** - [**Shaky Knees Festival reopens...**](https://www.wsbtv.com/...)", "#### The Brief" and
+# "*Copyright 2026 WTOC. All rights reserved.*"; one incident's only cue ("dies") was a trending story's headline.
+LABEL = re.compile(r"^\W*(?:(?:TRENDING|RELATED|MORE|TOP|LATEST|POPULAR|RECOMMENDED)(?:[ \t]+(?:STORY|STORIES|COVERAGE|NEWS|"
+                   r"HEADLINES|VIDEOS?|ARTICLES?|CONTENT))?|READ MORE|READ NEXT|ALSO READ|SEE ALSO|SIGN UP|WATCH|LISTEN)\b\W*(?::|$)")
+BOILER = re.compile(r"\bcopyright\s+(?:©\s*)?\d{4}|©\s*\d{4}|\ball rights reserved\b|\b(?:sign up|subscribe)\b.{0,60}\bnewsletters?\b|"
+                    r"\bhave a news tip\b|\bdownload the\b.{0,40}\bapp\b|\bfollow us on\b|\bclick here\b", re.I)
+
+
+def article_text(md: str) -> str:
+    """The article's prose: one paragraph or list item per line, without headings (section labels and other stories'
+    headlines), lists of links (trending and related stories, share buttons), labels such as "TRENDING STORIES:",
+    sign-up and copyright lines, or Markdown marks. The department, the incident cues, the names and the excerpt are
+    all read from this, so nothing is taken from another story's link on the same page."""
+    from .stances import prose_blocks
+
+    out = []
+    for b in prose_blocks(md or ""):
+        b = re.sub(r"^(?:>\s*)+", "", re.sub(r"[ \t]+", " ", b)).strip()
+        if not b or LABEL.match(b) or len(b) < 200 and BOILER.search(b):
+            continue
+        out.append(b)
+    return "\n".join(out)
+
+
+_LINK_ITEM = r"[-*•]?[ \t]*!?\[[^\]\n]*\](?:\([^)\s]*\)?)"
+_CHROME_LABEL = (r"\**\b(?:(?:TRENDING|RELATED|MORE|TOP|LATEST|POPULAR|RECOMMENDED)[ ](?:STORY|STORIES|COVERAGE|NEWS|HEADLINES|"
+                 r"VIDEOS?|ARTICLES?)|RELATED(?=\W*:))\b\W{0,4}")
+# a label with the links or headings after it ("RELATED STORY: Former Bremen High School coach indicted..." with no
+# marks stays: where the headline ends cannot be told)
+_CHROME_RUN = re.compile(_CHROME_LABEL + r"(?:(?:\s*(?:" + _LINK_ITEM + r"|#{1,6}\s+[^#]*?(?=\s*#)))+|\s*$)")
+_LINK_RUN = re.compile(r"(?:\s*(?<!\S)[-*•][ \t]+!?\[[^\]\n]*\](?:\([^)\s]*\)?)){2,}")
+_IMAGE = re.compile(r"!\[[^\[\]]*\]\([^)\s]*\)?")
+_LINK = re.compile(r"\[([^\[\]]*)\]\([^)\s]*\)?")
+_LINK_TAIL = re.compile(r"\]\((?:https?:|mailto:|tel:|/)[^)\s]*\)?")     # a link whose "[" was before the excerpt began
+_EMPHASIS = re.compile(r"\*{2,}|__|(?<![\w*])[*_](?=\S)|(?<=\S)[*_](?![\w*])")
+_BOILER_INLINE = re.compile(r"[Cc]opyright\s+(?:©\s*)?\d{4}[^.]{0,60}?[.,\-–—]?\s*All [Rr]ights [Rr]eserved\.?|"
+                            r"\[\s*(?:SIGN UP|DOWNLOAD|Read more)\b[^\]]{0,160}\]|"
+                            r"\b(?:SIGN UP|DOWNLOAD):[^.\]]{0,80}\b(?:app|Newsletter)\b[^.\]]{0,40}|"
+                            r"Add Us On Google(?: Add as a preferred source on Google)?|"
+                            r"©\s*\d{4}(?:[ \t]+[A-Z][\w&.-]*){0,4}|Have a news tip or see an error\?\s*Let us know\.?")
+
+
+def _balanced(t: str) -> str:
+    """Square brackets left over from links cut at the excerpt's ends go; brackets that pair ("[the officer]") stay."""
+    keep, opened = list(t), []
+    for i, ch in enumerate(t):
+        if ch == "[":
+            opened.append(i)
+        elif ch == "]":
+            if opened:
+                opened.pop()
+            else:
+                keep[i] = ""
+    for i in opened:
+        keep[i] = ""
+    return "".join(keep)
+
+
+def clean_excerpt(x: str) -> str:
+    """An excerpt as one line of plain words. Excerpts stored before article_text() existed are one line of Markdown
+    (the newlines are gone), so the furniture is found by its marks: a label with the links or headlines after it, a run
+    of linked list items, heading marks, emphasis, link addresses, sign-up and copyright notes. Clean text is unchanged."""
+    t = re.sub(r"\s[-*•][ \t]*!?\[[^\]]*$", "", x or "")       # a linked list item the excerpt cut off inside its words
+    t = _CHROME_RUN.sub(" ", t)
+    t = _LINK_RUN.sub(" ", t)
+    t = _LINK.sub(r"\1", _IMAGE.sub("", t))
+    t = _balanced(_LINK_TAIL.sub("", t))                      # links cut at either end keep their words
+    t = re.sub(r"^(…?)\S*(?:[%=/]|\.html?)\S*\)\s*", r"\1", t)  # and the end of an address the excerpt began inside
+    t = re.sub(r"#{2,6}(?![\w#])|(?<!\S)#(?!\S)", " ", t)      # heading marks; a hashtag (#cpdga) is a word
+    t = _BOILER_INLINE.sub(" ", _EMPHASIS.sub("", t))
+    t = re.sub(r"(?:\s[-•])+(?=\s*$)", "", t)
+    t = re.sub(r"(?:\s[-•]){2,}\s", " - ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    # an excerpt that was all furniture (the old reader found its cue, "shot", in a share button's link) leaves nothing
+    return t if len(re.findall(r"[A-Za-z]", t)) >= 20 else ""
+
+
 def excerpt_of(text: str, dept_name: str, width: int = 700) -> str:
-    """The passage around the first incident cue near the department's name (or the first cue)."""
+    """The passage around the first incident cue near the department's name (or the first cue), as plain words."""
     t = re.sub(r"\s+", " ", text or "")
     key = dept_name.split()[0] if dept_name else ""
     best = None
@@ -83,9 +307,9 @@ def excerpt_of(text: str, dept_name: str, width: int = 700) -> str:
             break
         best = best or m
     if not best:
-        return t[:width]
+        return clean_excerpt(t[:width])
     a = max(0, best.start() - width // 2)
-    return ("…" if a else "") + t[a: a + width].strip() + ("…" if a + width < len(t) else "")
+    return clean_excerpt(("…" if a else "") + t[a: a + width].strip() + ("…" if a + width < len(t) else ""))
 
 
 NEWS_VERSION = 2      # 2: place-qualified searches ("DeKalb County police"), Georgia stories only. Version 1 searched
@@ -273,7 +497,7 @@ class PoliceNews:
             if r.status != 200 or "html" not in r.content_type:
                 continue
             title, md = extract.html_to_markdown(r.text, r.url)
-            text = md or ""
+            text = article_text(md)            # the story's own prose: not its page's trending links or headings
             if not _mentions_department(text, dept, jname, phrase) or not CUE.search(text):
                 continue
             if not in_georgia(title or a.get("title") or "", text, domain_of(r.url) in self.local or r.url.endswith((".gov", ".ga.us")),
@@ -285,7 +509,7 @@ class PoliceNews:
             else:
                 from .channels import date_meta
 
-                di = extract.page_date_info(r.text, text)
+                di = extract.page_date_info(r.text, md or "")
                 pub, dfrom = di["date"], date_meta(di)
             names = names_in(text)
             cues = sorted({m.group(1).lower() for m in CUE.finditer(text)})[:8]
@@ -307,7 +531,7 @@ class PoliceNews:
         for a in self.wp_search(phrase, self.area_apis(j, county)):
             if self.store.fresh(a["url"], 3650) or domain_of(a["url"]) != a["outlet"] and not domain_of(a["url"]).endswith("." + a["outlet"]):
                 continue
-            text = a["text"]
+            text = article_text(a["text"])
             if not _mentions_department(text, dept, jname, phrase) or not CUE.search(text):
                 continue
             if not in_georgia(a["title"], text, True, jname, county):
@@ -407,8 +631,11 @@ def export_incidents(store, out_path: Path, jurisdictions: list[dict]) -> dict:
                              {"jurisdiction": jid, "jurisdiction_name": (by_id.get(jid) or {}).get("name", jid),
                               "department": meta.get("department"), "kind": meta.get("department_kind"),
                               "incidents": [], "people": {}})
+        # incidents stored before the reader dropped page furniture and other offices' titles keep what it stored then
+        # (an article is opened once): the excerpt is cleaned and the names held to today's rules here
         item = {"t": r.get("title") or "", "u": r["url"], "d": r.get("published") or "", "outlet": meta.get("outlet", ""),
-                "evidence": r.get("evidence"), "excerpt": r.get("text") or "", "names": meta.get("names") or [], "cues": meta.get("cues") or []}
+                "evidence": r.get("evidence"), "excerpt": clean_excerpt(r.get("text") or ""),
+                "names": recheck_names(meta.get("names") or [], r.get("text") or ""), "cues": meta.get("cues") or []}
         D["incidents"].append(item)
         for nm in item["names"]:
             P = D["people"].setdefault(nm["name"], {"name": nm["name"], "ranks": [], "items": []})

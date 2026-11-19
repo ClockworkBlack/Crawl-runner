@@ -91,10 +91,16 @@ jobs:
         run: |
           M="${{ inputs.minutes || '240' }}"
           cd electo && python3 -I tools/ai/profile_write.py --list
-          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profile_write.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
+          rc=0
+          timeout -s INT -k 2m "$((M + 10))m" python3 -I tools/ai/profile_write.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" --out ../shard.json || rc=$?
           [ -f ../shard.json ] || echo '{"v":1,"p":{}}' > ../shard.json
           cp research/train/profile_write_log.jsonl ../log.jsonl 2>/dev/null || : > ../log.jsonl
+          # a time limit ends the step quietly (what was done is kept and passed on); a crash, or work due with no
+          # model call answered (profile_write.py exits 75), fails it, after the files above are set aside for the hand-off:
+          # such a run used to end green (ai-said-by read nothing from Nov 12 to 19, green twice a day)
+          bash "$GITHUB_WORKSPACE/scripts/stopped.sh" "$rc" "stopped" fatal
       - name: Pass the results on through the private repository's release (never a public attachment)
+        if: always()
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: bash scripts/ai_handoff.sh put write "profile-write-${{ matrix.shard }}" shard.json log.jsonl

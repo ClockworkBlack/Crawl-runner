@@ -51,6 +51,16 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - run: pip install -q -e .
+      - name: Electo's people (who each Rumor Mill person is - office, city, county - for the readings)
+        env:
+          ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+          ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+        run: |
+          # until Nov 19 this job had only config/candidates.yaml's people: 655 of 657 questions to the model (Nov 15-18)
+          # gave the name alone, so same_person was judged without the office or county (gacrawl/rumors_ai.py). The
+          # file stays on this runner (nothing here uploads the workspace) and the import prints counts only. Without
+          # it the work still runs, as before
+          bash scripts/electo_people.sh || { rm -rf .electo; echo "::warning title=Electo people::could not import Electo's people: the Rumor Mill is read without the people's offices and counties"; }
       - name: Is the last hand-off still waiting for the crawl? (then it is carried, not waited for)
         id: need
         run: |

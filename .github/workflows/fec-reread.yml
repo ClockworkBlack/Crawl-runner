@@ -7,9 +7,9 @@ name: fec-reread
 # hand-off uploaded meanwhile stays for the next run).
 #
 # Smallest campaigns first, in rounds of 45 minutes: after each round the delta is handed over and the corrected money
-# goes to the site (scripts/money_to_electo.sh: the Donors tab, every donor's profile and each profile's money, built
-# on the newest stored database with every money hand-off applied), so most federal campaigns are on the site within
-# the first hour, not after five (Nov 9: largest first, one Senate campaign of ~370,000 lines held every other
+# goes to Electo (scripts/money_to_electo.sh: the Donors tab, every donor's profile and each profile's money, built
+# on the newest stored database with every money hand-off applied) and publish-site is started, so most federal
+# campaigns are on the site within the first hour, not after five (Nov 9: largest first, one Senate campaign of ~370,000 lines held every other
 # federal campaign off the site for days, and the money waited for five hours of organization lookups that belong to
 # the model job). A hand-off the crawl has not applied yet is carried (applied to this copy and handed over again
 # with this run's lines), so a run never sits out waiting for the crawl.
@@ -28,6 +28,7 @@ on:
 
 permissions:
   contents: read
+  actions: write        # start publish-site after each money push
 
 concurrency:
   group: fec-reread
@@ -100,6 +101,7 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          RUN_TOKEN: ${{ github.token }}     # this repository's own Actions (GH_TOKEN is the data token on the public runner)
         run: |
           [ -n "$FEC_API_KEY" ] || { echo "::error title=FEC API key::No FEC_API_KEY secret in this repository: the FEC refuses the shared DEMO_KEY after a few calls, so nothing can be re-read. Add the secret (a free key from api.open.fec.gov/developers) and run this again."; exit 1; }
           END=$(( $(date +%s) + ${{ inputs.minutes || '270' }} * 60 ))
@@ -109,6 +111,9 @@ jobs:
           # Now the push gets what the run has left (or is skipped when the round read nothing), and two rounds in a
           # row that leave the same lines unread end the run: one committee the FEC answers with HTTP 504 every time
           # (C00718866) kept four runs a day going for 5 h 50 min each, re-pushing a delta of no new records.
+          # After a push publish-site is started: its own schedule fires about once an hour in this repository, and until
+          # Nov 19 a round's money waited that long for the site (a start that finds the site current costs a request)
+          publish() { GH_TOKEN="$RUN_TOKEN" gh workflow run publish-site.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" && echo "publish-site started" || echo "publish-site will pick it up on its schedule"; }
           while :; do
             LEFT=$(( (END - $(date +%s)) / 60 ))
             [ "$LEFT" -ge 8 ] || { echo "the run's minutes are used; the next run carries on"; break; }
@@ -121,8 +126,8 @@ jobs:
             n=$(python3 scripts/fec_left.py); echo "old FEC lines left after round $round: $n"
             PUSH=$(( (END - $(date +%s)) / 60 ))
             if [ "$IS_MAIN" = "true" ] && [ "$n" != "$last" ] && [ "$PUSH" -ge 5 ]; then
-              timeout -s TERM -k 2m "${PUSH}m" bash scripts/money_to_electo.sh "FEC re-read, round $round" fec-delta.db \
-                || echo "::warning::the money push of round $round did not finish in the $PUSH minutes left; the next round or the crawl brings it"
+              if timeout -s TERM -k 2m "${PUSH}m" bash scripts/money_to_electo.sh "FEC re-read, round $round" fec-delta.db; then publish
+              else echo "::warning::the money push of round $round did not finish in the $PUSH minutes left; the next round or the crawl brings it"; fi
             elif [ "$n" = "$last" ]; then echo "this round read nothing new: no push"
             fi
             [ "$n" = "0" ] && { echo "the re-read is complete"; break; }

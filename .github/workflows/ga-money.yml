@@ -6,16 +6,24 @@ name: ga-money
 # read in full, from the page each stopped at; the two systems at once, each on its own host, in the largest pages
 # the API answers), on a copy of the crawl database, in rounds of an hour, and hands what it read to the crawl:
 # ga-delta.db.zst (its lines) and ga-kv.json (where each read stopped) in the private crawl-data release, which the
-# crawl's merge job applies before its own Georgia step (gacrawl ethics run --mode refresh: the newest lines only, then
-# donor ids and amended reports for everything). Donor ids are never given here: only the crawl's database gives them.
-# After each round the money also goes to the site at once (scripts/money_to_electo.sh: built on the newest stored
-# database with every money hand-off applied, ids given on that scratch copy only), so it is on Electo the same hour.
+# crawl's merge job applies before its own Georgia step (gacrawl ethics run --mode auto: the newest lines only while
+# these hand-offs arrive, then donor ids and amended reports for everything). Donor ids are never given here: only the
+# crawl's database gives them. After each round the money also goes to Electo at once (scripts/money_to_electo.sh:
+# built on the newest stored database with every money hand-off applied, ids given on that scratch copy only) and
+# publish-site is started, so it is on the site the same hour.
 #
-# Every 6 hours; while every year is read in full (and read again within the month) each run ends in a minute. A
-# hand-off still waiting for the crawl is carried into this run's (applied to this copy first, handed over again with
-# the new lines), so the job never sits out a run. It stops reading when the database reaches GA_MONEY_MAX_DB_GB
-# (default 10) and says so. The crawl's own Georgia step reads the full histories itself whenever no hand-off from
-# this job has arrived for two days (gacrawl ethics run --mode auto), so nothing depends on this job running.
+# Each run first reads the newest lines of every year (gacrawl ethics run --mode refresh: newest first, up to the first
+# page with nothing new; a minute or two), so new filings reach Electo from here, not only from the crawl's own Georgia
+# step: from Nov 14 to 19, 2026 the full reads were complete, every run here read nothing and handed nothing over, and
+# the crawl's Georgia step found no time left in every merge job, so no new Georgia filing reached the site in five
+# days. Those lines go out with the first round's hand-off, or on their own when no year is due for a full read.
+#
+# Every 6 hours; while every year is read in full (and read again within the month) a run reads only the newest
+# filings and, when there are any, hands them over and pushes the money. A hand-off still waiting for the crawl is
+# carried into this run's (applied to this copy first, handed over again with the new lines), so the job never sits
+# out a run. It stops the full reads when the database reaches GA_MONEY_MAX_DB_GB (default 10) and says so. The
+# crawl's own Georgia step reads the full histories itself whenever no hand-off from this job has arrived for two days
+# (gacrawl ethics run --mode auto), so nothing depends on this job running.
 on:
   schedule:
     - cron: "25 1,7,13,19 * * *"
@@ -28,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  actions: write        # start publish-site after each money push
 
 concurrency:
   group: ga-money
@@ -79,18 +88,40 @@ jobs:
           fi
           echo "GA_SINCE=$SINCE" >> "$GITHUB_ENV"
           gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
-      - name: Read the full histories (EFile and PeachFile at once) in rounds; after each, hand over and put the money on Electo
+      - name: Read the newest filings, then the full histories (EFile and PeachFile at once) in rounds; after each, hand over and put the money on Electo
         id: read
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
           ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+          RUN_TOKEN: ${{ github.token }}     # this repository's own Actions (GH_TOKEN is the data token on the public runner)
         run: |
-          # only the years not read in full yet, or read in full more than a month ago (late filings carry old dates);
-          # when there are none the run ends in a minute and hands nothing over. Rounds of an hour: after each, the
-          # lines go to the crawl (ga-delta) and the money to the site (scripts/money_to_electo.sh), so what is read
-          # is on Electo the same hour instead of after the run and the crawl's next merge
           MAXGB=${{ vars.GA_MONEY_MAX_DB_GB || '10' }}
           END=$(( $(date +%s) + ${{ inputs.minutes || '290' }} * 60 ))
+          last() { tail -n 1 run.out | python3 -c "import json,sys
+          try: print(json.loads(sys.stdin.read()).get('$1', '?'))
+          except ValueError: print('?')"; }
+          # the lines to the crawl (ga-delta), the money to Electo, and publish-site started: its own schedule fires
+          # about once an hour in this repository (a start that finds the site current costs a request)
+          handover() {
+            bash scripts/ga_handoff.sh
+            [ "$IS_MAIN" = "true" ] || return 0
+            if bash scripts/money_to_electo.sh "Georgia money, $1" ga-delta.db; then
+              GH_TOKEN="$RUN_TOKEN" gh workflow run publish-site.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" && echo "publish-site started" || echo "publish-site will pick it up on its schedule"
+            else
+              echo "::warning::the money push of $1 did not finish; the next round or the crawl brings it"
+            fi
+          }
+          # 1. the newest lines of every year, complete or not (the places of the full reads are left as they are)
+          M=$(( ${{ inputs.minutes || '290' }} < 30 ? ${{ inputs.minutes || '290' }} / 2 : 15 ))
+          echo "::group::the newest filings: up to $M minutes"
+          timeout -s INT -k 3m "$((M + 5))m" gacrawl ethics run --mode refresh --no-entities --max-minutes "$M" > run.out || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the read of the newest filings stopped after $((M + 5)) minutes; what it read is kept"
+          tail -c 3000 run.out
+          echo "::endgroup::"
+          NEWEST=$(last added)
+          echo "the newest filings: $NEWEST lines added or changed"
+          # 2. only the years not read in full yet, or read in full more than a month ago (late filings carry old dates).
+          # Rounds of an hour: after each, the lines go to the crawl and the money to the site, so what is read is on
+          # Electo the same hour instead of after the run and the crawl's next merge
           round=0
           while :; do
             GB=$(python3 -c "import os;print(int(os.path.getsize('data/crawl.db')/1e9))")
@@ -106,15 +137,16 @@ jobs:
             timeout -s INT -k 3m "$((M + 8))m" gacrawl ethics run --mode full --no-entities --max-minutes "$M" > run.out || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the read stopped after $((M + 8)) minutes; what it read is kept"
             tail -c 3000 run.out
             echo "::endgroup::"
-            PAGES=$(tail -n 1 run.out | python3 -c "import json,sys
-          try: print(json.loads(sys.stdin.read()).get('pages', 1))
-          except ValueError: print(1)")
-            if [ "$PAGES" = "0" ]; then echo "every full read is complete and recent; nothing more to hand over"; break; fi
-            bash scripts/ga_handoff.sh
-            if [ "$IS_MAIN" = "true" ]; then
-              bash scripts/money_to_electo.sh "Georgia money, round $round" ga-delta.db || echo "::warning::the money push of round $round did not finish; the next round or the crawl brings it"
-            fi
+            PAGES=$(last pages)
+            if [ "$PAGES" = "0" ]; then round=$((round - 1)); echo "every full read is complete and recent"; break; fi
+            handover "round $round"
           done
+          # no round read anything in full: the newest filings go over on their own (when the read found any; '?' is a
+          # read that ended without its count, whose lines are handed over all the same)
+          if [ "$round" = "0" ]; then
+            if [ "$NEWEST" = "0" ]; then echo "no new Georgia filings since the stored database; nothing to hand over"
+            else handover "newest filings"; fi
+          fi
           gacrawl ethics progress | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v) for k, v in d.items()]"
           df -h / | tail -1
       - name: Hand it to the crawl (whatever was read, when the rounds stopped before their own hand-off)

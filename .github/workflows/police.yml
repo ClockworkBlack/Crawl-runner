@@ -10,7 +10,9 @@ name: police
 # budget; once every department is current a run finds nothing due and ends in a minute or two.
 # Results: state/police.json and state/media.json (committed), then police.json, media.json and
 # records_contacts.json are patched into the published Electo bundle, so Electo can import them without waiting for
-# the nightly export. Police incidents in the news are searched by the nightly crawl (it owns the database).
+# the nightly export, and imported into Electo here; after a push there, publish-site is started (its own schedule
+# fires about once an hour in the runner repository: until Nov 19, 2026 the Policing files waited up to 75 minutes for
+# the site). Police incidents in the news are searched by the nightly crawl (it owns the database).
 
 on:
   schedule:
@@ -37,6 +39,7 @@ on:
 
 permissions:
   contents: write
+  actions: write        # start publish-site once Electo has the Policing files
 
 concurrency:
   group: police
@@ -135,6 +138,7 @@ jobs:
           done
           echo "::warning title=Bundle::the bundle kept changing; not patched this run (the next export carries the Policing files)"
       - name: Push the Policing files to Electo and import them there
+        id: electo
         if: always() && steps.window.outputs.go == 'true' && env.HAS_ELECTO_TOKEN == 'true'
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -175,7 +179,7 @@ jobs:
             git diff --cached --quiet && { echo "no change"; return 0; }
             git commit -qm "police data: $(date -u +%Y-%m-%dT%H:%MZ)" || return 1
             for t in 1 2 3 4 5; do
-              git push -q origin HEAD:main && { echo "pushed to Electo"; return 0; }
+              git push -q origin HEAD:main && { echo "pushed to Electo"; echo "pushed=true" >> "$GITHUB_OUTPUT"; return 0; }
               echo "the push was refused (try $t): rebasing on Electo's newest main"
               sleep $((t * 5))
               git fetch -q origin main || continue
@@ -189,6 +193,12 @@ jobs:
             sleep $((i * 10))
           done
           exit 1
+      - name: Publish the site now
+        # publish-site runs in the public runner repository only (a run by hand in the private one starts nothing)
+        if: ${{ !cancelled() && steps.electo.outputs.pushed == 'true' && github.event.repository.private == false }}
+        env:
+          RUN_TOKEN: ${{ github.token }}     # this repository's own Actions (GH_TOKEN is the data token on the public runner)
+        run: GH_TOKEN="$RUN_TOKEN" gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
       - name: Summary
         if: always()
         run: |

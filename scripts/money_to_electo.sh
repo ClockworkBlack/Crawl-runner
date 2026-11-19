@@ -9,7 +9,8 @@
 # between). A job pushing its own copy alone would take newer money of the other kind off the site (its copy is as old
 # as its start); built this way, every push carries everything read so far, whichever job pushes. Donor ids are given
 # on the scratch copy only to export it; nothing here is handed back, and the copy is removed. The page itself is
-# rebuilt by publish-site (every 20 minutes, whenever Electo changes).
+# rebuilt by publish-site, which the caller starts once this exits 0 (fec-reread and ga-money do): its own schedule asks
+# for every 20 minutes, but GitHub runs about one an hour in the runner repository.
 #
 #   scripts/money_to_electo.sh "LABEL" [own-delta.db ...]
 # needs DATA_TAG and gh's repository and token (scripts/ci_runner.sh mode), ELECTO_TOKEN, ELECTO_REPO

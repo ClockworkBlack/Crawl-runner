@@ -27,6 +27,12 @@ fec:
     derrick-grayson: [S4GA11236, S0GA00658] # GRAYSON, DERRICK EARL (Senate 2016) and DERRICK E REV (Senate 2020)
     patricia-mccracken: [H6GA12031, S0GA00666]  # MCCRACKEN, TRICIA CARPENTER (GA-12 2016), TRICIA (Senate 2020)
     annette-davis-jackson: [S0GA00716, S2GA00308]  # JACKSON, ANNETTE DAVIS (Senate 2020; 2022 write-in)
+    # checked Nov 19, 2026, against Electo's record of each person's federal races: the FEC files Barbara Seidman as
+    # two people (BARBARA A in 2018, BARBARA in 2020) and Philip Singleton as two (PHILIP JERALD in 2018, PHILLIP in
+    # 2024), which tie in the name lookup, and Sarah Riggs Amico under the last name "RIGGS AMICO", which it never tries
+    barbara-seidman: [H8GA01071, H0GA01052]     # SEIDMAN, BARBARA A (GA-1 2018, C00655837); BARBARA (GA-1 2020, C00700336)
+    philip-singleton: [H8GA03044, H4GA03076]    # SINGLETON, PHILIP JERALD (GA-3 2018, C00647891); PHILLIP (GA-3 2024, C00864389, Newnan)
+    sarah-riggs-amico: [S0GA00401]              # RIGGS AMICO, SARAH (Senate 2020, C00712349)
 
 # ProPublica Nonprofit Explorer (IRS 990 data): no key needed.
 propublica:

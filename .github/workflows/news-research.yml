@@ -68,13 +68,30 @@ jobs:
           git clone --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-news
           cd /tmp/electo-news
           [ -f tools/ai/research_ai.py ] || { echo "no research step in this Electo"; exit 0; }
-          timeout 20m python3 -I tools/ai/research_ai.py --text "$BUNDLE/news_text.json" --minutes 15 || echo "no research updates this run"
+          # A failed research run is said, with its exit code (124: its 20 minutes ran out), and what it wrote before
+          # is still committed. Until Nov 19, 2026 any failure printed "no research updates this run" and the job
+          # stayed green, and a push Electo refused five times ended the loop the same as one that went through.
+          rc=0; timeout 20m python3 -I tools/ai/research_ai.py --text "$BUNDLE/news_text.json" --minutes 15 || rc=$?
+          case "$rc" in
+            0) ;;
+            124) why="its 20 minutes ran out" ;;
+            75) why="work was due and no model call answered" ;;
+            *) why="an error; see the lines above" ;;
+          esac
+          [ "$rc" = 0 ] || echo "::warning title=News research::tools/ai/research_ai.py ended with exit $rc ($why); what it wrote before is still committed"
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           for f in ga/upcoming.json ga/bills.json ga/recipient_notes.json research/train/research_ai_log.jsonl; do
             [ -e "$f" ] && git add "$f"
           done
           if git diff --cached --quiet; then echo "research already up to date"; exit 0; else
             git commit -qm "News research from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
-            for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+            pushed=false
+            for i in 1 2 3 4 5; do
+              # a pull that stops on a conflict is undone, or every later try would stop on the rebase left open
+              if git pull --rebase --autostash -q; then git push -q && { pushed=true; break; }
+              else git rebase --abort 2>/dev/null || true; fi
+              sleep $((i*5))
+            done
+            [ "$pushed" = true ] || { echo "::error title=News research::Electo refused the research files five times; nothing of this run reached it"; exit 1; }
           fi
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"

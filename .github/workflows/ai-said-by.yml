@@ -6,7 +6,11 @@ name: ai-said-by
 # an exam; a model that would hold back a candidate's own sentence there writes nothing.
 # Twice a day; a sentence is read once, so after the first runs only new sentences are read (a runner with nothing to
 # read ends in a minute). By hand (Actions -> ai-said-by -> Run workflow): "limit" reads a spread of that many per
-# runner, "trial" writes the readings without holding anything back.
+# runner, "trial" writes the readings without holding anything back, "exam_again" sits an exam already failed.
+# An exam failed on every runner is recorded in Electo's ga/crawl/said_by.json ("stalled_since") with the model and
+# prompt it failed under: until one of them changes no runner fetches the model, and every run ends with a
+# "Said by" warning saying so (Nov 12 to 19: the same two exam sentences held on every runner, 14 green runs, nothing
+# read). A runner whose model did not load or answered nothing, though sentences waited, fails its step.
 on:
   schedule:
     - cron: "7 5,17 * * *"
@@ -22,6 +26,10 @@ on:
         description: "write the readings but hold nothing back"
         type: boolean
         default: false
+      exam_again:
+        description: "sit the exam even if this model and prompt failed it before"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +43,7 @@ env:
   PYTHONUNBUFFERED: "1"
   IS_MAIN: ${{ github.ref_name == github.event.repository.default_branch }}
   ELECTO_LLM_JOB: said_by
+  EXAM_AGAIN: ${{ inputs.exam_again == true && '--exam-again' || '' }}
 
 jobs:
   plan:
@@ -82,12 +91,13 @@ jobs:
           git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" electo
           cd electo && git sparse-checkout set --no-cone /tools/ai/ '/ga/*.py' /ga/crawl/people.json /ga/crawl/profile_ai.json /ga/crawl/said_by.json
           git remote set-url origin "https://github.com/${ELECTO_REPO}.git"     # no credential left in the checkout
-      - name: Anything to read? (with nothing for this runner, the model is neither fetched nor installed)
+      - name: Anything to read? (with nothing for this runner, or an exam this model already failed, the model is neither fetched nor installed)
         id: need
         run: |
           cd electo
           [ -f tools/ai/said_by.py ] || { echo "no said-by check in this Electo"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          N=$(python3 -I tools/ai/said_by.py --list --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} | sed -n 's/^TODO=//p')
+          python3 -I tools/ai/said_by.py --list --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} $EXAM_AGAIN | tee ../list.txt
+          N=$(sed -n 's/^TODO=//p' ../list.txt)
           echo "to read: $N"
           if [ "${N:-0}" = "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
       - name: Which open model does this job (Electo tools/ai/models.json)
@@ -108,9 +118,12 @@ jobs:
         run: |
           M="${{ inputs.minutes || '240' }}"
           cd electo
+          # a time limit ends the step quietly (what was read is kept); a crash, or sentences due with none answered
+          # (said_by.py exits 75), fails it: green with nothing read is what hid the failing exam for a week
           timeout -s INT -k 2m "$((M + 15))m" python3 -I tools/ai/said_by.py --shard ${{ matrix.shard }} --of ${{ needs.plan.outputs.of }} --minutes "$M" \
-            --limit "${{ inputs.limit || '0' }}" --out ../part.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
+            --limit "${{ inputs.limit || '0' }}" --out ../part.json $EXAM_AGAIN || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped" fatal
       - name: Nothing read
+        if: always()
         run: '[ -f part.json ] || echo ''{"rows":[]}'' > part.json'
       - name: Pass the results on through the private repository's release (never a public attachment)
         if: always()
@@ -144,18 +157,22 @@ jobs:
         run: |
           set -e
           S="$PWD/parts"; mkdir -p "$S"
-          python3 -c "import glob,json,sys; n=sum(len(json.load(open(p)).get('rows') or []) for p in glob.glob(sys.argv[1]+'/*/part.json')); print(n, 'new readings'); sys.exit(0 if n else 3)" "$S" \
-            || { echo "nothing new"; exit 0; }
+          N=$(python3 -c "import glob,json,sys; print(sum(len(json.load(open(p)).get('rows') or []) for p in glob.glob(sys.argv[1]+'/*/part.json')))" "$S")
+          echo "$N new readings"
+          # cloned even with none: an exam failed on every runner is recorded there, and the warning below reads it
           git clone -q --depth 1 "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-ai
           cd /tmp/electo-ai
           pip install -q huggingface_hub >/dev/null 2>&1 || true
           git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
           python3 -I tools/ai/said_by.py --combine "$S"/*/part.json $TRIAL
+          WHY=$(python3 -I tools/ai/said_by.py --stalled)
+          [ -z "$WHY" ] || echo "::warning title=Said by::$WHY"
           git add ga/crawl/said_by.json research/train/said_by_held.json
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
           git commit -qm "Who is speaking, read by the open model: $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; git rebase --abort 2>/dev/null || true; sleep $((i*5)); done
           [ -z "$TRIAL" ] || exit 0
+          [ "$N" != "0" ] || { echo "only the exam's result changed: the written profiles and the site stay as they are"; exit 0; }
           # the written profiles leave the held sentences out: folded in on Electo's newest main (ga/written.py)
           [ -f tools/written_publish.sh ] && bash tools/written_publish.sh || echo "written profiles not refreshed"
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"

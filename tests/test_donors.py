@@ -36,6 +36,9 @@ def test_export_donors(tmp_path, monkeypatch):
     jane = [x for x in g if x["name"] == "Jane Donor"]
     assert len(jane) == 2 and {x["total"] for x in jane} == {650, 250} and all(x["county"] in ("Fulton", "Cobb") for x in jane)
     assert d["spend"][0]["payee"] == "Print Shop LLC" and d["spend"][0]["purpose"] == "mailers"
+    # spending only from a posted report: the file says the FEC's and the Commission's are not read
+    assert d["spend_hold"].startswith("Spending is listed only from the 1 expenditure line of the reports read here")
+    assert "the FEC's itemized disbursements and the State Ethics Commission's expenditure lines are not read yet" in d["spend_hold"]
     assert d["donors"][0]["name"] == "Jane Donor" and d["donors"][0]["r"] == [0, 1] and d["donors"][0]["total"] == 900
     by = {b["k"]: b["t"] for b in d["by"]["party"]}
     assert by == {"D": 5650, "R": 250}

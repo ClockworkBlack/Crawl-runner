@@ -16,6 +16,11 @@ entity ids `gacrawl finance` resolved (the same donor across filings shares one 
                    recipients (indexes), for the cross-reference view
   by               totals by donor state, by donor county, by donor city, by recipient party, office and level,
                    by donor kind, by filing source
+  spend_hold       what the page says while spending is missing: no reader loads disbursements (the FEC is read for
+                   schedule A receipts, the Commission's systems for contribution lines), so spend stays empty and
+                   every spent reads 0 until one does; only posted or imported reports can carry expenditure lines
+  redated          lines whose filed date their own filing rules out (gacrawl/money.py dated), by why; each recipient
+                   and gift carries its own count. They count under the filing's date, never in a year still to come
 There is no demographic data in campaign filings beyond employer, occupation and address, so none is invented.
 
 Beside it, donor_profiles/ (export_donors writes it too): one profile for EVERY donor, not only the capped lists,
@@ -365,13 +370,20 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     from .money import lines
 
     mstats: dict = {}
+    redated: dict[str, int] = defaultdict(int)       # lines whose filed date their own filing rules out, by why
+    spend_from: dict[str, int] = defaultdict(int)    # expenditure lines counted, by filing source
     for L in lines(store, mstats):
         m, amt = L["meta"], L["amount"]
         r = {"url": L["url"], "published": L["published"]}
         n_rows += 1
         R = recip_of(m, r)
         t = m.get("type") or "contribution"
-        d = (m.get("date") or r.get("published") or "")[:10]
+        # the date as filed, unless the line's own filing rules it out (gacrawl/money.py dated): then the day the
+        # filing's period ends, or no date, so a typed year (2028 for 2022) makes no cycle or year that has not happened
+        d = L["date"]
+        if L["redated"]:
+            redated[L["redated"]] += 1
+            R["redated"] = R.get("redated", 0) + 1
         if t in ("contribution", "in_kind") and own_transfer(m, R):
             # counted where it was first given; kept here only as a note, by committee and by cycle and year
             Mv = R.setdefault("_moved", {"total": 0.0, "n": 0, "from": defaultdict(float), "cy": defaultdict(float), "yr": defaultdict(float)})
@@ -400,6 +412,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
             C["first"], C["last"] = min(C["first"], d), max(C["last"], d)
             CS.append(C)
         if t == "expenditure":
+            spend_from[m.get("filing_source") or "filing"] += 1
             R["spent"] += amt
             R["nx"] += 1
             for C in CS:
@@ -502,6 +515,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                             "fs": m.get("filing_source") or "", "u": r["url"], "review": bool(m.get("needs_review"))}
         G["total"] += amt
         G["n"] += 1
+        if L["redated"]:
+            G["redated"] = G.get("redated", 0) + 1
         if cy:      # [total, gifts] in each election cycle
             gc = G.setdefault("cy", {}).setdefault(cy, [0.0, 0])
             gc[0] += amt
@@ -659,7 +674,7 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
         by["kind"][g["kind"]] += g["total"]
         by["source"][g["fs"] or "filing"] += g["total"]
     by_out = {k: [{"k": kk, "t": round(v, 2)} for kk, v in sorted(d.items(), key=lambda kv: -kv[1])[:60]] for k, d in by.items()}
-    doc = {"note": "Campaign money as filed: FEC itemized receipts and disbursements for federal candidates, and Georgia "
+    doc = {"note": "Campaign money as filed: FEC itemized receipts for federal candidates, and Georgia "
                    "Campaign Contribution Disclosure Reports the crawler read or that were imported. Each gift is the filer's "
                    "own line (u is the filing it was read from); donors are matched across filings by name and address, "
                    "which can split one person or merge two with the same name. Only a candidate's own campaign committees count as what the candidate raised; a leadership PAC the candidate runs is listed as its own committee (pac_of), and a joint fundraising committee's money is counted where it was transferred. Each federal campaign carries fec: the FEC's own receipts total for its committees, against which the itemized lines are checked. A platform's lump line (WinRed, ActBlue) is counted in what the recipient raised and listed under conduits, but the platform is not ranked as a donor; a gift earmarked through a conduit (a platform or a PAC such as AIPAC PAC) is the person's own, listed under via with the conduit named. Memo lines, the same line read twice, and transfers between a candidate's own committees are left out. Filings carry no demographic data beyond "
@@ -677,7 +692,13 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                    "newest report's end date): the page shows these as the campaign's money, the itemized lines as the detail. "
                    "moved is money another committee of the same candidate moved to this one (a leadership committee paying "
                    "into the campaign, an old campaign account into the new one: total, from whom, by cycle and year): it was "
-                   "counted where it was first given, so it is not in raised here.",
+                   "counted where it was first given, so it is not in raised here. spend, and each recipient's spent and nx, "
+                   "come only from the expenditure lines of the filings read here; spend_hold says what spending is missing. "
+                   "A line whose date its own filing rules out (after the day the FEC received the filing, more than a month "
+                   "after the date a Georgia report is named for, after the day this file was made, or, in a filing not made "
+                   "with the FEC, more than four years before the committee's first filing: 2022 typed as 2028, 2021 as 2001) "
+                   "counts under the day the filing's period ends, or under no cycle or year when the filing does not say; "
+                   "redated is the number of such lines on a recipient or gift, and on the whole file by why.",
            "cycles": sorted({k for R in rec_list for k in R["cy"]}),
            "years": sorted({k for R in rec_list for k in R["yr"]}),
            "generated": _now(), "rows": n_rows, "recipients": rec_list, "gifts": gift_list, "spend": spend_list, "donors": donor_list,
@@ -688,6 +709,8 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
                       "named": round(sum(g["total"] for g in gifts.values()), 2), "pairs": len(gifts), "donors": len(donors),
                       "recipients": len(rec_list), "listed": len(gift_list), "self_inferred": sum(1 for g in gifts.values() if g.get("self_inferred"))},
            "hold": _hold_note(mstats, reading, rec_list),
+           "spend_hold": _spend_hold(spend_from),
+           "redated": dict(sorted(redated.items())),
            "skipped": {"memo_lines": mstats.get("memo", 0), "duplicate_lines": mstats.get("repeat", 0),
                        "transfers_between_own_committees": mstats.get("transfer", 0) + mstats.get("own_transfer", 0),
                        "fec_lines_awaiting_reread": mstats.get("legacy", 0),
@@ -697,6 +720,11 @@ def export_donors(store, root: Path, candidates: list[dict], out_path: Path, log
     for g in gift_list:
         if g.get("via"):
             g["via"] = sorted(g["via"])[:3]
+    if doc["spend_hold"]:
+        log(f"donors: {sum(spend_from.values())} expenditure lines; spending held: {doc['spend_hold'][:120]}")
+    if redated:
+        log(f"donors: {sum(redated.values())} lines dated outside what their filing allows, counted under the filing's "
+            f"date: {dict(redated)}")
     # names, employers and occupations as people read them (the filings carry "TundÃ©", "McCookâ€™s")
     out_path.write_text(json.dumps(fix_tree(doc), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     np = export_profiles(store, donors, gifts, rec_list, out_path.parent / "donor_profiles", log=log, candidates=candidates)
@@ -717,6 +745,30 @@ def _hold_note(mstats: dict, reading: dict, rec_list: list) -> str:
                      f"({', '.join(names[:6])}{'…' if len(names) > 6 else ''}) are still being read from the FEC, newest first: "
                      "their listed donors cover only what has been read so far, while their totals are the FEC's own.")
     return " ".join(parts)
+
+
+def _spend_hold(spend_from: dict) -> str:
+    """What the Donors tab says about spending while it is missing ('' once every source's expenditures are read).
+    No reader loads what campaigns spent: the FEC is read for itemized receipts only (schedule A; schedule B is asked
+    only for a committee's newest Georgia payees, for its organization profile, and is not kept as lines), and the
+    Commission's current systems only for contribution lines (transaction type TCON). Only a report a city or county
+    posts, or an imported export, can carry expenditure lines, and in November 2026 none did, so spend was empty and
+    every recipient's spent read 0 (Jon Ossoff: $141.6 million raised, nothing spent) with nothing on the page to say why."""
+    from .ethics import GA_SOURCE
+
+    missing = [what for src, what in (("FEC", "the FEC's itemized disbursements"),
+                                      (GA_SOURCE, "the State Ethics Commission's expenditure lines")) if not spend_from.get(src)]
+    if not missing:
+        return ""
+    if not spend_from:
+        return ("What campaigns spent is not available yet: the crawler reads the money campaigns received (the FEC's "
+                "itemized receipts, the State Ethics Commission's contribution lines) but not their expenditures, so no "
+                "payee and no amount spent is listed. A campaign's spending is in its own reports to the FEC and the "
+                "Commission.")
+    n = sum(spend_from.values())
+    return (f"Spending is listed only from the {n:,} expenditure line{'' if n == 1 else 's'} of the reports read here "
+            f"that carry them; {' and '.join(missing)} are not read yet, so most "
+            "campaigns show no spending.")
 
 
 def _orgs(store) -> dict:
@@ -851,7 +903,8 @@ def export_profiles(store, donors: dict, gifts: dict, rec_list: list, out_dir: P
             R = rec_list[g["r"]]
             to.append({"r": g["r"], "name": R["name"], "party": R.get("party") or "", "office": R.get("office") or "",
                        "t": round(g["total"], 2), "n": g["n"], "first": g["first"], "last": g["last"], "fs": g["fs"], "u": g["u"],
-                       **({"via": sorted(g["via"])[:3]} if g.get("via") else {}), **({"review": True} if g.get("review") else {})})
+                       **({"via": sorted(g["via"])[:3]} if g.get("via") else {}), **({"review": True} if g.get("review") else {}),
+                       **({"redated": g["redated"]} if g.get("redated") else {})})
         rest = gs[PROFILE_RECIPS:]
         aka = sorted(x for x in D["_aka"] if x and x != D["name"])[:6]
         P = {"id": D["id"], "name": D["name"], "kind": D["kind"], "city": D["city"], "state": D["state"], "county": D["county"],

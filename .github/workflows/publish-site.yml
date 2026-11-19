@@ -1,9 +1,14 @@
 name: publish-site
 # Keeps the public site (GitHub Pages from electo-data) on Electo's newest commit. The data runs (news every three
-# hours, the crawl's merge job) publish at their end; this catches everything else (a change to the page itself, an
-# import, a profile run): every 20 minutes it compares Electo's main with the commit the site was last built from
-# (electo-data main/current.json) and, when they differ, rebuilds and publishes (Electo tools/site_data.sh). Nothing
-# changed costs one small request.
+# hours, the crawl's merge job, news-research, most ai-* jobs) publish at their end; grand-cross, fec-reread, ga-money,
+# police, history and results start this one right after a push to Electo; and its schedule catches everything else
+# (a change to the page itself, another job's push, a push by hand). Each run compares Electo's main with
+# the commit the site was last built from (electo-data main/current.json) and, when they differ, rebuilds and
+# publishes (Electo tools/site_data.sh). Nothing changed costs one small request.
+# The schedule asks for every 20 minutes, but GitHub runs about two in five of those slots in the public runner
+# repository: 1.26 runs an hour from Nov 8 to 19, 2026, dispatches included, and none for the 06:44 and 07:04 slots on
+# Nov 19. Until Nov 19 the schedule was the only way the pushes of grand-cross, fec-reread, ga-money and police
+# reached the site, and they waited up to 75 minutes (median 26).
 on:
   schedule:
     # off the :00/:20/:40 marks, when GitHub, busiest then, delays or skips scheduled runs (Nov 9: two in a row)
@@ -13,6 +18,10 @@ on:
 permissions:
   contents: read
 
+# One publish at a time, and never one cut off: a run that is publishing is not cancelled by a newer start. While one
+# runs, GitHub keeps one more waiting and a later start replaces that waiting one (it had not begun, so nothing is lost:
+# whichever waits compares Electo's main when it starts and publishes everything pushed by then). A burst of starts
+# from the jobs above costs at most one more publish.
 concurrency:
   group: publish-site
   cancel-in-progress: false

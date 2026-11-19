@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: write        # start publish-site once Electo has the results
 
 concurrency:
   group: ai-compare-eval-${{ github.ref_name }}
@@ -97,6 +98,7 @@ jobs:
           cd /tmp/electo-ce && F=$(ls /tmp/ce/now.json /tmp/ce/baseline.json 2>/dev/null) && [ -n "$F" ] || { echo "no results"; exit 0; }
           node qa/compare_eval.js --report $F | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Results to Electo
+        id: results
         if: always() && env.IS_MAIN == 'true'
         env:
           NODE_PATH: /tmp/pw/node_modules
@@ -109,4 +111,14 @@ jobs:
           git add research/eval/compare
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
           git commit -qm "Ask AI comparisons eval on the offline model: $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
+          for i in 1 2 3 4 5; do
+            if git pull --rebase --autostash -q && git push -q; then echo "pushed=true" >> "$GITHUB_OUTPUT"; break; fi
+            git rebase --abort 2>/dev/null || true     # a pull stopped on a conflict would fail every later try
+            sleep $((i*5))
+          done
+      - name: Publish the site now
+        # publish-site's own schedule fires about once an hour in this repository
+        if: ${{ !cancelled() && steps.results.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

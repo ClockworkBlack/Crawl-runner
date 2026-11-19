@@ -17,8 +17,10 @@
   gacrawl screens capture URL [--device phone|desktop] [--selector CSS] [--source ID] [--kind K]
   gacrawl screens simulate [--out DIR]   write synthetic screenshots (fictional) to test the pipeline
   gacrawl screens box [--box ordinances|posts|text]                  list what's in the Screenshots box
-  gacrawl ordinances build [--out DIR] [--prev DIR] [--report FILE]   read imports/ordinances/ (files downloaded by
-                                         hand) into Electo's data/ordinances/ shape; --prev reuses an earlier build
+  gacrawl ordinances build [--out DIR] [--prev DIR] [--report FILE] [--max-minutes M] [--status FILE]
+                                         read imports/ordinances/ (files downloaded by hand) into Electo's
+                                         data/ordinances/ shape; --prev reuses an earlier build; with --max-minutes
+                                         the files left when time is up are listed as pending for the next build
   gacrawl ordinances list                what is in imports/ordinances/ and which place each file goes with
   gacrawl posts account-add|verify|mark|add|pull|list|export
   gacrawl electo import --path DIR       import people, council contests, profile links, code links from Electo
@@ -405,26 +407,16 @@ def cmd_ordinances(cfg, args):
         return
     out = Path(args.out)
     out = out if out.is_absolute() else root / out
-    rep = of.build(root, out, Path(args.prev) if args.prev else None, ocr_budget_s=args.ocr_minutes * 60)
-    print(json.dumps({k: (v if not isinstance(v, list) else len(v)) for k, v in rep.items()}))
+    # a time limit ends the build normally (exit 0) with what it read, so the workflow still sends it: a run killed
+    # at the job's own limit sent nothing, and the next one read the same files again
+    rep = of.build(root, out, Path(args.prev) if args.prev else None, ocr_budget_s=args.ocr_minutes * 60,
+                   max_minutes=args.max_minutes)
+    counts = {k: (v if not isinstance(v, list) else len(v)) for k, v in rep.items()}
+    print(json.dumps(counts))
+    if args.status:
+        Path(args.status).write_text(json.dumps(counts) + "\n", encoding="utf-8")
     if args.report:
-        lines = [f"### Downloaded ordinances: {rep['documents']} documents for {rep['places']} governments "
-                 f"({rep['saved_codes']} saved codes, {rep['files']} single files)",
-                 f"Read now: {rep['read']} · unchanged (not read again): {rep['reused']} · same file twice: {len(rep['duplicates'])}"]
-        if rep["unknown_folders"]:
-            lines += ["", "**Folders that are not a place name or id** (rename them, e.g. `alpharetta`, `co-fulton`, "
-                      "`Fulton County`):", *[f"- `{x}`" for x in rep["unknown_folders"]]]
-        if rep["ambiguous"]:
-            lines += ["", "**City and county share the name; filed under the county** (rename the folder "
-                      "`City of <name>` if it is the city's code):", *[f"- `{x}`" for x in rep["ambiguous"]]]
-        if rep.get("incomplete_downloads"):
-            lines += ["", f"**Downloads with text for under half their sections** ({len(rep['incomplete_downloads'])}; "
-                      "download these codes again):", *[f"- `{x}`" for x in rep["incomplete_downloads"]]]
-        if rep["unplaced"]:
-            lines += ["", "**Files with no place** (put them in a folder named for the place):", *[f"- `{x}`" for x in rep["unplaced"]]]
-        if rep["errors"]:
-            lines += ["", "**Could not read:**", *[f"- {x}" for x in rep["errors"]]]
-        Path(args.report).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        Path(args.report).write_text(of.report_markdown(rep), encoding="utf-8")
 
 
 def cmd_screens(cfg, args):
@@ -766,7 +758,8 @@ def _reread_handed_off(store) -> bool:
 def cmd_finance(cfg, args):
     """Campaign finance: imports, posted CCDRs, FEC, entity resolution, organization lookups.
     export-kv / apply: the FEC re-read done by the parallel fec-reread job reaches the main database (its lines as a
-    delta database, its lookups and cursors as a small JSON), and the old lines of every committee it read in full go."""
+    delta database, its lookups and cursors as a small JSON), and the old lines of every committee it read in full go,
+    with every line of the committees it dropped as not a candidate's money (fec:drop:, finance.drop_committee)."""
     from .candidates import load_candidates
     from .finance import Finance
 
@@ -774,7 +767,8 @@ def cmd_finance(cfg, args):
     if args.action == "export-kv":
         try:
             with store._lock:
-                rows = store.db.execute("SELECT k, v FROM kv WHERE k IN ('fec_ids2','fec_totals') OR k LIKE 'fec:a2:%' OR k LIKE 'fec:a2r:%'").fetchall()
+                rows = store.db.execute("SELECT k, v FROM kv WHERE k IN ('fec_ids2','fec_totals') OR k LIKE 'fec:a2:%' OR "
+                                        "k LIKE 'fec:a2r:%' OR k LIKE 'fec:drop:%'").fetchall()
             Path(args.kv).write_text(json.dumps({r[0]: r[1] for r in rows}))
             print(f"finance: {len(rows)} FEC lookups and cursors -> {args.kv}")
         finally:
@@ -816,11 +810,18 @@ def cmd_finance(cfg, args):
                 if k.startswith("fec:a2:"):          # a cursor is set only when the committee was read in full
                     gone += store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
                                                "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (k[7:],))
+            # committees the re-read dropped as not a candidate's money (joint fundraising, unauthorized): removed in
+            # its copy, which hands over no deletions, so until Nov 19, 2026 their 9,192 lines stayed here for good
+            from .finance import apply_drops
+
+            dropped = apply_drops(store, kv)
+            gone += dropped
             if args.kv and Path(args.kv).exists():
                 # the FEC re-read's hand-off (lines and its lookups): the crawl leaves the re-read to that job while these
                 # keep arriving (--defer-reread). A Georgia money delta is applied with this command too, without --kv
                 store.kv_set("fec_reread_applied", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
-                print(f"finance: the FEC re-read applied; {gone} old lines of re-read committees removed")
+                print(f"finance: the FEC re-read applied; {gone} old lines of re-read committees removed"
+                      + (f" ({dropped} of them from committees that are not a candidate's money)" if dropped else ""))
             store.flush()
         finally:
             store.close()
@@ -1659,6 +1660,9 @@ def build_parser() -> argparse.ArgumentParser:
     od.add_argument("--prev", help="an earlier build (Electo's data/ordinances/): files read before are not read again")
     od.add_argument("--report", help="also write a Markdown report here (the workflow's job summary)")
     od.add_argument("--ocr-minutes", type=float, default=15.0, help="OCR time per scanned document")
+    od.add_argument("--max-minutes", type=float, help="build: start no new file after this long; the rest is listed "
+                    "as pending (index.json, the report) and read by the next build")
+    od.add_argument("--status", help="build: also write the report's counts here as JSON (pending, finished, ...)")
     p = sub.add_parser("posts"); p.add_argument("action", choices=["account-add", "verify", "mark", "add", "pull", "list", "export"])
     for flag in ("--candidate", "--candidate-id", "--profile", "--proof", "--office", "--jurisdiction", "--account", "--status",
                  "--note", "--url", "--text", "--posted-at", "--screenshot", "--topics", "--archived"):

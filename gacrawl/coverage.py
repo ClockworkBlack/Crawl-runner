@@ -14,10 +14,30 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
 from .registry import load_json, write_json_atomic
+
+# Two jobs write this report from two databases: the crawl's merge job from the crawl database it has just stored, and
+# fec-reread from its own copy (pulled when its run began, its FEC re-read applied there), whose money reaches the crawl
+# database only when the crawl's merge applies the re-read's hand-off. Until Nov 19, 2026 the report did not say which
+# wrote it, and its count of FEC lines awaiting the re-read read 9,192, 0, 9,192, 0 as the two took turns.
+COPIES = {"fec-reread": "fec-reread's copy of the crawl database (pulled when its run began, with its FEC re-read applied)"}
+
+
+def writer() -> dict:
+    """Which job is writing the report (the GitHub workflow's name and run) and from which database."""
+    job = (os.environ.get("GITHUB_WORKFLOW") or "").strip()
+    run = (os.environ.get("GITHUB_RUN_ID") or "").strip()
+    if job == "crawl":
+        db = "the crawl database"
+    elif job:
+        db = COPIES.get(job) or f"{job}'s copy of the crawl database"
+    else:
+        db = "the database this checkout's config names"
+    return {"job": job, "run": run, "crawl": job == "crawl", "db": db}
 
 # (section, key, label, kind of check). "need": zero is a gap; "info": counted, never flagged at zero.
 FEATURES: list[tuple[str, str, str, str]] = [
@@ -69,6 +89,7 @@ FEATURES: list[tuple[str, str, str, str]] = [
     ("Crawl health", "sources_error", "Sources whose last run failed", "info"),
     ("Crawl health", "sources_blocked", "Sources refused by bot protection or robots.txt", "info"),
     ("Crawl health", "probe_timeouts", "Sources marked failed only because they ran out of time (should be 0)", "info"),
+    ("Crawl health", "sources_stuck", "Sources stuck on the same pages, held back by the scheduler (listed under Needs attention)", "info"),
 ]
 SHRINK = 0.9   # a count below 90% of the last run's is flagged
 
@@ -167,7 +188,50 @@ def measure(root: Path, store) -> dict[str, int]:
                 st["timeouts"] += 1
     c["sources_ok"], c["sources_waiting"] = st["ok"], st["waiting"]
     c["sources_error"], c["sources_blocked"], c["probe_timeouts"] = st["error"], st["blocked"], st["timeouts"]
+    c["sources_stuck"] = len(stuck_sources(root, prog))
     return c
+
+
+def stuck_sources(root: Path, prog: dict | None = None) -> list[dict]:
+    """Part-read sources the scheduler holds back (scheduler.stuck): their last STALL_SHARES shares or more each stored
+    nothing new, moved no cursor and saw no more records than the first of them (progress fields `stalled`, the shares in
+    a row, and `stall_seen`, the records the first of them saw). Such a source gets no spare shares and waits between
+    tries, and was visible only in the shard logs: Duluth's site read "0 new / 41 seen" on every share from Nov 14 to 19,
+    2026, with 17 other city and county sites and agenda pages much the same. Most stalled first."""
+    try:
+        from .scheduler import stuck
+    except Exception:  # noqa: BLE001 — the report is written whatever one check does
+        return []
+    prog = load_json(root / "state" / "progress.json") if prog is None else prog
+    out = []
+    for sid, p in (prog or {}).items():
+        if isinstance(p, dict) and stuck(p):
+            out.append({"id": sid, "status": p.get("status") or "", "stalled": int(p.get("stalled") or 0),
+                        "stall_seen": int(p.get("stall_seen") or 0), "last_ok": p.get("last_ok") or "",
+                        "last_run": p.get("last_run") or ""})
+    return sorted(out, key=lambda x: (-x["stalled"], x["id"]))
+
+
+STUCK_SHOWN = 30   # sources listed by name under Needs attention (the rest counted)
+
+
+def _stuck_lines(held: list[dict]) -> list[str]:
+    from .scheduler import STALL_SHARES
+
+    def at(t: str) -> str:
+        return t[:16].replace("T", " ") + " UTC" if t else "never"
+
+    lines = [f"- **{len(held)} sources stuck on the same pages** (Crawl health): each of their last {STALL_SHARES} or more "
+             "shares stored nothing new, moved no cursor and saw no more records than the first of them, so the scheduler "
+             "gives them no spare shares and waits longer between tries. A page or feed crawl starts again at the top on "
+             "every share, so these need a reader that carries a part-read pass on (gacrawl/channels.py), or a look at the site:"]
+    for x in held[:STUCK_SHOWN]:
+        lines.append(f"  - `{x['id']}`: {x['status']}; {x['stalled']} shares in a row with nothing new, none seeing more than "
+                     f"{x['stall_seen']:,} records; last read in full: {at(x['last_ok'])}; last tried {at(x['last_run'])}")
+    if len(held) > STUCK_SHOWN:
+        lines.append(f"  - and {len(held) - STUCK_SHOWN} more (state/progress.json: a partial status with `stalled` of "
+                     f"{STALL_SHARES} or more)")
+    return lines
 
 
 def compare(now: dict[str, int], before: dict[str, int]) -> list[dict]:
@@ -206,18 +270,31 @@ NOTES = {
 }
 
 
-def report(rows: list[dict], when: str, before_when: str | None) -> str:
+def report(rows: list[dict], when: str, before_when: str | None, by: dict | None = None,
+           held: list[dict] | None = None) -> str:
+    """`held`: the sources stuck on the same pages (stuck_sources), listed under Needs attention."""
     zero = [r for r in rows if r["flag"] == "zero"]
     shrank = [r for r in rows if r["flag"] == "shrank"]
-    lines = [f"# Data coverage ({when[:16].replace('T', ' ')} UTC)", "",
+    held = held or []
+    by = by or writer()
+    if by["job"]:
+        who = f"Written by the **{by['job']}** workflow{' (run ' + by['run'] + ')' if by['run'] else ''} from {by['db']}."
+    else:
+        who = f"Written outside GitHub Actions, from {by['db']}."
+    if by["job"] and not by["crawl"]:
+        who += " Its FEC counts are that copy's; the crawl's next report counts what reached the crawl database."
+    lines = [f"# Data coverage ({when[:16].replace('T', ' ')} UTC)", "", who, "",
              f"What the database and state files hold for each Electo feature, compared with the last run"
              f"{' (' + before_when[:16].replace('T', ' ') + ' UTC)' if before_when else ''}. "
-             f"**{len(zero)}** features are at zero and **{len(shrank)}** shrank by more than a tenth.", ""]
-    if zero or shrank:
+             f"**{len(zero)}** features are at zero and **{len(shrank)}** shrank by more than a tenth."
+             + (f" **{len(held)}** sources are stuck on the same pages." if held else ""), ""]
+    if zero or shrank or held:
         lines += ["## Needs attention", ""]
         for r in zero + shrank:
             what = "still at zero" if r["flag"] == "zero" else f"shrank from {r['before']:,} to {r['now']:,}"
             lines.append(f"- **{r['label']}** ({r['section']}): {what}" + (f". {NOTES[r['key']]}" if r["key"] in NOTES else ""))
+        if held:
+            lines += _stuck_lines(held)
         lines.append("")
     section = None
     for r in rows:
@@ -278,13 +355,27 @@ def state_meetings(store) -> str:
         return f"\n## State meetings\n\n- not counted: {type(exc).__name__}\n"
 
 
-def money_checks(store) -> str:
+def fec_legacy(store) -> list[tuple[str, str, int]]:
+    """(committee, candidate id, lines) of the FEC lines read before the FEC's own fields were kept, most first."""
+    with store._lock:
+        rows = store.db.execute(
+            "SELECT json_extract(meta,'$.committee'), coalesce(json_extract(meta,'$.candidate_id'),''), count(*) AS n "
+            "FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' "
+            "AND json_extract(meta,'$.committee') IS NOT NULL AND json_extract(meta,'$.fec_v') IS NULL "
+            "GROUP BY 1, 2 ORDER BY n DESC").fetchall()
+    return [(r[0], r[1], int(r[2])) for r in rows]
+
+
+def money_checks(store, by: dict | None = None, crawl_seen: dict | None = None,
+                 legacy_rows: list[tuple[str, str, int]] | None = None) -> str:
     """Campaign money that cannot be trusted yet: federal candidates the FEC lookup could not match (their money is
     missing), FEC lines read before the FEC's own fields were kept (not counted until re-read), committees whose
-    totals the FEC has not been asked for."""
+    totals the FEC has not been asked for. `by`: which job and database (writer()); `crawl_seen`: the crawl
+    database's own figures at the crawl's last report (state/coverage.json), shown beside a copy's."""
     import json
 
-    L = ["", "## Campaign money checks", ""]
+    by = by or writer()
+    L = ["", "## Campaign money checks", "", f"Counted in {by['db']}.", ""]
     ids = json.loads(store.kv_get("fec_ids2") or "{}")
     try:     # ids checked by hand (config/finance.yaml fec.candidate_ids) settle a lookup the name match could not
         from .config import ROOT
@@ -296,10 +387,23 @@ def money_checks(store) -> str:
     miss = sorted(k for k, v in ids.items() if not v.get("ids") and not hand.get(k))
     L.append(f"- Federal candidates the FEC lookup could not match: **{len(miss)}**" + (": " + ", ".join(miss[:40]) if miss else "")
              + (" (their federal money is missing; add their ids under fec.candidate_ids in config/finance.yaml)" if miss else ""))
-    with store._lock:
-        legacy = store.db.execute("SELECT count(*) FROM records WHERE kind='contribution' AND json_extract(meta,'$.filing_source')='FEC' "
-                                  "AND json_extract(meta,'$.committee') IS NOT NULL AND json_extract(meta,'$.fec_v') IS NULL").fetchone()[0]
-    L.append(f"- FEC lines read before the FEC's own fields were kept, awaiting the re-read (not counted): **{legacy:,}**")
+    rows = fec_legacy(store) if legacy_rows is None else legacy_rows
+    legacy = sum(n for _, _, n in rows)
+    # the committees that hold them, so a count that never falls shows whose lines are stuck (Nov 2026: 9,192 lines of
+    # four committees fec-reread drops as not the candidates' money, removed in its copy but never in the crawl's)
+    most = ", ".join(f"{k}{' of ' + c if c else ''} ({n:,})" for k, c, n in rows[:5])
+    line = (f"- FEC lines read before the FEC's own fields were kept, awaiting the re-read (not counted): **{legacy:,}**"
+            + (f", most in {most}" if most else ""))
+    seen = crawl_seen or {}
+    if not by["crawl"] and isinstance(seen.get("fec_legacy"), int):
+        # a copy's count is not the crawl database's: the crawl's own, from its last report, beside it
+        line += (f"; in the crawl database at the crawl's last report ({str(seen.get('as_of') or '')[:16].replace('T', ' ')} UTC): "
+                 f"**{seen['fec_legacy']:,}** (what this copy no longer holds stays there until the crawl's merge applies "
+                 f"a hand-off that removes it)")
+    elif by["crawl"] and store.kv_get("fec_reread_applied"):
+        # a count that stays up after a hand-off was applied is not waiting for one
+        line += f"; the fec-reread job's last hand-off was applied {store.kv_get('fec_reread_applied')[:16].replace('T', ' ')} UTC"
+    L.append(line)
     tot = json.loads(store.kv_get("fec_totals") or "{}")
     L.append(f"- Committees with the FEC's official totals on hand (each profile's total is checked against them): **{len(tot)}**")
     from .finance import part_read as _part_read
@@ -451,9 +555,18 @@ def run(root: Path, store, state_path: Path | None = None, out_path: Path | None
         checks = pipeline_checks(root, store)
     except Exception as e:  # noqa: BLE001 — the report is written whatever one check does
         checks = f"\n## Pipeline checks\n\n- could not be measured: {type(e).__name__}: {str(e)[:200]}\n"
-    out_path.write_text(report(rows, when, prev.get("as_of")) + money_checks(store) + election_reports(store) + state_meetings(store) + checks, encoding="utf-8")
+    by = writer()
+    legacy = fec_legacy(store)
+    # the crawl database's own money figures, kept only from the crawl's reports: a copy's report shows them beside its
+    # own, and never replaces them (fec-reread does not push this file, but a job that did must not either)
+    seen = prev.get("crawl_db") if isinstance(prev.get("crawl_db"), dict) else {}
+    if by["crawl"]:
+        seen = {"as_of": when, "run": by["run"], "fec_legacy": sum(n for _, _, n in legacy)}
+    held = stuck_sources(root)
+    out_path.write_text(report(rows, when, prev.get("as_of"), by, held) + money_checks(store, by, seen, legacy)
+                        + election_reports(store) + state_meetings(store) + checks, encoding="utf-8")
     hist = (prev.get("history") or [])[-47:] + [{"as_of": when, **{k: now[k] for k in ("roll_calls", "board_members", "incidents",
                                                                                           "milestones", "budget_docs", "district_sites_read")}}]
-    write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist}, indent=1)
+    write_json_atomic(state_path, {"as_of": when, "counts": now, "history": hist, **({"crawl_db": seen} if seen else {})}, indent=1)
     return {"zero": [r["key"] for r in rows if r["flag"] == "zero"], "shrank": [r["key"] for r in rows if r["flag"] == "shrank"],
-            "as_of": when}
+            "stuck": [x["id"] for x in held], "as_of": when}

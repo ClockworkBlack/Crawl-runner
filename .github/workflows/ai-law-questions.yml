@@ -19,7 +19,7 @@ on:
 
 permissions:
   contents: read
-  actions: write        # remove this run's attachments at the end
+  actions: write        # remove this run's attachments at the end; start publish-site once Electo has the questions
 
 concurrency:
   group: ai-law-questions-${{ github.ref_name }}
@@ -106,9 +106,14 @@ jobs:
         run: |
           M="${{ inputs.minutes || '200' }}"
           cd electo
+          rc=0
           timeout -s INT -k 2m "$((M + 20))m" python3 -I tools/ai/law_questions.py --shard ${{ matrix.shard }} --of "$OF" \
-            --minutes "$M" --out ../part.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped"
+            --minutes "$M" --out ../part.json || rc=$?
           [ -f ../part.json ] || echo '{"q":{},"none":[]}' > ../part.json
+          # a time limit ends the step quietly (what was done is kept and passed on); a crash, or work due with no
+          # model call answered (law_questions.py exits 75), fails it, after the files above are set aside for the hand-off:
+          # such a run used to end green (ai-said-by read nothing from Nov 12 to 19, green twice a day)
+          bash "$GITHUB_WORKSPACE/scripts/stopped.sh" "$rc" "stopped" fatal
       - name: Pass the results on through the private repository's release (never a public attachment)
         if: always()
         env:
@@ -131,6 +136,7 @@ jobs:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: bash scripts/ai_handoff.sh get law-questions parts
       - name: Combine into Electo (data/ord_lay.runner.json.gz)
+        id: combine
         if: env.IS_MAIN == 'true'
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -147,10 +153,17 @@ jobs:
             git add data/ord_lay.runner.json.gz 2>/dev/null || true
             if git diff --cached --quiet; then echo "nothing new"; break; fi
             git commit -qm "Everyday questions for new ordinance sections: $(date -u +%Y-%m-%dT%H:%MZ)"
-            git push -q origin HEAD:main && break
+            if git push -q origin HEAD:main; then echo "pushed=true" >> "$GITHUB_OUTPUT"; break; fi
             [ "$i" -lt 5 ] || { echo "::error::the questions could not be pushed to Electo"; exit 1; }
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD; sleep $((i * 10))
           done
+      - name: Publish the site now
+        # publish-site's own schedule fires about once an hour in this repository (Electo's ordinances workflow, which
+        # this push starts, builds the questions into the codes' own branch of the site)
+        if: ${{ !cancelled() && steps.combine.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
       - name: Remove this run's shard results from the private release (once combined), and any left over 3 days
         # a run whose combine failed keeps its own for a later look; the 3-day sweep takes them (any AI job's)
         if: ${{ always() }}

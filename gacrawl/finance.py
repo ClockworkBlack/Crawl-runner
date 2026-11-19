@@ -353,6 +353,53 @@ def contribution_record(source_id: str, url: str, row: dict, recipient: str, rec
 
 
 # ----------------------------------------------------------------------------- the Finance runner
+# An FEC committee whose money is not the candidate's (Finance.COMMITTEE_ROLE "skip": joint fundraising, unauthorized,
+# a lobbyist's PAC) loses its lines wherever it is met, and is remembered: kv fec:drop:<committee id> holds the date it
+# was last dropped ("" once the FEC lists it as a candidate's own committee again). fec-reread works on a copy of the
+# crawl database and hands over only the lines it added or changed, so until Nov 19, 2026 its removals never reached
+# the crawl database: every fec-reread run began with the same 9,193 old lines "left" (9,044 of them from Drew
+# Ferguson's unauthorized C00607838, the rest from three joint fundraising committees) and removed them again. Its
+# hand-off (finance export-kv) now carries these keys, and `gacrawl finance apply` removes the same lines where it applies.
+DROP = "fec:drop:"
+DROPPED_LINES = "kind='contribution' AND json_extract(meta,'$.committee')=? AND json_extract(meta,'$.filing_source')='FEC'"
+
+
+def drop_committee(store, com_id: str) -> int:
+    """A committee that is not the candidate's money: its FEC lines go, and the drop is remembered -> lines removed."""
+    gone = store.delete_where(DROPPED_LINES, (com_id,))
+    store.kv_set(DROP + com_id, dt.datetime.now(dt.timezone.utc).date().isoformat())
+    return gone
+
+
+def undrop_committee(store, com_id: str) -> None:
+    """The FEC lists a committee dropped earlier as a candidate's own (designated again): a hand-off no longer removes
+    what is read from it."""
+    if store.kv_get(DROP + com_id):
+        store.kv_set(DROP + com_id, "")
+
+
+def apply_drops(store, kv: dict) -> int:
+    """A hand-off's dropped committees (its fec:drop: keys): their FEC lines removed here as the job that handed them over
+    removed them in its copy (the same lines as drop_committee), and the keys kept, a cleared one clearing the drop here.
+    One pass over the lines for every committee together: a delete per committee reads all ~3 million FEC lines each
+    time. -> lines removed."""
+    drops = []
+    for k, v in kv.items():
+        if not k.startswith(DROP) or not isinstance(v, str):
+            continue
+        if v:
+            drops.append(k[len(DROP):])
+        if (store.kv_get(k) or "") != v:
+            store.kv_set(k, v)
+    gone = 0
+    drops.sort()
+    where = DROPPED_LINES.replace("json_extract(meta,'$.committee')=?", "json_extract(meta,'$.committee') IN ({})")
+    for i in range(0, len(drops), 500):
+        part = drops[i:i + 500]
+        gone += store.delete_where(where.format(",".join("?" * len(part))), tuple(part))
+    return gone
+
+
 def part_read(store) -> dict:
     """{committee id: candidate id or ''}: committees whose FEC read stopped part-way (a place kept in fec:a2r) and was
     not finished since (a place kept for an older starting date than the committee's cursor allows is stale)."""
@@ -379,6 +426,22 @@ def part_read(store) -> dict:
                                  (com,)).fetchone()
         out[com] = (c[0] if c else "") or ""
     return out
+
+
+# an office whose holder and candidates file with the FEC. Finance.run reads FEC money for these and for anyone with ids
+# given by hand; until Nov 19, 2026 its own test lacked "representative" (the name lookup's had it), so five sitting
+# members of Congress listed as "U.S. Representative, District N" in config/candidates.yaml (Loudermilk, David Scott,
+# Carter, Greene, Collins) had no federal money on Electo, and ids given in config/finance.yaml did not count either
+FEDERAL_OFFICE = re.compile(r"u\.?s\.? (house|senate|representative|congress)|congress")
+
+
+def given_fec_ids(c: dict, opts: dict | None) -> list[str]:
+    """The candidate's FEC ids given by hand: fec_id / fec_ids in config/candidates.yaml, and fec.candidate_ids in
+    config/finance.yaml (`opts`: checked by hand where the name lookup misses)."""
+    hand = ((opts.get("fec") or {}).get("candidate_ids") or {}) if isinstance(opts, dict) else {}
+    mine = hand.get(c.get("id")) or []
+    mine = [mine] if isinstance(mine, str) else list(mine)
+    return list(dict.fromkeys(x for x in [c.get("fec_id")] + list(c.get("fec_ids") or []) + mine if x))
 
 
 class Finance:
@@ -538,12 +601,11 @@ class Finance:
         (fec_id / fec_ids), else found once by last name among Georgia candidates and matched on the first name (or
         its nickname, or a shared first three letters), the district when the office names one, and the office; a
         name two different people match is left unmatched (logged) rather than guessed. Remembered 30 days."""
-        hand = ((self.opts.get("fec") or {}).get("candidate_ids") or {}) if isinstance(getattr(self, "opts", None), dict) else {}
-        given = [x for x in ([c.get("fec_id")] + list(c.get("fec_ids") or []) + list(hand.get(c.get("id"), []) or [])) if x]
+        given = given_fec_ids(c, getattr(self, "opts", None))
         if given:
-            return list(dict.fromkeys(given))
+            return given
         office = (c.get("office") or "").lower()
-        if not re.search(r"u\.?s\.? (house|senate|representative|congress)|congress", office):
+        if not FEDERAL_OFFICE.search(office):
             return []
         cache = json.loads(self.store.kv_get("fec_ids2") or "{}")
         hit = cache.get(c["id"])
@@ -612,13 +674,14 @@ class Finance:
                 if role == "skip":
                     # a joint fundraising committee (its money reaches the campaign as a transfer, counted there; the
                     # rest goes to the party and other members) or one the candidate does not authorize: not the
-                    # candidate's money. Lines kept from it earlier go, so they are neither counted nor left waiting
-                    gone = self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
-                                                   "json_extract(meta,'$.filing_source')='FEC'", (com["committee_id"],))
+                    # candidate's money. Lines kept from it earlier go, so they are neither counted nor left waiting (and
+                    # go from the crawl database too, by the hand-off: drop_committee)
+                    gone = drop_committee(self.store, com["committee_id"])
                     if gone:
                         self.log(f"  fec {com['committee_id']} ({com.get('designation_full') or com.get('designation')}): "
                                  f"{gone} lines removed; not {c['name']}'s campaign money")
                     continue
+                undrop_committee(self.store, com["committee_id"])
                 n += self._fec_committee(c, com, since, deadline, role=role)
                 self._fec_totals(com["committee_id"])
         return n
@@ -731,9 +794,10 @@ class Finance:
             com = {"committee_id": r["k"], "name": com.get("name") or r["cn"] or "", "designation": com.get("designation") or ""}
             role = self.COMMITTEE_ROLE.get(com["designation"].upper(), "campaign") if d else "campaign"
             if role == "skip":
-                self.store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
-                                        "json_extract(meta,'$.filing_source')='FEC'", (r["k"],))
+                drop_committee(self.store, r["k"])          # here and, by the hand-off, in the crawl database
                 continue
+            if d and com["designation"]:
+                undrop_committee(self.store, r["k"])        # the FEC's own designation, not a lookup that failed
             c = {"id": r["c"] or f"fec-{r['k']}", "name": r["r"] or com["name"], "jurisdiction": ""}
             self.log(f"  fec {r['k']}: {r['n']} old lines of {c['name']} read again by committee")
             n += self._fec_committee(c, com, since, deadline, role=role)
@@ -1379,7 +1443,9 @@ class Finance:
             for c in candidates:
                 if deadline and time.monotonic() > deadline:
                     break
-                if c.get("fec_id") or re.search(r"u\.?s\.? (house|senate)|congress", (c.get("office") or "").lower()):
+                # ids given by hand (config/candidates.yaml, config/finance.yaml fec.candidate_ids), or a federal office
+                # (the name lookup's own test): a hand-checked id counts whatever the person's current office is
+                if given_fec_ids(c, getattr(self, "opts", None)) or FEDERAL_OFFICE.search((c.get("office") or "").lower()):
                     try:
                         fec_n += self.fec(c, since, deadline)
                     except OutOfTime:

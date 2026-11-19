@@ -1,13 +1,16 @@
 name: sync-code
 
-# Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes, every 15 minutes:
+# Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes. It is scheduled every
+# 15 minutes, but GitHub delays and drops scheduled runs under load and starts it about once an hour (Nov 2026: about
+# 40 runs a day, not 96), so a run here is saved and deleted within about an hour of its end:
 #   1. copies the crawler's code from the private repository, the code only: state/, data/, imports/, config/private/
 #      (what the crawler gathered, contacts, the requester's signature, hand-downloaded ordinances) and the records-request
-#      mail and ordinances workflows never
-#      leave the private repository
+#      mail workflows never leave the private repository (the ordinances workflow runs here: it reads the downloaded
+#      files from the private repository into its own runner and sends them only to Electo)
 #   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/; a run that did not succeed
 #      also its jobs and GitHub's error notes, <run>.jobs.json) and then deletes the run here, so the public repository
-#      keeps no logs once they are saved. Needs DATA_TOKEN.
+#      keeps no logs once they are saved; then starts logview, so LogView lists them without waiting for its own
+#      hourly run (which GitHub drops too). Needs DATA_TOKEN.
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -39,12 +42,12 @@ jobs:
           rsync -a --delete \
             --exclude .git --exclude state/ --exclude data/ --exclude imports/ --exclude config/private/ --exclude logs/ \
             --exclude .github/workflows/records-send.yml --exclude .github/workflows/records-test.yml \
-            --exclude .github/workflows/probe.yml --exclude .github/workflows/ordinances.yml --exclude .github/workflows/code-finder.yml \
+            --exclude .github/workflows/probe.yml --exclude .github/workflows/code-finder.yml \
             --exclude outbox/ --exclude .github/workflows/mail-send.yml --exclude .github/workflows/qbe-discover.yml --exclude .github/workflows/election-reports-check.yml --exclude .github/workflows/dry-run.yml \
             src/ pub/
           # excluded paths are also never kept here (rsync --delete leaves excluded paths alone, so remove them)
           rm -rf pub/state pub/data pub/imports pub/config/private pub/logs \
-                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml pub/.github/workflows/ordinances.yml pub/.github/workflows/code-finder.yml \
+                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml pub/.github/workflows/code-finder.yml \
                  pub/outbox pub/.github/workflows/mail-send.yml pub/.github/workflows/qbe-discover.yml pub/.github/workflows/election-reports-check.yml pub/.github/workflows/dry-run.yml
           if grep -rIlE "Humble Servant|ORR_PASSWORD=|@gmail\.com" pub --exclude-dir=.git --exclude=sync-code.yml >/dev/null 2>&1; then
             echo "::error::private text found in the copy; nothing pushed"; grep -rIlE "Humble Servant|@gmail\.com" pub --exclude-dir=.git; exit 1
@@ -78,6 +81,7 @@ jobs:
           cat > "$JOBS" <<'PY'
           import json, os, sys, urllib.request
           rid, out = sys.argv[1], sys.argv[2]
+          concl = sys.argv[3] if len(sys.argv) > 3 else None
           api, repo = os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"]
           def get(path):
               q = urllib.request.Request(f"{api}/{path}", headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
@@ -95,40 +99,62 @@ jobs:
                   except Exception as e:  # noqa: BLE001  the jobs are still worth keeping
                       k["notes"] = [{"level": "unread", "message": f"{type(e).__name__}: {e}"}]
               jobs.append(k)
-          json.dump({"run": int(rid), "jobs": jobs}, open(out, "w", encoding="utf-8"), indent=1)
+          kept = {"run": int(rid), "conclusion": concl, "jobs": jobs}
+          if concl == "startup_failure" and not jobs:
+              # GitHub could not start the run (a workflow it refused, or one it lost before any job): no job, no logs
+              kept["note"] = "the run never started (startup_failure): GitHub keeps no logs or jobs for it"
+          json.dump(kept, open(out, "w", encoding="utf-8"), indent=1)
           bad = [f"{k['name']} ({k['conclusion']})" for k in jobs if "notes" in k]
           print(f"run {rid}: {len(jobs)} jobs kept" + (f"; error notes of {', '.join(bad)}" if bad else ""))
           PY
           n=0; done_ids=""; rows=$(mktemp)
-          for row in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | "\(.id),\(.name),\(.created_at),\(.conclusion),\(.updated_at)"'); do
-            IFS=, read -r id name created concl updated <<< "$row"
+          # one run a line, its fields tab-separated: a run's name may hold spaces (GitHub's own "pages build and
+          # deployment"), and the unquoted for-loop used until Nov 19 split such a row into words, so the run was deleted
+          # with no line and its other words were sent to DELETE as run ids. Read on its own descriptor, so that nothing
+          # in the loop reads the list.
+          while IFS=$'\t' read -r -u 3 id name created concl updated; do
+            [[ "$id" =~ ^[0-9]+$ ]] || continue
             # every crawl, police and ai-predict run's logs (ai-predict: Nov 11 a whole run succeeded with no answers and
-            # left nothing to say why), each News loop's (a run of over ten minutes: its passes' times and outlets; the
+            # left nothing to say why), every ordinances run's (its report of files with no place or unreadable is in
+            # its log), each News loop's (a run of over ten minutes: its passes' times and outlets; the
             # hourly check that finds a loop running is not kept), and any other job's when it failed or was cancelled
             long=0; [ "$name" = "news" ] && [ $(( $(date -d "$updated" +%s) - $(date -d "$created" +%s) )) -gt 600 ] && long=1
-            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$name" = "ai-predict" ] || [ "$name" = "ai-replay" ] || [ "$name" = "ai-said-by" ] || [ "$name" = "site-search" ] || [ "$name" = "ai-law-questions" ] || [ "$long" = 1 ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ] || [ "$concl" = "cancelled" ]; then
+            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$name" = "ai-predict" ] || [ "$name" = "ai-replay" ] || [ "$name" = "ai-said-by" ] || [ "$name" = "site-search" ] || [ "$name" = "ai-law-questions" ] || [ "$name" = "ordinances" ] || [ "$long" = 1 ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ] || [ "$concl" = "cancelled" ]; then
               d="logs-repo/logs/runner/${created:0:7}"; mkdir -p "$d"
-              f="$d/${created:0:10}_${name}_${id}.zip"
-              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null || { rm -f "$f"; echo "logs for $id not ready yet"; continue; }
-              n=$((n+1))
-              [ "$concl" = "success" ] || python3 "$JOBS" "$id" "${f%.zip}.jobs.json" || { rm -f "${f%.zip}.jobs.json"; echo "jobs of $id not kept"; }
+              f="$d/${created:0:10}_${name//[^A-Za-z0-9._-]/-}_${id}.zip"      # a file name without spaces (the status step below names it the same way)
+              if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null; then
+                n=$((n+1))
+              else
+                rm -f "$f"
+                # a run GitHub never started (startup_failure) has no logs and never will, and a day after a run ended
+                # its logs are not coming either: such a run is recorded and deleted without them. Until Nov 19 it was
+                # tried again at every sync and never recorded (crawl run 43097447450, a startup_failure of Nov 11).
+                if [ "$concl" != "startup_failure" ] && [ $(( $(date +%s) - $(date -d "$updated" +%s) )) -lt 86400 ]; then
+                  echo "logs for $id not ready yet"; continue
+                fi
+                echo "run $id ($name, $concl) has no logs: recorded without them"
+              fi
+              [ "$concl" = "success" ] || python3 "$JOBS" "$id" "${f%.zip}.jobs.json" "$concl" || { rm -f "${f%.zip}.jobs.json"; echo "jobs of $id not kept"; }
             fi
             done_ids="$done_ids $id"
-            echo "$row" >> "$rows"
-          done
+            printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$created" "$concl" "$updated" >> "$rows"
+          done 3< <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" \
+                      --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | [.id, (.name // "run"), .created_at, (.conclusion // "unknown"), .updated_at] | @tsv')
           # each job's last outcome and last success (runner-status.json, an asset of the private crawl-data release, so it
           # adds no commits): the watchdog reads it to find a job that keeps failing or has stopped running, which the
           # deleted runs would otherwise hide
           mkdir -p status && GH_TOKEN="$DATA_TOKEN" gh release download crawl-data -R ClockworkBlack/Crawl -p runner-status.json -D status --clobber 2>/dev/null || true
           python3 - "$rows" status/runner-status.json logs-repo/logs/runner <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
-          import json, os, sys
+          import json, os, re, sys
           rows, path, logs = sys.argv[1], sys.argv[2], sys.argv[3]
+          def base(created, name, rid):
+              return f"{created[:10]}_{re.sub(r'[^A-Za-z0-9._-]', '-', name)}_{rid}"     # as the loop above names the files
           def timed_out(created, name, rid):
               """A cancelled run counts as a failure when a job of it hit its time limit: GitHub ends that job
               "cancelled", not "timed_out" (fec-reread's ten kills at 345 minutes, Nov 13-17, left fails_in_row at 0).
               Its error notes are in the <run>.jobs.json kept beside its logs above."""
               try:
-                  d = json.load(open(os.path.join(logs, created[:7], f"{created[:10]}_{name}_{rid}.jobs.json")))
+                  d = json.load(open(os.path.join(logs, created[:7], base(created, name, rid) + ".jobs.json")))
               except (OSError, ValueError):
                   return False
               return any("maximum execution time" in (n.get("message") or "")
@@ -139,19 +165,30 @@ jobs:
               st = {}
           seen = []
           for line in open(rows):
-              p = line.strip().split(",")
+              p = line.rstrip("\n").split("\t")
               if len(p) >= 5 and p[0].isdigit():
                   seen.append((p[2], int(p[0]), p[1], p[3], p[4]))
-          for created, rid, name, concl, updated in sorted(seen):
+          # in the order the runs ended: a job's last outcome is the one that ended last
+          for created, rid, name, concl, updated in sorted(seen, key=lambda x: (x[4], x[1])):
               w = st.setdefault(name, {"fails_in_row": 0, "recent": []})
               if rid in w.get("recent", []):
                   continue                      # recorded before (its deletion failed)
               w["recent"] = (w.get("recent", []) + [rid])[-20:]
+              bad = concl in ("failure", "timed_out", "startup_failure") or (concl == "cancelled" and timed_out(created, name, rid))
+              if updated < (w.get("last") or {}).get("at", ""):
+                  # a run that ended before the last one recorded, recorded late (its logs came late or were given up,
+                  # as for a startup_failure of days ago): not the last outcome, but a failure since the last success
+                  # still adds to the failures in a row, and a success to when the job last succeeded
+                  if bad and updated > (w.get("last_success") or {}).get("at", ""):
+                      w["fails_in_row"] = w.get("fails_in_row", 0) + 1
+                  elif concl == "success" and updated > (w.get("last_success") or {}).get("at", ""):
+                      w["last_success"] = {"id": rid, "at": updated}
+                  continue
               w["last"] = {"id": rid, "started": created, "at": updated, "conclusion": concl}
               if concl == "success":
                   w["last_success"] = {"id": rid, "at": updated}
                   w["fails_in_row"] = 0
-              elif concl in ("failure", "timed_out", "startup_failure") or (concl == "cancelled" and timed_out(created, name, rid)):
+              elif bad:
                   w["fails_in_row"] = w.get("fails_in_row", 0) + 1
                   if concl == "cancelled":
                       w["last"]["conclusion"] = "cancelled (time limit)"
@@ -174,7 +211,7 @@ jobs:
               have = open(f).read() if os.path.exists(f) else ""
               if f'"id": {rid},' in have:
                   continue
-              zipf = f"{created[:10]}_{name}_{rid}.zip"
+              zipf = base(created, name, rid) + ".zip"
               row = {"id": rid, "workflow": name, "created": created, "ended": updated, "conclusion": concl,
                      "took": secs(created, updated), "logs": zipf if os.path.exists(os.path.join(d, zipf)) else None}
               open(f, "a").write(json.dumps(row) + "\n")
@@ -191,6 +228,16 @@ jobs:
             ok=false; for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && { ok=true; break; }; sleep $((i*5)); done
             [ "$ok" = true ] || { echo "::error::could not save the logs; nothing deleted"; exit 1; }
             echo "saved $n run log(s) in the private repository"
+            # LogView builds its crawl-runner folder from this archive: it collects now rather than at its own hourly
+            # run, which GitHub drops at times (Nov 18: none in four of the hours, so LogView was 1 to 3 hours late). A
+            # logview run already waiting to start reads these too, so none is added then.
+            waiting=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/logview.yml/runs?per_page=20" \
+                        --jq '[.workflow_runs[] | select(.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")] | length' 2>/dev/null || echo "?")
+            if [ "$waiting" = 0 ]; then
+              gh workflow run logview.yml -R "$GITHUB_REPOSITORY" --ref main >/dev/null 2>&1 && echo "started logview, so LogView lists these" || echo "logview not started (its hourly run lists these)"
+            else
+              echo "logview not started: one is waiting ($waiting), or its runs could not be listed"
+            fi
           fi
           cd ..
           # only now that they are saved: delete those runs (logs and attachments) from this public repository
@@ -198,8 +245,8 @@ jobs:
       - name: Keep the crawl going (the next link of the chain when none is running or queued)
         # The runner's crawl runs back to back (config/backfill.json runner.continuous): each run queues the next as it
         # ends. When that hand-off is lost (a failed dispatch, a cancelled or replaced run), nothing ran until the next
-        # scheduled start or the watchdog's 30-hour check: gaps of 21 and 37 hours (Nov 11-14, 2026). Every 15 minutes,
-        # with no crawl run on main running or waiting, the next link is started here. A run that failed within minutes
+        # scheduled start or the watchdog's 30-hour check: gaps of 21 and 37 hours (Nov 11-14, 2026). At each sync (about
+        # hourly), with no crawl run on main running or waiting, the next link is started here. A run that failed within minutes
         # is not started again for an hour (the watchdog reports what keeps failing).
         if: ${{ !cancelled() }}
         timeout-minutes: 3

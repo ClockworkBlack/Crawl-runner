@@ -1,13 +1,18 @@
 name: logview
 
-# Runs in the PUBLIC runner repository only, on its free minutes, every hour: the LogView collector
-# (tools/collect.py in the private ClockworkBlack/LogView) gathers the GitHub Actions logs of Electo, electo-data,
-# Crawl and Crawl-runner into LogView, one folder per project and day.
+# Runs in the PUBLIC runner repository only, on its free minutes, every hour and each time sync-code has saved runs in
+# Crawl's archive (GitHub drops some of the hourly runs): the LogView collector (tools/collect.py in the private
+# ClockworkBlack/LogView) gathers the GitHub Actions logs of Electo, electo-data, Crawl and Crawl-runner into LogView,
+# one folder per project and day.
 #
 # Nothing of them stays here: the collector and the logs are only on the runner while it works and are deleted at the
 # end, the step prints the collector's one-line count and no more (the logs name private runs and say what failed in
-# them), and sync-code deletes this run within 15 minutes of its end (it keeps a run's logs, in the private repository
-# only, when the run failed). Collecting further back: Run workflow with the days to look back (GitHub keeps 90).
+# them), and sync-code deletes this run within about an hour of its end (it keeps a run's logs, in the private
+# repository only, when the run failed). Collecting further back: Run workflow with the days to look back (GitHub keeps 90).
+#
+# A project the collector could not read is only a warning the first time (a passing GitHub error); when the run
+# before could not read it either (LogView's collect-status.json keeps the count), the run fails after saving what it
+# did collect, so sync-code and the watchdog see it.
 #
 # Needs two secrets here (LogView's README says how to make them):
 #   LOGVIEW_READ   reads Actions on Crawl, Crawl-runner, Electo and electo-data, and the contents of Crawl
@@ -50,18 +55,28 @@ jobs:
           trap 'rm -rf "$W" "$OUT"' EXIT
           git clone -q --depth 1 "https://x-access-token:${WRITE}@github.com/ClockworkBlack/LogView.git" "$W" || { echo "::error title=LogView::could not read LogView with LOGVIEW_WRITE"; exit 1; }
           cd "$W"
-          python3 -I tools/collect.py --days "$DAYS" > "$OUT" 2>&1; rc=$?
+          # (rc=0 first: the step's shell stops at a failed command, so "cmd; rc=$?" never saw a failure)
+          rc=0; python3 -I tools/collect.py --days "$DAYS" > "$OUT" 2>&1 || rc=$?
           tail -1 "$OUT"        # the count only
-          [ "$rc" = 0 ] || { echo "::error title=LogView::the collector stopped (exit $rc): could not read the projects; check LOGVIEW_READ"; exit "$rc"; }
-          grep -q "::warning" "$OUT" && echo "::warning title=LogView::some projects could not be read (named above); check LOGVIEW_READ's repositories"
+          # 3: a project could not be read in this run and the one before; what was collected is still saved below
+          [ "$rc" = 0 ] || [ "$rc" = 3 ] || { echo "::error title=LogView::the collector stopped (exit $rc): could not read the projects; check LOGVIEW_READ"; exit "$rc"; }
+          if grep -q "::warning" "$OUT"; then echo "::warning title=LogView::some projects could not be read (named above); check LOGVIEW_READ's repositories"; fi
+          done_() {
+            if [ "$rc" = 3 ]; then
+              echo "::error title=LogView::a project could not be read in two runs in a row (named above; LogView's collect-status.json): check LOGVIEW_READ's repositories and its expiry"
+              exit 1
+            fi
+            exit 0
+          }
           git config user.name "LogView collector"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for d in electo electo-data crawl crawl-runner; do [ -d "$d" ] && git add -A "$d"; done
-          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          for d in electo electo-data crawl crawl-runner; do if [ -d "$d" ]; then git add -A "$d"; fi; done
+          if [ -f collect-status.json ]; then git add collect-status.json; fi
+          if git diff --cached --quiet; then echo "nothing new"; done_; fi
           git commit -q -m "Logs: $(tail -1 "$OUT")"
           # OpenResearch also pushes to LogView: on a race, take its commit and try again
           for i in 1 2 3 4; do
-            git pull -q --rebase origin main 2>/dev/null && git push -q origin HEAD:main 2>/dev/null && { echo "pushed to LogView"; exit 0; }
+            git pull -q --rebase origin main 2>/dev/null && git push -q origin HEAD:main 2>/dev/null && { echo "pushed to LogView"; done_; }
             sleep $((i * 10))
           done
           echo "::error title=LogView::could not push to LogView"; exit 1

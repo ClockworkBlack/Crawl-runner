@@ -32,7 +32,7 @@ on:
 
 permissions:
   contents: read
-  actions: write        # remove this run's attachments at the end
+  actions: write        # remove this run's attachments at the end; start publish-site once Electo has the results
 
 concurrency:
   group: ai-replay-${{ github.ref_name }}
@@ -140,6 +140,7 @@ jobs:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: bash scripts/ai_handoff.sh get replay parts
       - name: Combine into Electo
+        id: combine
         if: env.IS_MAIN == 'true'
         env:
           ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -159,10 +160,16 @@ jobs:
             git add research/train/replay.json tools/ai/models.json
             if git diff --cached --quiet; then echo "nothing new"; break; fi
             git commit -qm "Open-model jobs replayed through other models: $(date -u +%Y-%m-%dT%H:%MZ)"
-            git push -q origin HEAD:main && break
+            if git push -q origin HEAD:main; then echo "pushed=true" >> "$GITHUB_OUTPUT"; break; fi
             [ "$i" -lt 5 ] || { echo "::error::the replay results could not be pushed to Electo"; exit 1; }
             sleep $((i * 10))
           done
+      - name: Publish the site now
+        # publish-site's own schedule fires about once an hour in this repository
+        if: ${{ !cancelled() && steps.combine.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
       - name: Remove this run's shard results from the private release (once combined), and any left over 3 days
         # a run whose combine failed keeps its own for a later look; the 3-day sweep takes them (any AI job's)
         if: ${{ always() }}

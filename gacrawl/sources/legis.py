@@ -513,9 +513,158 @@ def note_refusal(store: Store, refused: str | None) -> None:
 
 
 # ----------------------------------------------------------------------------- per person, in Electo's shapes
+# Generational suffixes tell a father from a son, so they are part of a name; degrees after a name are not.
+GENERATIONS = {"jr": "jr", "sr": "sr", "ii": "ii", "iii": "iii", "iv": "iv", "v": "v"}
+CREDENTIALS = {"esq", "md", "phd", "dds", "cpa"}
+
+
+def full_names(raws) -> set[tuple[str, str]]:
+    """Every way the names in raws are written in full, as (the letters of the whole name, generational suffix):
+    'Harvey Williams, Jr.' -> ('harveywilliams', 'jr'); 'Lauren McDonald III' -> ('laurenmcdonald', 'iii');
+    'Elizabeth "Beth" Beskin' -> ('elizabethbeskin', ''), ('bethbeskin', ''). Middle names and initials are kept, so
+    'David Keith Clark' is not 'David Clark'. (names.name_variants drops suffixes and middles on purpose, to find a
+    person in text; it also reads 'Noel Williams, Jr.' as a reversed 'Jr. Noel Williams', which is how a Harvey
+    Williams, Jr. once got Noel Williams, Jr.'s House record.)"""
+    from ..names import QUOTED, TITLES, _ascii
+
+    out = set()
+    for raw in raws:
+        if not raw:
+            continue
+        raw = _ascii(raw)
+        nicks = [re.sub(r"[^a-z]", "", n.lower()) for n in QUOTED.findall(raw)]
+        base = TITLES.sub("", re.sub(r"\([^)]*\)", " ", QUOTED.sub(" ", raw)).strip())
+        sfx, parts = "", []
+        for i, part in enumerate(base.split(",")):
+            words = [w for w in (re.sub(r"[^a-z]", "", x.lower()) for x in part.split()) if w]
+            # a suffix ends a part: 'McDonald III', or a part of its own after a comma ('Williams, Jr.')
+            while words and (len(words) > 1 or i > 0) and (words[-1] in GENERATIONS or words[-1] in CREDENTIALS):
+                sfx = sfx or GENERATIONS.get(words[-1], "")
+                words.pop()
+            if words:
+                parts.append(words)
+        if len(parts) == 2 and len(parts[0]) <= 2:  # "DOE, JANE A"
+            parts = [parts[1], parts[0]]
+        words = [w for p in parts for w in p]
+        if len(words) < 2:
+            continue
+        out.add(("".join(words), sfx))
+        for n in nicks:     # 'William J. "Bill" Yearta' is also Bill J. Yearta and Bill Yearta
+            if n:
+                out.update({(n + "".join(words[1:]), sfx), (n + words[-1], sfx)})
+    return out
+
+
+def member_full_names(m: dict) -> set[tuple[str, str]]:
+    """full_names of a legislator record: the page's full name, and first and last name (with the nickname)."""
+    first, last, nick = m.get("first") or "", m.get("last") or "", m.get("nickname") or ""
+    return full_names([m.get("name") or "", f'{first} "{nick}" {last}' if nick else f"{first} {last}"])
+
+
+def suffix_comma(name: str | None) -> str:
+    """'Noel Williams, Jr.' -> 'Noel Williams Jr.'. names.name_variants reads a two-word name with a comma as a
+    reversed 'DOE, JANE', so it gave 'Jr. Noel Williams' and 'Jr. Williams': the member himself (and every candidate
+    written that way) went unfound, and every 'X Williams, Jr.' matched every other one."""
+    return re.sub(r",\s*((?:jr|sr|ii|iii|iv|v)\.?)$", r" \1", (name or "").strip(), flags=re.I)
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def place_index(root=None) -> dict:
+    """Counties and municipalities of config/jurisdictions.yaml, for telling where a member and a candidate live:
+    {"county": {alnum name: alnum name}, "county_id": {id: alnum name}, "city": {alnum name: (id, {counties})},
+    "city_id": {id: {counties}}}."""
+    from pathlib import Path
+
+    from ..registry import load_yaml
+
+    p = Path(root) / "config" / "jurisdictions.yaml" if root else None
+    if not p or not p.exists():     # a test's project folder has no registry: the package's own is the same map
+        p = Path(__file__).resolve().parents[2] / "config" / "jurisdictions.yaml"
+    reg = load_yaml(p) or {}
+    idx = {"county": {}, "county_id": {}, "city": {}, "city_id": {}}
+    for c in reg.get("counties") or []:
+        n = _alnum(c["name"].removesuffix(" County"))
+        idx["county"][n] = n
+        idx["county_id"][c["id"]] = n
+    for m in reg.get("municipalities") or []:
+        cs = {_alnum(x) for x in m.get("counties") or []}
+        idx["city"][_alnum(m["name"])] = (m["id"], cs)
+        idx["city_id"][m["id"]] = cs
+    return idx
+
+
+def candidate_places(c: dict, idx: dict) -> tuple[set, set, bool]:
+    """(counties, city ids, whether the candidate carries any place at all) from the candidate's counties, its races'
+    counties and its jurisdictions. A place that is not in the registry still counts as carried: it cannot be
+    checked, so a match that needs it is not made."""
+    counties = {_alnum(x) for x in (c.get("counties") or []) + [r.get("county") for r in c.get("races") or []] if x}
+    cities, any_place = set(), bool(counties)
+    for jid in set(c.get("jurisdictions") or []) | ({c["jurisdiction"]} if c.get("jurisdiction") else set()):
+        any_place = True
+        if jid in idx["county_id"]:
+            counties.add(idx["county_id"][jid])
+        elif jid in idx["city_id"]:
+            cities.add(jid)
+            counties |= idx["city_id"][jid]
+    return {x for x in counties if x}, cities, any_place
+
+
+def member_places(m: dict, idx: dict) -> tuple[set, set]:
+    """(counties, city ids) of the city a legislator's page gives ('Cumming' -> Forsyth). Some pages give an
+    unincorporated place, which tells nothing here, or a county's name, which is taken as that county."""
+    city = _alnum(re.sub(r",\s*(GA|Georgia)\.?$", "", (m.get("city") or "").strip(), flags=re.I))
+    if city in idx["city"]:
+        cid, cs = idx["city"][city]
+        return set(cs), {cid}
+    if city in idx["county"]:
+        return {idx["county"][city]}, set()
+    return set(), set()
+
+
+def match_member(c: dict, hits: list[dict], idx: dict) -> dict | None:
+    """The legislator record that is this candidate, among the records its name variants found, or None.
+
+    When the candidate's races name a State House or Senate seat, the member who held that seat (chamber + district)
+    is the one. Without one (a county commissioner, a judge, a statewide candidate), a shared name is not enough:
+    until Nov. 2026 the first record of that name was taken, and seven people (a Public Service Commissioner, county
+    commissioners, a city council member, a judge) showed another person's House record, bills and committees. Now
+    the full name, middle names and generational suffix included, must be the member's; exactly one member may
+    have it; and where the candidate's records say where they ran, the member's city must lie in one of those
+    counties or be that city. A candidate with no place at all (a statewide, federal or circuit race) has only the
+    name to go on, so it must also not be a name Electo knows two people by (split) and must not be of the other
+    party. Never the first of several."""
+    seats = set()
+    for r in c.get("races") or []:
+        mm = re.match(r"State (House|Senate) District (\d+)", r.get("office") or "")
+        if mm:
+            seats.add((mm.group(1), int(mm.group(2))))
+    members = list({h["id"]: h for h in hits}.values())
+    names = full_names([c.get("name") or "", *(c.get("aliases") or [])])
+    if seats:
+        held = [lg for lg in members if (lg["meta"].get("chamber"), int(lg["meta"].get("district") or 0)) in seats]
+        if len(held) > 1:   # two members of the same name in that seat (a father and a son): the full name decides
+            held = [lg for lg in held if names & member_full_names(lg["meta"])]
+        return held[0] if len(held) == 1 else None
+    same = [lg for lg in members if names & member_full_names(lg["meta"])]
+    if len(same) != 1:
+        return None
+    lg = same[0]
+    counties, cities, any_place = candidate_places(c, idx)
+    if any_place:
+        mc, mcity = member_places(lg["meta"], idx)
+        return lg if (mc & counties or mcity & cities) else None
+    party, mparty = (c.get("party") or "")[:1].upper(), (lg["meta"].get("party") or "")[:1].upper()
+    if c.get("split") or (party in ("D", "R") and mparty in ("D", "R") and party != mparty):
+        return None
+    return lg
+
+
 def legis_people(store: Store, candidates: list[dict], root=None) -> dict:
     """{electo_key or candidate id: {member, terms, committees, votes[], bills[]}} for candidates who are or were
-    legislators, matched by name variants and (when the candidate's races name a seat) chamber + district."""
+    legislators, found by name variants and then matched by match_member (seat, or full name and place)."""
     from ..names import name_variants
 
     from .. import legis_sessions
@@ -526,7 +675,7 @@ def legis_people(store: Store, candidates: list[dict], root=None) -> dict:
     by_norm: dict[str, list[dict]] = {}
     for lg in legislators:
         m = lg["meta"]
-        for v in name_variants(m.get("name") or "", [f"{m.get('nickname')} {m.get('last')}"] if m.get("nickname") else []):
+        for v in name_variants(suffix_comma(m.get("name")), [f"{m.get('nickname')} {m.get('last')}"] if m.get("nickname") else []):
             by_norm.setdefault(re.sub(r"[^a-z]", "", v.lower()), []).append(lg)
     bills_by_member: dict[int, list[dict]] = {}
     for b in store.iter_query("kind='bill'"):
@@ -548,30 +697,22 @@ def legis_people(store: Store, candidates: list[dict], root=None) -> dict:
                     "bill": m["bill"], "session": m.get("session_name") or str(m.get("session")), "title": m.get("caption", ""),
                     "vote": x["vote"], "d": m.get("date"), "stage": f"{m.get('vote_name')} {str(m.get('vote_caption') or '').title()} ({m.get('yea')}-{m.get('nay')})",
                     "u": v["url"], "basis": "roll call", "src": []})
+    idx = place_index(root)
     out = {}
     for c in candidates:
-        variants = c.get("variants") or name_variants(c["name"], c.get("aliases", []))
+        # the variants Electo's import made, and the name and every alias read again here: 'Alvin Payton, Jr.' read
+        # with its comma gave only 'Jr. Payton', and an alias config/candidates.yaml adds ('Lynn Heffner' for Lynn
+        # Gladney) comes after the import's variants were made. Either way the seat or the full name still decides.
+        variants = list(c.get("variants") or name_variants(c["name"], c.get("aliases", [])))
+        variants = list(dict.fromkeys(variants + name_variants(suffix_comma(c["name"]), [suffix_comma(a) for a in c.get("aliases") or []])))
         hits = []
         for v in variants:
             hits += by_norm.get(re.sub(r"[^a-z]", "", v.lower()), [])
         if not hits:
             continue
-        seats = set()
-        for r in c.get("races") or []:
-            mm = re.match(r"State (House|Senate) District (\d+)", r.get("office") or "")
-            if mm:
-                seats.add((mm.group(1), int(mm.group(2))))
-        chosen = None
-        for lg in dict((h["id"], h) for h in hits).values():
-            m = lg["meta"]
-            if not seats or (m.get("chamber"), int(m.get("district") or 0)) in seats:
-                chosen = lg
-                break
+        chosen = match_member(c, hits, idx)
         if not chosen:
-            if len({h["id"] for h in hits}) == 1 and not seats:
-                chosen = hits[0]
-            else:
-                continue
+            continue
         m = chosen["meta"]
         mid = m["member_id"]
         terms = []

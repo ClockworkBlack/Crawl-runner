@@ -5,6 +5,8 @@ name: ai-outlook
 # that cite its sources. A new set is written when the data changed or the last is 20 hours old (otherwise this run
 # ends after the check), committed to Electo's ga/outlook.json, and the public site is refreshed. Each run also reads the
 # Secretary of State's election calendar PDF into ga/law_sos.json (tools/law_calendar.py, no AI), which Key Dates merges.
+# A model run that fails is a warning (Key Dates are still committed); the run fails once the cards on the page are over
+# 30 hours old, i.e. no new set for the last runs (the model failed, or fewer than four of its cards passed).
 on:
   schedule:
     - cron: "23 */6 * * *"
@@ -58,8 +60,13 @@ jobs:
           pip install -q --prefer-binary playwright "llama-cpp-python>=0.3.9" huggingface_hub --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
           python -m playwright install --with-deps chromium >/dev/null
       - name: Write the outlook
-        continue-on-error: true     # Key Dates are still committed when the model run fails
-        run: cd /tmp/electo-ol && python3 -I tools/ai/outlook_ai.py http://127.0.0.1:8765/ ${{ inputs.force && '--force' || '' }}
+        # a failed model run is a warning here, so Key Dates are still committed (the next step); "How old the outlook
+        # is" fails the run once that has gone on too long. It was "continue-on-error: true", which kept every run green
+        # whatever the model did
+        run: |
+          cd /tmp/electo-ol
+          python3 -I tools/ai/outlook_ai.py http://127.0.0.1:8765/ ${{ inputs.force && '--force' || '' }} \
+            || echo "::warning title=Outlook::the model run ended with exit $? (see above): Key Dates are still committed, and the cards on the page stay as they were"
       - name: Commit to Electo and refresh the public site
         if: env.IS_MAIN == 'true'
         env:
@@ -74,3 +81,24 @@ jobs:
           git commit -qm "Outlook by the open model and Key Dates from the SoS calendar: $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && break; sleep $((i*5)); done
           [ -f tools/site_data.sh ] && GH_TOKEN="$SITE_TOKEN" timeout 25m bash tools/site_data.sh || echo "::warning title=Site data::site data not refreshed (exit $?; tools/site_data.sh says why above)"
+      - name: How old the outlook is (over 30 hours fails the run)
+        # outlook_ai.py writes a new set when the data changed or the last is 20 hours old, and this runs every 6 hours, so
+        # a set over 30 hours old means the last runs wrote none: the model failed, or fewer than four of its cards
+        # passed the checker (the previous set then stays). Checked after the commit, so Key Dates are never held back
+        run: |
+          python3 -I - /tmp/electo-ol/ga/outlook.json <<'PY'
+          import calendar, json, sys, time
+          MAX_H = 30
+          try:
+              at = json.load(open(sys.argv[1], encoding="utf-8")).get("at") or ""
+              h = (time.time() - calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))) / 3600
+          except (OSError, ValueError, TypeError, AttributeError) as e:
+              print(f"::error title=Outlook::ga/outlook.json has no time it was written ({type(e).__name__}: {e})")
+              sys.exit(1)
+          if h > MAX_H:
+              print(f"::error title=Outlook::the cards on the page were written {h:.0f} hours ago ({at}), over {MAX_H}: "
+                    "no new set in the last runs (the model failed, or fewer than four of its cards passed; see the step "
+                    "\"Write the outlook\" and Electo research/train/outlook_ai_log.jsonl)")
+              sys.exit(1)
+          print(f"the outlook on the page was written {h:.1f} hours ago ({at})")
+          PY

@@ -291,6 +291,10 @@ jobs:
     # by default, kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
     # block or a slow day ends in time instead of being stopped at this limit before it saves anything.
     timeout-minutes: 350
+    env:
+      # the police job's files (police.yml, on its own schedule, keeps them in the private repository; this job only
+      # reads them): read again from there for the police news search and right before the export
+      POLICE_STATE: state/police.json state/media.json state/police_roster.json state/sheriffs.json
     steps:
       - name: The job's clock (optional steps fit their minutes to what is left; scripts/budget.sh)
         run: |
@@ -516,9 +520,9 @@ jobs:
         timeout-minutes: 30
         run: |
           # the departments the police job found (its own workflow, inside the off-peak window, keeping its state in
-          # the private repository): its newest files, so this search and tonight's export use them
+          # the private repository): its newest files for this search (read again before the export, below)
           if [ "$PUBLIC_RUNNER" = "true" ] && [ -n "${DATA_REPO:-}" ]; then
-            for f in state/police.json state/media.json state/police_roster.json; do
+            for f in $POLICE_STATE; do
               if gh api -H "Accept: application/vnd.github.raw" "repos/$DATA_REPO/contents/$f" > "$f.new" 2>/dev/null \
                  && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f.new" 2>/dev/null; then mv "$f.new" "$f"; else rm -f "$f.new"; fi
             done
@@ -592,7 +596,14 @@ jobs:
           # council and county meeting channels due tonight (the shards list them too); the first run with a key lists all
           M=${{ vars.YOUTUBE_MINUTES || '10' }}; T=3; [ "$IS_MAIN" != "true" ] && M=3 && T=1
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          [ -n "$YOUTUBE_API_KEY" ] && gacrawl run --kind video --max-minutes "$M" || echo "no YOUTUBE_API_KEY"
+          if [ -n "$YOUTUBE_API_KEY" ]; then
+            gacrawl run --kind video --max-minutes "$M" || echo "the YouTube channels stopped with an error; the next run lists them"
+          else
+            # without the key every run leaves the YouTube sources out (gacrawl/cli.py) and nothing fails: none of the
+            # 152 channels was listed after Nov 7, 2026, when the crawl moved to the public runner (sync-code copies
+            # the code there, not the secrets). A warning on every run's page, so the gap is seen
+            echo "::warning title=YouTube::No YOUTUBE_API_KEY secret on $GITHUB_REPOSITORY: council, county and school board meeting videos are not being listed. Add it there under Settings > Secrets and variables > Actions (README: Secrets and API keys)"
+          fi
           gacrawl transcripts --max-minutes "$T" || true
       - name: Candidate research (every night, a share of the weekly budget; a full block when asked for)
         env:
@@ -601,6 +612,8 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
         run: |
           for k in FEC_API_KEY YOUTUBE_API_KEY X_BEARER_TOKEN; do [ -n "${!k}" ] && echo "$k: set" || echo "$k: missing (README: Secrets and API keys)"; done
+          # optional, so a notice rather than a warning (the missing YouTube and FEC keys warn in their own steps)
+          [ -n "$X_BEARER_TOKEN" ] || echo "::notice title=X posts::No X_BEARER_TOKEN secret on $GITHUB_REPOSITORY: candidates' verified X accounts are not read for posts (optional; README: Secrets and API keys)"
           gacrawl posts verify || true
           if [ "$IS_MAIN" != "true" ]; then
             M=10                                              # test run from a branch
@@ -618,7 +631,7 @@ jobs:
           # the public runner) otherwise pushed the job past its 350-minute limit before any of them ran
           # and never all of it: at most RESEARCH_CAP minutes, leaving RESEARCH_KEEPS for the steps after it (from Nov. 14
           # a 200-minute block left the legislature, money, Code changes and six more steps 0 minutes in most runs, while
-          # most blocks added fewer than 80 records)
+          # most blocks added fewer than 80 records). The money steps come first in those minutes (see the next step)
           CAP=${{ vars.RESEARCH_CAP || '90' }}; [ "$M" -gt "$CAP" ] && M=$CAP
           M=$(bash scripts/budget.sh "$M" "${{ vars.RESEARCH_KEEPS || '120' }}"); [ "$M" -le 0 ] && { echo "no time left in this run for research; the next run does it"; exit 0; }
           # watchdog as on the crawl: SIGINT after the budget lets research finish the candidates in hand and save
@@ -627,6 +640,52 @@ jobs:
           else
             timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "research stopped by the watchdog after $((M + 5)) minutes"
           fi
+      - name: Campaign finance and organizations
+        # The three money steps come first in the 2 hours research leaves (RESEARCH_KEEPS). Behind the legislature, bill
+        # reasons, discovery, hearing video, the acts' Code changes and federal bills, the Georgia money step found no
+        # time left in 18 merge jobs in a row, Nov 14 to Nov 19, 2026 (scripts/budget.sh): even with research at 61
+        # minutes on Nov 19, those steps took the time after it first (bill reasons and the Code changes use all of
+        # their minutes). Here this step and the Georgia step, each at its hard stop (32 and 37 minutes), take little
+        # more than the first of those 2 hours (tests/test_crawl_budget.py). Finance stays first: the Georgia step then
+        # gives donor ids to every new line, the FEC's too
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          OPENCORPORATES_API_KEY: ${{ secrets.OPENCORPORATES_API_KEY }}
+        run: |
+          M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          [ -n "$FEC_API_KEY" ] || echo "::warning title=FEC API key::No FEC_API_KEY secret: federal money cannot be read (the shared DEMO_KEY is refused after a few calls)"
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
+          # otherwise on research runs, as before. The hard stop is for the entity pass, which has no clock of its own
+          # (Nov 9: 110,600 lines took an hour); stopped, it keeps what it resolved and the next run does the rest
+          # --defer-reread: while the fec-reread job's hand-offs keep arriving (2 days) the campaigns awaiting the re-read
+          # are left to it (the same pages read here at the same time cost the one FEC key twice); otherwise as before
+          if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
+          else
+            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
+          fi
+      - name: Georgia state and local money (State Ethics Commission)
+        run: |
+          # EFile (2022-2025) and PeachFile (2026 on), through the public API their own Contributions search calls;
+          # the first full read takes several runs (resumable), then each run reads only what is new
+          M=${{ vars.ETHICS_MINUTES || '25' }}; [ "$IS_MAIN" != "true" ] && M=3
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          # while the ga-money job hands its reading over (applied above, within two days) it owns the full histories and
+          # this step reads only the newest lines; otherwise (no hand-off) this step reads the full histories itself.
+          # Then it gives donor ids to every new line (the ga-money job's too) and drops lines amended reports replaced
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --mode auto --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the Georgia money step stopped after $((M + 10)) minutes"
+      - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+        run: |
+          # gacrawl/registries.py: every organization or committee that gave money (biggest first) is looked up in the
+          # registries' bulk files and searches; the open model writes its background from them (model-work.yml)
+          M=${{ vars.ORGS_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=3
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 5))m" gacrawl finance orgs --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "organization lookups stopped after $((M + 5)) minutes"
       - name: General Assembly (members, bills, roll calls; per-candidate records)
         run: |
           # legis.ga.gov changes daily in session and signing season (January-May), rarely otherwise
@@ -691,6 +750,15 @@ jobs:
             timeout -s INT -k 2m "$((M + 4))m" gacrawl legis video --no-pages --with-hearings --max-minutes "$M" > /tmp/lv.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "stopped after $((M + 4)) minutes"
           fi
           python3 -c "import json;d=json.load(open('/tmp/lv.json'));print({k:d.get(k) for k in ('histories','video','hearings')})" 2>/dev/null || true
+      - name: Federal bills (every U.S. House and Senate bill since 2015, GovInfo Bill Status)
+        # before the Code changes: reading only what changed takes about a minute (Nov 19, 2026: 20,004 bills, 470
+        # changed, 77 s), while the Code changes use all of their 45 minutes as long as a backlog lasts. After them,
+        # this step found no time left in 16 of the 20 merge jobs from Nov 14 to Nov 19, 2026
+        run: |
+          # gacrawl/federal_bills.py: the first runs read each Congress from its zip (resumable); then only what changed
+          M=${{ vars.FEDERAL_BILLS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=3
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 10))m" gacrawl federal-bills --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the federal bills step stopped after $((M + 10)) minutes"
       - name: Code changes of enacted acts (as-passed text, for Electo's current Code)
         run: |
           # each enacted act is read once (about 1,440 for 2023-2026, ~2 requests and ~3 s each: two to three nights
@@ -699,51 +767,6 @@ jobs:
           if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
           M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
           gacrawl codeacts --max-minutes "$M" || true   # exits early once every act is read
-      - name: Federal bills (every U.S. House and Senate bill since 2015, GovInfo Bill Status)
-        run: |
-          # gacrawl/federal_bills.py: the first runs read each Congress from its zip (resumable); then only what changed
-          M=${{ vars.FEDERAL_BILLS_MINUTES || '20' }}; [ "$IS_MAIN" != "true" ] && M=3
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 10))m" gacrawl federal-bills --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the federal bills step stopped after $((M + 10)) minutes"
-      - name: Campaign finance and organizations
-        env:
-          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
-          OPENCORPORATES_API_KEY: ${{ secrets.OPENCORPORATES_API_KEY }}
-        run: |
-          M=${{ env.BACKFILL == 'true' && needs.prepare.outputs.finance_minutes || vars.FINANCE_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=4
-          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          [ -n "$FEC_API_KEY" ] || echo "::warning title=FEC API key::No FEC_API_KEY secret: federal money cannot be read (the shared DEMO_KEY is refused after a few calls)"
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          # every run while FEC lines read before the FEC's own fields remain (they are not counted until re-read);
-          # otherwise on research runs, as before. The hard stop is for the entity pass, which has no clock of its own
-          # (Nov 9: 110,600 lines took an hour); stopped, it keeps what it resolved and the next run does the rest
-          # --defer-reread: while the fec-reread job's hand-offs keep arriving (2 days) the campaigns awaiting the re-read
-          # are left to it (the same pages read here at the same time cost the one FEC key twice); otherwise as before
-          if [ "${{ needs.prepare.outputs.research }}" = "true" ]; then
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
-          else
-            timeout -s INT -k 2m "$((M + 15))m" gacrawl finance --reread-only --defer-reread --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the finance step stopped after $((M + 15)) minutes"
-          fi
-      - name: Georgia state and local money (State Ethics Commission)
-        run: |
-          # EFile (2022-2025) and PeachFile (2026 on), through the public API their own Contributions search calls;
-          # the first full read takes several runs (resumable), then each run reads only what is new
-          M=${{ vars.ETHICS_MINUTES || '25' }}; [ "$IS_MAIN" != "true" ] && M=3
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
-          # while the ga-money job hands its reading over (applied above, within two days) it owns the full histories and
-          # this step reads only the newest lines; otherwise (no hand-off) this step reads the full histories itself.
-          # Then it gives donor ids to every new line (the ga-money job's too) and drops lines amended reports replaced
-          timeout -s INT -k 2m "$((M + 10))m" gacrawl ethics run --mode auto --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the Georgia money step stopped after $((M + 10)) minutes"
-      - name: What the organizations that gave money are (FEC files, State Ethics Commission, IRS)
-        env:
-          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
-        run: |
-          # gacrawl/registries.py: every organization or committee that gave money (biggest first) is looked up in the
-          # registries' bulk files and searches; the open model writes its background from them (model-work.yml)
-          M=${{ vars.ORGS_MINUTES || '15' }}; [ "$IS_MAIN" != "true" ] && M=3
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for this step; the next run does it"; exit 0; }
-          timeout -s INT -k 2m "$((M + 5))m" gacrawl finance orgs --max-minutes "$M" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "organization lookups stopped after $((M + 5)) minutes"
       - name: Rumor Mill pages (each unverified item's page read once, for the open model's reading)
         run: |
           M=5; [ "$IS_MAIN" != "true" ] && M=2
@@ -889,6 +912,21 @@ jobs:
           if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then (set -o pipefail; timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "linking stopped; the next run finishes it"
           elif [ "$n" = "1" ]; then echo "money applied; no time left to link it in this run (the next run links it)"
           else echo "no money hand-off arrived while this run worked"; fi
+      - name: The police job's newest departments and sheriffs, for the export (police.yml stores them on its own schedule)
+        # This job pulls state at its start and the police news step reads these again about half an hour in, but the
+        # export comes three to four hours later. Nov 19, 2026: the merge started at 02:49 and read them at 03:14, the
+        # police job first stored state/sheriffs.json at 05:35, and at 06:55 this export had no sitting sheriff in any
+        # county, which the 07:52 Electo import put on the site until the police job's own import at 08:10
+        if: env.PUBLIC_RUNNER == 'true'
+        continue-on-error: true      # the copy this job has is still exported
+        timeout-minutes: 5
+        run: |
+          [ -n "${DATA_REPO:-}" ] || { echo "no private data repository"; exit 0; }
+          for f in $POLICE_STATE; do
+            if gh api -H "Accept: application/vnd.github.raw" "repos/$DATA_REPO/contents/$f" > "$f.new" 2>/dev/null \
+               && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f.new" 2>/dev/null; then mv "$f.new" "$f"; echo "$f: the police job's newest"
+            else rm -f "$f.new"; echo "$f: kept as this job has it"; fi
+          done
       - name: Memory to spare for the export (swap on the runner's disk)
         continue-on-error: true
         timeout-minutes: 5

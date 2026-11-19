@@ -75,7 +75,10 @@ jobs:
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
         run: |
           if [ -z "$LEGISCAN_API_KEY" ]; then
-            echo "::warning title=LegiScan::No LEGISCAN_API_KEY secret in this repository: LegiScan is not read (no backup source, no cross-check). A free key: https://legiscan.com/legiscan"
+            # this job runs only on the public runner (Crawl-runner), and sync-code copies the code there, not the
+            # secrets: a key added to the private repository is never seen here. To Nov 19, 2026 none of Electo's 23
+            # versions of vote_model.json held a LegiScan roll call, and 28 whose member lists did not add up stayed out
+            echo "::warning title=LegiScan::No LEGISCAN_API_KEY secret on $GITHUB_REPOSITORY, where this job runs: LegiScan is not read (no backup source for roll calls, no cross-check). Add a free key (https://legiscan.com/legiscan) there under Settings > Secrets and variables > Actions"
             exit 0
           fi
           (set -o pipefail; timeout -s INT -k 2m 25m gacrawl legis legiscan --max-minutes 20 | tail -c 1500) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "LegiScan stopped; the next night carries on"

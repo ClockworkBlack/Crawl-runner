@@ -325,7 +325,10 @@ class Discovery:
         """Rumor Mill items the open model has read (rumors_ai.py) and found to name the person, as research leads: the
         claim is searched for in trusted outlets and on official pages. The rumor page itself is never a source; what the
         search finds is kept only when it is an official page or a trusted outlet's story naming the person and telling
-        the same story (decide()), and it is then noted on the rumor (row["research"]) so Electo can show it."""
+        the same story (decide()), and it is then noted on the rumor (row["research"]) so Electo can show it.
+        A reading that says the page is about someone else with the same name (same_person false, rumors_ai.py v2) is
+        no lead: searched for, a namesake's story could be saved as an article about the Georgia candidate. A reading
+        made before same_person was asked (no key) or one unsure of it (null) still is, as before."""
         try:
             from .candidates import RumorMill
 
@@ -335,6 +338,7 @@ class Discovery:
         by_id = {c["id"]: c for c in self.cands}
         out = []
         rows = [r for r in rows if (r.get("ai") or {}).get("named") and not (r.get("ai") or {}).get("opinion")
+                and (r.get("ai") or {}).get("same_person") is not False
                 and r.get("status", "unverified") == "unverified" and not self._tried("r:" + r["id"])
                 and (r.get("ai") or {}).get("attribution") in ("official record", "named source", "anonymous")]
         rows.sort(key=lambda r: r.get("last_seen") or "", reverse=True)

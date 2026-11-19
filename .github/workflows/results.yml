@@ -7,7 +7,14 @@ name: results
 #      posting; when it is newer than the page's, or the count has just become official, or the election id changed,
 #   3. rebuilds the page with Electo's own ga/build.py (one consistent snapshot of every race, never older than the
 #      last build; --final once the state marks the results official), commits ga-election-night.html, built.json and
-#      template.built.html to Electo, and starts publish-site so the public site follows within minutes.
+#      template.built.html to Electo, and starts publish-site so the public site follows within minutes;
+#   4. until that final build, reads every county's own posting of its local races and ballot questions with Electo's
+#      ga/local_update.py (a request per county) at each new state posting and otherwise every two hours, and commits
+#      ga/local_2026.json and ga/bills_local.json when a county's posting changed (a certified count, a correction),
+#      starting publish-site again. The page's own publish is started before this read, which a slow state site can
+#      stretch to its 8-minute limit: the statewide count never waits on the counties.
+#      Until Nov 19, 2026 only ga/watch.py, run by hand on election week, did this: every county stayed on its Nov 4
+#      count, unofficial, and the 134 local ballot questions stayed "pending" past the counties' Nov 9 deadline to certify.
 # A failed read of the feed fails the run (sync-code records it; the watchdog reports a job that keeps failing).
 # A new election needs no one: ga/build.py --pick finds it in the state's list of elections (the newest general
 # election or general runoff that has begun and has a statewide race) and reads its races from its feed; the page
@@ -34,7 +41,7 @@ jobs:
   results:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20       # the page's build and, every two hours, a request per county for the local races (8 minutes at most)
     env:
       GH_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
       ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
@@ -45,7 +52,7 @@ jobs:
         id: check
         run: |
           python3 - <<'PY'
-          import base64, gzip, json, os, re, subprocess, sys, urllib.request
+          import base64, gzip, json, os, re, subprocess, sys, time, urllib.request
 
           def electo(path):
               r = subprocess.run(["gh", "api", f"repos/{os.environ['ELECTO_REPO']}/contents/{path}", "--jq", ".content"],
@@ -67,13 +74,16 @@ jobs:
               sys.exit(f"could not tell which election to follow: {r.stderr.strip()[-300:]}")
           force = os.environ.get("FORCE") == "true"
           out = open(os.environ["GITHUB_OUTPUT"], "a")
+          # the counties' local races are read while the count is not final, at most once in each two-hour slot (the
+          # slot names the cache entry that says they were read), and at every new state posting
+          now = time.gmtime()
+          out.write(f"eid={eid}\nslot={time.strftime('%Y%m%d', now)}-{now.tm_hour // 2}\n")
           if built.get("final") and built.get("eid") == eid and not force:
               print(f"the page holds the final, official count of {eid}; nothing to do until a new election is set")
-              out.write("go=false\n"); sys.exit(0)
+              out.write("go=false\nlocal=false\n"); sys.exit(0)
           url = f"https://results.sos.ga.gov/results/public/api/elections/Georgia/{eid}/data"
           req = urllib.request.Request(url, headers={"Accept": "application/json", "Accept-Encoding": "gzip",
                                                      "User-Agent": "ga-results-map/1.1 (election-night page)"})
-          import time
           e, err = None, None
           for wait in (0, 20, 60):          # a passing blip of the state's site is tried again before the run fails
               time.sleep(wait)
@@ -94,10 +104,20 @@ jobs:
           go = force or feed > have or built.get("eid") not in (None, eid) or (official and not built.get("final"))
           print(f"{eid}: feed posting {feed or '?'}{' (official)' if official else ''}; page built from {have or 'nothing'}"
                 f"{' (final)' if built.get('final') else ''} -> {'rebuild' if go else 'up to date'}")
-          out.write(f"go={'true' if go else 'false'}\nofficial={'true' if official else 'false'}\n")
+          # local races only once the feed has answered (a state site that is down is not asked 160 times more)
+          out.write(f"go={'true' if go else 'false'}\nofficial={'true' if official else 'false'}\nlocal=true\n")
           PY
+      - name: Local races already read in this two-hour slot?
+        id: localseen
+        if: steps.check.outputs.local == 'true'
+        continue-on-error: true     # no answer from the cache: the races are read (the page's own build goes on)
+        uses: actions/cache/restore@v4
+        with:
+          path: .local-read
+          key: local-results-${{ steps.check.outputs.slot }}
+          lookup-only: true
       - uses: actions/setup-python@v5
-        if: steps.check.outputs.go == 'true'
+        if: steps.check.outputs.go == 'true' || (steps.check.outputs.local == 'true' && (env.FORCE == 'true' || steps.localseen.outputs.cache-hit != 'true'))
         with: {python-version: "3.12"}
       - name: Rebuild the page from the feed and commit it to Electo
         id: build
@@ -126,8 +146,77 @@ jobs:
             sleep $((i * 10))
           done
           echo "::error::could not push the results to Electo"; exit 1
-      - name: Publish the site now
+      - name: Publish the site now with the new count
+        # right after the page's push and before the county read below: when the state's site is slow that read can
+        # run past the time the job has left, and a job cut off at its limit skips its later steps (the next run finds
+        # the page current and would not start publish-site again)
         if: steps.build.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"
+      - name: Every county's local races and ballot questions; committed to Electo when a county's posting changed
+        id: local
+        if: ${{ !cancelled() && steps.check.outputs.local == 'true' && (steps.check.outputs.go == 'true' || env.FORCE == 'true' || steps.localseen.outputs.cache-hit != 'true') }}
+        # the reader has 8 minutes (below); this covers a clone or push that hangs. A step past its own limit fails
+        # without cancelling the job, so the steps after it still run.
+        timeout-minutes: 11
+        env:
+          EID: ${{ steps.check.outputs.eid }}
+        run: |
+          set -u
+          rm -rf /tmp/electo-local
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" /tmp/electo-local
+          cd /tmp/electo-local
+          # what ga/local_update.py reads and writes: its fetch (sos_hist.py, build.py), the city names of the 2025
+          # municipal ballot (local_2025m.json) and the two files it rewrites
+          git sparse-checkout set --no-cone /ga/local_update.py /ga/sos_hist.py /ga/build.py /ga/local_2025m.json \
+            /ga/local_2026.json /ga/bills_local.json
+          [ -f ga/local_update.py ] || { echo "no local results reader in this Electo"; exit 0; }
+          # --eid: the reader is for one ballot (the Nov. 3, 2026 general) and reads nothing for another election.
+          # 8 minutes at most: a healthy read of the 159 counties takes a minute or two, but a state site that hangs
+          # costs each county up to three 30-second tries, five counties at a time (about 50 minutes for all of them).
+          # A read cut off is not marked as done in this slot, so the next run asks again and a reader that never
+          # finishes keeps failing where the watchdog sees it.
+          # set +e around it: under bash -eo pipefail (shell: bash) a failed read would end the step here, before the
+          # case below says why (Nov 19 review); under plain bash -e the pipeline's own status is tee's
+          set +e
+          timeout -k 30 8m python3 -I ga/local_update.py --eid "$EID" 2>&1 | tee "$RUNNER_TEMP/local.out"; rc=${PIPESTATUS[0]}
+          set -e
+          case "$rc" in
+            0) ;;
+            124|137) echo "::error title=Local results::the counties' postings were not all read within 8 minutes (the state's site is slow); nothing committed, the next run reads them again"; exit 1 ;;
+            *) echo "::error title=Local results::ga/local_update.py ended with exit $rc; nothing committed (the lines above say why)"; exit 1 ;;
+          esac
+          touch "$GITHUB_WORKSPACE/.local-read"          # read in this slot: the next step keeps the mark
+          if L=$(grep '^counties not read:' "$RUNNER_TEMP/local.out"); then
+            echo "::warning title=Local results::some counties were not read and keep their last postings ($L); the lines above say why"
+          fi
+          git add ga/local_2026.json ga/bills_local.json
+          git diff --cached --quiet && { echo "no county posted anything new"; exit 0; }
+          cp ga/local_2026.json ga/bills_local.json "$RUNNER_TEMP/"
+          MSG=$(grep '^local postings:' "$RUNNER_TEMP/local.out" | tail -n 1 | cut -d: -f2- | cut -c2-200)
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          for i in 1 2 3 4; do
+            # each try on Electo's newest main: only this job and ga/watch.py write these two files
+            git fetch -q --depth 1 origin main && git reset -q --hard origin/main
+            cp "$RUNNER_TEMP/local_2026.json" "$RUNNER_TEMP/bills_local.json" ga/
+            git add ga/local_2026.json ga/bills_local.json
+            git diff --cached --quiet && { echo "Electo already holds these postings"; exit 0; }
+            git commit -qm "Local results from the Secretary of State: ${MSG:-a posting changed}" && git push -q origin HEAD:main && { echo "pushed=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            sleep $((i * 10))
+          done
+          echo "::error::could not push the local results to Electo"; exit 1
+      - name: Remember that the local races were read in this slot
+        if: ${{ !cancelled() && steps.local.outcome == 'success' && steps.localseen.outputs.cache-hit != 'true' && hashFiles('.local-read') != '' }}
+        continue-on-error: true     # not kept: the next run reads them again
+        uses: actions/cache/save@v4
+        with:
+          path: .local-read
+          key: local-results-${{ steps.check.outputs.slot }}
+      - name: Publish the site again with the counties' new postings
+        # when this run also started a publish for a new count above, that publish may still be running: publish-site
+        # then keeps this start waiting (a running publish is never cut off) and the waiting run publishes this push too
+        if: ${{ !cancelled() && steps.local.outputs.pushed == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

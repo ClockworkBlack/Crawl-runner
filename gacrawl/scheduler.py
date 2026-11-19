@@ -8,6 +8,9 @@
   any single site at one request per interval no matter how many workers.
 - Progress (state/progress.json) survives between runs, so a run that hits its
   time budget simply resumes where it left off next time.
+- A part-read source whose shares keep ending the same way (nothing new stored,
+  no cursor moved, no more records seen than before) is not resumed first and
+  gets no spare shares; it waits between tries, longer each time (STALL_SHARES).
 """
 from __future__ import annotations
 
@@ -96,6 +99,45 @@ def stale_reader(src: dict, p: dict, hit: dict | None = None) -> bool:
     return bool(want) and p.get("reader") != want
 
 
+# Shares in a row that stored nothing new, moved no cursor and saw no more records than the first of them, after which
+# a part-read source counts as stuck. A page crawl begins again at the home page on every share and reads the pages
+# near the top each time; a site whose top pages alone fill a share never gets below them. From Nov. 14 to 19, 2026
+# Duluth's site was "partial (html full): 0 new / 41 seen" on every run, six shares a run (each share that saw anything
+# was given another), and 17 other city and county sites and agenda pages much the same. A structured reader that
+# marks its place (Legistar, CivicClerk, YouTube) moves a cursor when it gets further, which is progress even when
+# everything it read was already stored.
+STALL_SHARES = 3
+
+
+def stall_after(p0: dict, new: int, seen: int, moved: bool, whole_share: bool) -> dict:
+    """The progress fields for a share that stopped part-way: `stalled`, the shares in a row that changed nothing, and
+    `stall_seen`, the records the first of them saw. `p0`: the source's progress before the share; `moved`: a cursor
+    changed; `whole_share`: the share ended on its own slice ("time slice": its time used up, or its host's next turn
+    past it). A share cut short by the run's end, the watchdog or the end of the off-peak window says nothing either
+    way and leaves the count as it was."""
+    if new or moved:
+        return {"stalled": 0}
+    if not whole_share:
+        return {}
+    n, best = int(p0.get("stalled") or 0), int(p0.get("stall_seen") or 0)
+    if n and seen <= best:
+        return {"stalled": n + 1}
+    return {"stalled": 1, "stall_seen": seen}       # the first share of a run of them, or one that got further
+
+
+def stuck(p: dict | None) -> bool:
+    """A part-read source whose last STALL_SHARES shares changed nothing."""
+    p = p or {}
+    return (p.get("status") or "").startswith("partial") and int(p.get("stalled") or 0) >= STALL_SHARES
+
+
+def stall_wait(cad: dt.timedelta, stalled: int) -> dt.timedelta:
+    """How long a stuck source waits between tries: a quarter cadence (at least 6 hours), as a failing source does,
+    doubled for every further share that changed nothing, up to its whole cadence."""
+    base = max(dt.timedelta(hours=6), cad / 4)
+    return min(max(cad, base), base * 2 ** min(max(0, stalled - STALL_SHARES), 8))
+
+
 def ran_out_of_time(status: str) -> bool:
     """A run that only ran out of time (its probe or crawl reached the deadline) is not a failure: the source is
     not backed off, it simply resumes next run."""
@@ -108,7 +150,9 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
       1. a source stopped mid-way last time (partial) or never finished resumes first, then the most overdue;
       2. within that, sources with candidates Electo is building profiles for (`wanted` jurisdictions), bigger
          jurisdictions (tier a, b, c), and structured channels (a meeting API or feed yields more per minute than
-         walking pages) go before the rest, so a run that cannot reach everything reaches what matters most."""
+         walking pages) go before the rest, so a run that cannot reach everything reaches what matters most;
+      3. a part-read source stuck on the same pages (stuck()) is not resumed: after its wait (stall_wait) it goes
+         after every other due source."""
     cadence_days = {**TIER_CADENCE_DAYS, **(cadence_days or {})}
     now = now or _now()
     wanted = wanted or set()
@@ -122,6 +166,7 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
         last_try = dt.datetime.fromisoformat(p["last_run"]) if p.get("last_run") else None
         status = p.get("status", "") or ""
         failed = status.startswith(("error", "blocked", "stopped")) and not ran_out_of_time(status)
+        held = stuck(p)
         if not force:
             if last_ok and now - last_ok < cad:
                 continue
@@ -131,26 +176,31 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
             # a blocked or refused host is left alone for a full cadence even after it once worked
             if last_try and status.startswith(("blocked", "stopped")) and now - last_try < cad:
                 continue
+            # a part-read source stuck on the same pages backs off too, longer after every share that changes nothing
+            if last_try and held and now - last_try < stall_wait(cad, int(p.get("stalled") or 0)):
+                continue
         overdue = (now - last_ok) / cad if last_ok else 99.0
-        resume = status.startswith("partial") or (last_try is not None and not last_ok and not failed)
+        # a stuck source is not resumed first, and goes after every other due source: its share has bought nothing
+        resume = not held and (status.startswith("partial") or (last_try is not None and not last_ok and not failed))
         hit = cache.get(s["id"]) if cache else None
         ch = (hit or {}).get("chosen", {}).get("channel") or s.get("channel") or ""
         ep = (hit or {}).get("chosen", {}).get("endpoint") or s.get("endpoint") or ""
         structured = ch in ("api", "wp_json", "feed") or any(ep.startswith(h + ":") for h in STRUCTURED_HINT)
-        key = (0 if resume else 1, -min(overdue, 99.0), 0 if s.get("jurisdiction") in wanted else 1,
+        key = (0 if resume else 1, 1 if held else 0, -min(overdue, 99.0), 0 if s.get("jurisdiction") in wanted else 1,
                {"a": 0, "b": 1, "c": 2}.get(s.get("tier", "b"), 1), 0 if structured else 1, s["id"])
         scored.append((key, s))
     scored.sort(key=lambda t: t[0])
     return [t[1] for t in scored]
 
 
-def _made_progress(msg: str) -> bool:
+def _made_progress(msg: str, p: dict | None = None) -> bool:
     """A part-read source that saw something in its last share is worth another share; one that saw nothing
-    (its host's turns never came in time) is not."""
+    (its host's turns never came in time) is not, nor one stuck on the same pages (`p`, its progress: STALL_SHARES).
+    Seeing something used to be enough: a source re-reading the same 41 pages was given a share after every share."""
     import re
 
     m = re.search(r"(\d+) new / (\d+) seen", msg)
-    return bool(m) and int(m.group(2)) > 0
+    return bool(m) and int(m.group(2)) > 0 and not stuck(p)
 
 
 def owned_endpoints(sources: list[dict]) -> dict[str, str]:
@@ -315,10 +365,12 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                                     page_revisit_days=float(fr.get("page_revisit_days", 7)))
         new = total = 0
         mode = "delta" if modified_since else ("resume" if ctx.cursors else "full")
+        at_start, moved = dict(ctx.cursors), False      # a cursor that changes is progress (stall_after)
         try:
             for item in channels.crawl(fetcher, src, chosen, limits, modified_since=modified_since, ctx=ctx):
                 if isinstance(item, channels.Checkpoint):
                     store.set_cursor(sid, item.stream, item.value)
+                    moved = moved or at_start.get(item.stream) != item.value
                     continue
                 item.jurisdiction = item.jurisdiction or src.get("jurisdiction", "")
                 item.evidence = item.evidence or "primary"
@@ -333,7 +385,8 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                 if stop.is_set() or time.monotonic() > deadline or not may_run(structured, src):
                     store.flush()
                     progress.update(sid, status=f"partial ({chosen['channel']} {mode}): {new} new / {total} seen",
-                                    new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"])
+                                    new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"],
+                                    **stall_after(p0, new, total, moved, whole_share=False))
                     return sid, f"partial ({chosen['channel']} {mode}): {new} new / {total} seen"
             store.flush()
             if not modified_since:
@@ -341,6 +394,8 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                 # sitemap's "whole list read")
                 store.clear_cursors(sid, keep=("full", "sitemap_read"))
             done = {"reader": READER_VERSIONS[reader_of(src, {"chosen": chosen})]} if reader_of(src, {"chosen": chosen}) in READER_VERSIONS else {}
+            if p0.get("stalled"):
+                done["stalled"] = 0
             progress.update(sid, status="ok", last_ok=started, channel=chosen["channel"], mode=mode, new=new, seen=total,
                             fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"], **done)
             return sid, f"{chosen['channel']} {mode}: {new} new / {total} seen ({ctx.stats['fetched']} fetched, " \
@@ -349,7 +404,8 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             store.flush()
             why = "time slice" if "slice" in str(exc) else "time budget"
             progress.update(sid, status=f"partial ({chosen['channel']} {mode}): {new} new / {total} seen ({why})",
-                            new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"])
+                            new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"],
+                            **stall_after(p0, new, total, moved, whole_share=why == "time slice"))
             return sid, f"partial ({chosen['channel']} {mode}): {new} new / {total} seen ({why})"
         except Blocked as exc:
             store.flush()
@@ -396,8 +452,13 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                 break
             # every source has had its turn and time is left: the ones their share stopped carry on
             by_id = {s["id"]: s for s in batch}
-            batch = [by_id[sid] for sid, m in summary.items()
-                     if sid in by_id and m.startswith("partial") and m.endswith("(time slice)") and _made_progress(m)]
+            sliced = [sid for sid, m in summary.items()
+                      if sid in by_id and m.startswith("partial") and m.endswith("(time slice)")]
+            batch = [by_id[sid] for sid in sliced if _made_progress(summary[sid], progress.get(sid))]
+            held = sorted(sid for sid in sliced if stuck(progress.get(sid)))
+            if held:
+                log(f"{len(held)} sources stuck on the same pages ({STALL_SHARES} shares with nothing new) wait for a "
+                    f"later run: {', '.join(held[:10])}{' ...' if len(held) > 10 else ''}")
             if passes >= 8:
                 batch = []
             if batch:

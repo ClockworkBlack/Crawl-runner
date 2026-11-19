@@ -179,3 +179,25 @@ def test_page_that_never_names_the_person_is_dropped_without_asking_the_model(tm
     drop = [r for r in d.llm.logged if r.get("task") == "judge_page" and r.get("asked") is False]
     assert len(drop) == 1 and drop[0]["url"].startswith(u1) and drop[0]["why"] == ["the page does not name the person"]
     assert [x["url"] for x in d.st["items"].values()] == [u2]
+
+
+def test_a_namesakes_rumor_is_no_research_lead(tmp_path):
+    """A model reading that says the page is about someone else with the same name (same_person false, rumors_ai.py
+    v2) gives no lead: searched for, a namesake's story could be saved as an article under the Georgia candidate. Said
+    true, or not asked yet (a v1 reading), it still does."""
+    d = make(tmp_path, {}, {})
+    d.cands = [{"id": f"p{i}", "name": f"Kevin Williamson{i}", "office": "County Commission", "counties": ["Fulton"]}
+               for i in range(4)]
+    claim = "Kevin Williamson accused of fraud in land deal - Example News"
+    ai = {"v": 2, "named": True, "attribution": "named source"}
+    rows = [{"id": "r1", "candidate_id": "p0", "url": "https://a.example/1", "claim": claim, "ai": {**ai, "same_person": False}},
+            {"id": "r2", "candidate_id": "p1", "url": "https://a.example/2", "claim": claim, "ai": {**ai, "same_person": True}},
+            {"id": "r3", "candidate_id": "p2", "url": "https://a.example/3", "claim": claim, "ai": {"v": 1, "named": True,
+                                                                                                 "attribution": "named source"}},
+            {"id": "r4", "candidate_id": "p3", "url": "https://a.example/4", "claim": claim, "ai": {**ai, "same_person": None}}]
+    p = tmp_path / "data" / "rumor_mill" / "rumors.jsonl"
+    p.parent.mkdir(parents=True)
+    p.write_text("".join(json.dumps({**r, "status": "unverified"}) + "\n" for r in rows))
+    leads = d.rumor_leads()
+    assert sorted(x["rumor"] for x in leads) == ["r2", "r3", "r4"]
+    assert all(x["claim"] == "Kevin Williamson accused of fraud in land deal" for x in leads)
