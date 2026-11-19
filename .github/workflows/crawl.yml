@@ -1,4 +1,7 @@
 name: crawl
+# an export-only run is named so (a run whose export or Electo import did not finish queues one, and none while one is
+# already waiting or running: the step "The export or the Electo import did not finish" below)
+run-name: "${{ inputs.job == 'export-only' && 'crawl (export-only)' || github.workflow }}"
 
 # Nightly crawl + weekly discovery and candidate research.
 #
@@ -80,7 +83,8 @@ env:
   NIGHTLY: ${{ github.event.schedule == '7 4 * * *' }}
   BACKFILL: ${{ inputs.job == 'backfill' || github.event.schedule == '17 11 * * *' }}
   # job: export-only: no crawl and no optional step (scripts/budget.sh gives each 0 minutes): the database as stored,
-  # exported, imported into Electo and put on the site; for a run that stopped before the Electo import
+  # exported, imported into Electo and put on the site; for a run that stopped before the Electo import (a run whose
+  # export or import did not finish queues one itself, near the end of the merge job)
   EXPORT_ONLY: ${{ inputs.job == 'export-only' }}
   HAS_ELECTO_TOKEN: ${{ (secrets.ELECTO_TOKEN || secrets.DATA_TOKEN) != '' }}
   GACRAWL_BROWSER_CHANNEL: chrome      # GitHub's runners ship Google Chrome: no Playwright browser download per run
@@ -120,8 +124,11 @@ jobs:
         id: cadence
         run: |
           # the backfill chain's queued run takes the place of the scheduled nightly and weekly runs (scripts/cadence.py),
-          # so whichever run comes first after the work is due does it
-          python3 scripts/cadence.py due "${{ github.event.schedule }}" "$IS_MAIN" | tee -a "$GITHUB_ENV" | tr 'A-Z' 'a-z' >> "$GITHUB_OUTPUT"
+          # so whichever run comes first after the work is due does it. An export-only run does none of that work, so it
+          # is neither due nor recorded as done there (one queued by a run whose export did not finish would otherwise
+          # mark that run's unfinished nightly and weekly work done, and seed first)
+          if [ "$EXPORT_ONLY" = "true" ]; then printf 'NIGHTLY=false\nWEEKLY=false\nOPTIMIZE_FTS=false\n'
+          else python3 scripts/cadence.py due "${{ github.event.schedule }}" "$IS_MAIN"; fi | tee -a "$GITHUB_ENV" | tr 'A-Z' 'a-z' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - name: Install (only when this job runs the crawler, for seeding or the Electo import)
@@ -287,9 +294,11 @@ jobs:
     # database, the temp save, the next backfill run, the state) inside GitHub's five minutes for a cancelled job.
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     runs-on: ${{ vars.MERGE_RUNNER || 'ubuntu-latest' }}
-    # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes, 110
-    # by default, kept for the steps that save the run: database, bundle, state, Electo, the site), so a run with a full research
-    # block or a slow day ends in time instead of being stopped at this limit before it saves anything.
+    # The long optional steps fit their minutes to what the job has left (scripts/budget.sh, MERGE_RESERVE minutes, 135
+    # by default since Nov 19, 2026, kept for the steps that save the run: database, late money, export and bundle, state,
+    # Electo, the site, each at the most it took from Nov 10 to Nov 19), so a run with a full research block or a slow
+    # day ends in time instead of being stopped at this limit before it saves anything. The late money and the export
+    # fit the clock too (budget.sh --saving): an export it stops queues an export-only run (near the end of this job).
     timeout-minutes: 350
     env:
       # the police job's files (police.yml, on its own schedule, keeps them in the private repository; this job only
@@ -605,6 +614,20 @@ jobs:
             echo "::warning title=YouTube::No YOUTUBE_API_KEY secret on $GITHUB_REPOSITORY: council, county and school board meeting videos are not being listed. Add it there under Settings > Secrets and variables > Actions (README: Secrets and API keys)"
           fi
           gacrawl transcripts --max-minutes "$T" || true
+      - name: Records contacts (each place's records office from its own site, for the open records requests)
+        # Ahead of research and the long steps after it, on the job's clock (scripts/budget.sh). Until Nov 19, 2026 the
+        # lookups ran in the open records step near the end of the optional steps, off the clock: that run used all of
+        # their 10 minutes after the clock had run out (minutes 246 to 256), and the saving steps began that much later.
+        # Put on the clock there, they would have found no time left in 19 of the 21 merge jobs from Nov 14 to 19 (each
+        # reached them after minute 240; the clock leaves optional steps nothing from minute 215). Here they keep their
+        # 10 minutes: research started by minute 125 in all 35 merge jobs from Nov 10 to 19. Most runs have nothing to
+        # look up (seconds); Nov 10 took 9.5 minutes, Nov 17 1.7, Nov 19 all 10: what they use comes out of the steps after them
+        run: |
+          M=10; [ "$IS_MAIN" != "true" ] && M=2
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for the records contacts; the next run looks them up"; exit 0; }
+          # on the public runner the details (addresses) go only to state/discovered.json, kept in the private repository
+          Q=/dev/stdout; [ "$PUBLIC_RUNNER" = "true" ] && Q=/dev/null
+          timeout -s INT -k 1m "$((M + 2))m" gacrawl records contacts --max-minutes "$M" > "$Q" || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the records contacts stopped after $((M + 2)) minutes"
       - name: Candidate research (every night, a share of the weekly budget; a full block when asked for)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
@@ -801,10 +824,10 @@ jobs:
           ORR_FROM: ${{ secrets.ORR_FROM }}
           ORR_IMAP_HOST: ${{ secrets.ORR_IMAP_HOST }}
         run: |
-          M=10; [ "$IS_MAIN" != "true" ] && M=2
+          # the records contacts are looked up before research (the step "Records contacts"), on the job's clock: here,
+          # until Nov 19, 2026, they used 10 minutes after the clock had run out, and the saving steps began that much later
           # on the public runner the details (addresses, replies) go only to the tracker kept in the private repository
           Q=/dev/stdout; [ "$PUBLIC_RUNNER" = "true" ] && Q=/dev/null
-          gacrawl records contacts --max-minutes "$M" > "$Q" || true
           if [ -n "$ORR_USER" ]; then     # the mailbox: the private repository's records-send run, not the public runner
             gacrawl records check > "$Q" || true
             gacrawl records follow-up > "$Q" || true
@@ -834,6 +857,7 @@ jobs:
             echo "inbox empty"
           fi
       - name: Store the database now (whatever a later step does, this run's reading is kept)
+        id: dbnow
         if: always() && steps.merged.outcome == 'success'
         continue-on-error: true      # the next step stores it again, with the bundle, and fails the run if it can't
         timeout-minutes: 20
@@ -883,33 +907,49 @@ jobs:
       - name: Money read while this run worked (the FEC re-read's and the Georgia money job's newest hand-offs)
         # they hand over and push money to the site every round (scripts/money_to_electo.sh); this run's export would
         # otherwise put money as old as the merge's start back on the site. Applied again here (the same lines change
-        # nothing) and linked; they are deleted by the run that stores them after applying them at its start
+        # nothing) and linked; they are deleted by the run that stores them after applying them at its start, so what
+        # this step leaves undone (out of time, or stopped) the next run applies in full
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: 16      # its 12 minutes at most (below), the downloads and a stop's grace
         run: |
+          # On the job's clock (scripts/budget.sh --saving money): at most 12 minutes, and only what the export, the
+          # stores, the state, the Electo import and the site leave at their slowest; none when they need it all. Until
+          # Nov 19, 2026 only the linking fitted the clock, the apply never: on Nov 19 this step took 23 minutes (15:04
+          # to 15:27, 21 of them applying the FEC hand-off), and the export after it stopped at its own 45-minute limit
+          # at minute 328, with 22 minutes left in the job for the store, the state and the Electo import. The apply
+          # was slow for a reason of its own (gacrawl finance apply read all ~3 million FEC lines once per re-read
+          # committee to remove lines that were long gone); it now reads them once for every 500 committees
+          M=$(bash scripts/budget.sh --saving 12 money)
+          [ "$M" -ge 3 ] || { echo "no time left in this run for the money that arrived while it worked: the next run applies it at its start"; exit 0; }
+          END=$(( $(date +%s) + M * 60 ))
+          inside() {     # inside <command...>: stopped (SIGINT) when this step's minutes are up; not started without half a minute left
+            local s=$(( END - $(date +%s) ))
+            [ "$s" -ge 30 ] || { echo "no time left for: $1 ${2:-} ${3:-}" >&2; return 124; }
+            timeout -s INT -k 30 "$s" "$@"
+          }
           mkdir -p late
           REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
           get() { local id; id=$(gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(.name==\"$1\") | .id" 2>/dev/null || true)
-                  [ -n "$id" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$id" > "late/$1" && [ -s "late/$1" ]; }
+                  [ -n "$id" ] && inside gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$id" > "late/$1" && [ -s "late/$1" ]; }
           n=0
           if get fec-delta.db.zst; then
             zstd -d -q -f late/fec-delta.db.zst -o late/fec.db
             get fec-kv.json || echo "{}" > late/fec-kv.json
-            gacrawl finance apply --delta late/fec.db --kv late/fec-kv.json | tail -1; n=1
+            n=1; (set -o pipefail; inside gacrawl finance apply --delta late/fec.db --kv late/fec-kv.json | tail -1) \
+              || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the FEC hand-off was not applied in full in $M minutes; the next run applies it at its start"
           fi
           if get ga-delta.db.zst; then
             zstd -d -q -f late/ga-delta.db.zst -o late/ga.db
-            gacrawl finance apply --delta late/ga.db | tail -1; n=1
+            n=1; (set -o pipefail; inside gacrawl finance apply --delta late/ga.db | tail -1) \
+              || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the Georgia money hand-off was not applied in full in $M minutes; the next run applies it at its start"
             if get ga-kv.json; then
-              gacrawl ethics apply-kv --kv late/ga-kv.json
+              inside gacrawl ethics apply-kv --kv late/ga-kv.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the Georgia lookups were not applied in $M minutes"
             fi
           fi
           rm -rf late
-          # linking fits the job's clock: what is left after the export, the store and the Electo import (about 60
-          # minutes, scripts/budget.sh), at most 20 minutes. Until Nov 13, 2026 it always had 20, and a run that
-          # reached this step late went into the export with too little time
-          LEFT=$(( MERGE_LIMIT - ($(date +%s) - MERGE_T0) / 60 - 60 )); [ "$LEFT" -gt 20 ] && LEFT=20
-          if [ "$n" = "1" ] && [ "$LEFT" -ge 3 ]; then (set -o pipefail; timeout -s INT -k 2m "${LEFT}m" gacrawl finance link | tail -c 300) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "linking stopped; the next run finishes it"
+          # linking: the donor and recipient ids of the lines just applied, with what is left of the step's minutes
+          if [ "$n" = "1" ] && [ $(( END - $(date +%s) )) -ge 120 ]; then
+            (set -o pipefail; inside gacrawl finance link | tail -c 300) || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "linking stopped; the next run finishes it"
           elif [ "$n" = "1" ]; then echo "money applied; no time left to link it in this run (the next run links it)"
           else echo "no money hand-off arrived while this run worked"; fi
       - name: The police job's newest departments and sheriffs, for the export (police.yml stores them on its own schedule)
@@ -952,7 +992,14 @@ jobs:
           { sudo fallocate -l 8G "$f" || sudo dd if=/dev/zero of="$f" bs=1M count=8192 status=none; } && sudo chmod 600 "$f" \
             && sudo mkswap "$f" >/dev/null && sudo swapon "$f" && echo "swap on $f" && free -m | awk '/^(Mem|Swap):/'
       - name: Task list, status, Electo bundle
-        timeout-minutes: 45
+        # Up to 70 minutes, cut to what the steps after it need at their slowest (scripts/budget.sh --saving export).
+        # Until Nov 19, 2026 it had 45, and run 44497934401's export was stopped by that limit at 16:12 while it wrote
+        # its last files, about a minute short (16 to 34 minutes in the 20 merge jobs from Nov 14 to 19). The money graph
+        # took 8 minutes as in the run before it; the research packets took 19 (10.5 before) and the donor profiles 13
+        # (5.4), with 3 to 7 per cent more data. Stopped by the job's clock, it says so and the run queues an
+        # export-only run (the step "The export or the Electo import did not finish", near the end) instead of the
+        # job's own limit stopping the Electo import with nothing said
+        timeout-minutes: 80      # a backstop: the reports and the vote model's packages, then the export's own 70 at most
         id: bundle
         run: |
           # the task list and status are reports; only the bundle (the export) must not fail
@@ -966,7 +1013,20 @@ jobs:
           # run read. Nov 13, 2026: twice the runner itself went ("lost communication with the server"), 8 minutes into
           # the export, and the job, its log and every step after it were lost with it
           { echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true
-          gacrawl export --out dist/electo || { code=$?; [ "$code" = 137 ] && echo "::error title=Export::the export was stopped for memory (exit 137); its last memory line above says where"; exit "$code"; }
+          E=$(bash scripts/budget.sh --saving 70 export)
+          # the quickest export from Nov 14 to 19, 2026 took 16 minutes: with less than 15 left it is not started
+          [ "$E" -ge 15 ] || { echo "::error title=Export::only $E minutes left in this run for the export (the store, the state and the Electo import after it keep their slowest minutes): not started, nothing from this run reaches Electo or the site unless an export-only run does it (the job's last steps say whether one is queued)"; exit 1; }
+          start=$(date +%s); code=0
+          timeout -k 1m "${E}m" gacrawl export --out dist/electo || code=$?
+          if [ "$code" != 0 ]; then
+            took=$(( ($(date +%s) - start) / 60 ))
+            if [ "$code" = 124 ] || { [ "$code" = 137 ] && [ "$took" -ge "$E" ]; }; then
+              echo "::error title=Export::the export was stopped after $E minutes, all the job's clock had left for it (the store, the state and the Electo import after it keep their slowest minutes): nothing from this run reaches Electo or the site unless an export-only run does it (the job's last steps say whether one is queued)"
+            elif [ "$code" = 137 ]; then
+              echo "::error title=Export::the export was stopped for memory (exit 137); its last memory line above says where"
+            fi
+            exit "$code"
+          fi
       - name: Store database and bundle (release assets)
         id: stored
         timeout-minutes: 30
@@ -1207,11 +1267,14 @@ jobs:
             if [ "$rc" = 2 ]; then
               echo "::error title=Electo import::a step of the import stopped (above); nothing from this run was committed to Electo"
               { echo "### Electo import stopped"; echo; echo '```'; tail -n 25 /tmp/import-last-step.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              # an export-only run would stop in the same place: none is queued for this (the step below reads this)
+              echo "stopped=step" >> "$GITHUB_OUTPUT"
               exit 1
             fi
             echo "Electo's main moved while importing and the import could not be rebased on it: importing again on its newest commit"
             sleep $((i * 10))
           done
+          echo "stopped=push" >> "$GITHUB_OUTPUT"
           exit 1
       - name: Temp saves this run's data covers are deleted (its data is on Electo now)
         # tempsave-* files in the private release (a stopped run's database, or one saved by hand with db-backup's temp
@@ -1263,10 +1326,59 @@ jobs:
             fi
             GH_TOKEN="$RUN_TOKEN" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed attachment $id (run $run)"
           done
+      - name: The export or the Electo import did not finish (an export-only run exports and imports this run's database)
+        # Nov 19, 2026 (run 44497934401): the export hit its time limit at 16:12, nothing was imported into Electo and
+        # the site kept its 07:52 data, to wait for a later full run's import (each comes about six hours after the
+        # last). Every saving step that can stop short (the export on the job's clock, the bundle's store, the copy for
+        # Electo, a refused import) leaves the database this run stored above; a run of this workflow with job:
+        # export-only exports and imports it and does no optional step (about two hours). It is queued from a main run
+        # that stored its database, never from an export-only run (so it cannot loop: one export-only run per run that
+        # did not finish), never while one is already waiting or running, and not when a step of Electo's importer
+        # stopped (it would stop in the same place). GitHub keeps one waiting run per concurrency group: a waiting full
+        # run (the next backfill link) gives way to it, and the next link starts after it (sync-code, within the hour,
+        # or the schedule)
+        if: ${{ !cancelled() && env.IS_MAIN == 'true' && env.HAS_ELECTO_TOKEN == 'true' && (steps.dbnow.outcome == 'success' || steps.stored.outcome == 'success') && steps.imported.outcome != 'success' && steps.imported.outputs.stopped != 'step' }}
+        timeout-minutes: 5
+        env:
+          EXPORTED: ${{ steps.bundle.outcome }}
+          STORED: ${{ steps.stored.outcome }}
+          IMPORTED: ${{ steps.imported.outcome }}
+        run: |
+          say() {        # say <what>: an error on the run's page and a line in its summary
+            echo "::error title=Electo not updated::$1"
+            { echo "### Electo was not updated by this run"; echo; echo "$1"; } >> "$GITHUB_STEP_SUMMARY"
+          }
+          what="the export (${EXPORTED:-not run}), the bundle's store (${STORED:-not run}) or the Electo import (${IMPORTED:-not run}) did not finish: nothing from this run is on Electo or the site"
+          if [ "$EXPORT_ONLY" = "true" ]; then
+            say "$what. This export-only run queues no other one: Electo and the site wait for the next full run"
+            exit 0
+          fi
+          REPO="$GITHUB_REPOSITORY"; REF="$GITHUB_REF_NAME"
+          runs=""
+          for st in queued in_progress waiting pending requested; do
+            r=$(GH_TOKEN="$RUN_TOKEN" gh api "repos/$REPO/actions/workflows/crawl.yml/runs?branch=$REF&status=$st&per_page=100" \
+                  --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID:-0}) | \"\(.id) \(.status) \(.display_title)\"") \
+              || { say "$what. The waiting crawl runs could not be listed, so no export-only run was queued: start one by hand (Actions > crawl > Run workflow, job export-only)"; exit 1; }
+            runs="$runs$r"$'\n'
+          done
+          if echo "$runs" | grep -q " crawl (export-only)$"; then
+            say "$what. An export-only run is already waiting or running ($(echo "$runs" | grep " crawl (export-only)$" | head -1 | cut -d' ' -f1)): it exports and imports the stored database"
+            exit 0
+          fi
+          other=$(echo "$runs" | grep -v '^$' | head -1 | cut -d' ' -f1 || true)
+          for i in 1 2 3; do
+            if GH_TOKEN="$RUN_TOKEN" gh workflow run -R "$REPO" crawl.yml --ref "$REF" -f job=export-only; then
+              say "$what. An export-only run is queued: it exports and imports the database this run stored$([ -n "$other" ] && echo " (it takes the place of waiting run $other, which GitHub cancels: one run waits at a time; the next full run starts after it)")"
+              exit 0
+            fi
+            sleep $((i * 15))
+          done
+          say "$what. The export-only run could not be queued: start one by hand (Actions > crawl > Run workflow, job export-only)"
+          exit 1
       - name: The Electo import failed (everything else was saved above)
         # the import is continue-on-error so the state, the site data and the cleanup still run; the run is then failed
         # here, so a refused or crashed import is seen (Nov 14: run 43592205300 was green with no import)
         if: always() && steps.imported.outcome == 'failure'
         run: |
-          echo "::error title=Electo import::the import into Electo failed (see its step); the crawl's data is stored, but Electo does not have it"
+          echo "::error title=Electo import::the import into Electo failed (see its step); the crawl's data is stored, but Electo does not have it (the step before this one says whether an export-only run is queued)"
           exit 1

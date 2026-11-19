@@ -191,3 +191,36 @@ def test_hand_checked_ids_and_us_representatives_get_their_fec_money_read(tmp_pa
     assert given_fec_ids({"id": "una-one"}, f.opts) == ["H8GA99003"]   # one id written without a list is one id
     assert f.fec_candidate_ids({"id": "sam-hand", "fec_id": "H8GA99001"}) == ["H8GA99001"]
     f.store.close()
+
+
+def test_apply_removes_the_reread_committees_old_lines_in_a_pass_per_500(tmp_path, capsys):
+    # every hand-off carries every committee the re-read has read in full (its fec:a2: cursors): deleting committee by
+    # committee read all ~3 million FEC lines once each, 8 to 19 minutes of each merge job's first apply and up to 22 of
+    # its late money step (Nov 15 to 19, 2026), to remove 0 lines. The same lines go, in one pass for every 500
+    crawl, kvp = tmp_path / "crawl", tmp_path / "fec-kv.json"
+    s = Store(crawl)
+    coms = [f"C{i:08d}" for i in range(620)]
+    for c in coms:
+        s.add(_old(0, c, "x"))                              # before the FEC's fields: goes once its committee is read
+        r = _old(1, c, "x", fec_v=2)                        # the re-read's own line: stays
+        r.key = f"fec2|{c}|T1"
+        s.add(r)
+    s.add(_old(0, "C99999999", "y"))                        # a committee not read in full yet: stays
+    s.add(Record("ga-ethics", "contribution", "https://ethics.example/2", title="t", key="ga2|x|2",
+                 meta={"filing_source": "Georgia State Ethics Commission", "committee": coms[0], "amount": 5.0}))
+    s.close()
+    kvp.write_text(json.dumps({f"fec:a2:{c}": "2026-11-01" for c in coms}))
+    deletes = []
+    real = Store.delete_where
+    Store.delete_where = lambda self, where, params=(): deletes.append(len(params)) or real(self, where, params)
+    try:
+        _cli(crawl, tmp_path, "apply", "--kv", str(kvp))
+    finally:
+        Store.delete_where = real
+    assert "finance: the FEC re-read applied; 620 old lines of re-read committees removed\n" in capsys.readouterr().out
+    assert deletes[:2] == [500, 120]                        # two passes, then the drops' own (none here)
+    s = Store(crawl)
+    left = dict(s.db.execute("SELECT key, json_extract(meta,'$.committee') FROM records").fetchall())
+    s.close()
+    assert sum(k.startswith("fec2|") for k in left) == 620 and left["fec|C99999999|0"] == "C99999999" and "ga2|x|2" in left
+    assert len(left) == 622

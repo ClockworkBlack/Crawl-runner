@@ -176,5 +176,5 @@ def test_job_clock_reserve_and_export_only():
                                          text=True).stdout.strip()
     import time
     env["MERGE_T0"] = str(int(time.time()))
-    assert run(env, "500") == "240"                                      # 350 - 110 reserved
+    assert run(env, "500") == "215"                                      # 350 - 135 reserved (110 until Nov 19)
     assert run({**env, "EXPORT_ONLY": "true"}, "25") == "0"

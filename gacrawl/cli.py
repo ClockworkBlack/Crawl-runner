@@ -805,14 +805,12 @@ def cmd_finance(cfg, args):
                     store.kv_set(k, v)
                 elif k.startswith("fec:a2r:"):
                     store.kv_set(k, v)      # where a big committee's read stopped (the re-read carries on from there)
-            gone = 0
-            for k in kv:
-                if k.startswith("fec:a2:"):          # a cursor is set only when the committee was read in full
-                    gone += store.delete_where("kind='contribution' AND json_extract(meta,'$.committee')=? AND "
-                                               "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'", (k[7:],))
+            from .finance import apply_drops, remove_reread_old_lines
+
+            # a cursor is set only when the committee was read in full: its lines from before the FEC's fields go
+            gone = remove_reread_old_lines(store, [k[7:] for k in kv if k.startswith("fec:a2:")])
             # committees the re-read dropped as not a candidate's money (joint fundraising, unauthorized): removed in
             # its copy, which hands over no deletions, so until Nov 19, 2026 their 9,192 lines stayed here for good
-            from .finance import apply_drops
 
             dropped = apply_drops(store, kv)
             gone += dropped

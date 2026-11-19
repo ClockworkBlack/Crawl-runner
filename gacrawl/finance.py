@@ -378,6 +378,24 @@ def undrop_committee(store, com_id: str) -> None:
         store.kv_set(DROP + com_id, "")
 
 
+REREAD_OLD_LINES = ("kind='contribution' AND json_extract(meta,'$.committee') IN ({}) AND "
+                    "json_extract(meta,'$.filing_source')='FEC' AND key NOT LIKE 'fec2|%'")
+
+
+def remove_reread_old_lines(store, committees) -> int:
+    """The FEC lines kept before the FEC's own fields (keys not fec2|) of committees the re-read has read in full (a
+    hand-off's fec:a2: cursors), removed in one pass over the FEC lines for every 500 committees. Until Nov 19, 2026
+    `finance apply` deleted committee by committee, one pass over all ~3 million FEC lines each: 8 to 19 minutes of each
+    merge job's first apply from Nov 15 to 19 and 7 to 22 of its late money step, while every apply from the afternoon
+    of Nov 10 on removed 0 lines (each hand-off carries every cursor the re-read has set). -> lines removed."""
+    coms = sorted({c for c in committees if c})
+    gone = 0
+    for i in range(0, len(coms), 500):
+        part = coms[i:i + 500]
+        gone += store.delete_where(REREAD_OLD_LINES.format(",".join("?" * len(part))), tuple(part))
+    return gone
+
+
 def apply_drops(store, kv: dict) -> int:
     """A hand-off's dropped committees (its fec:drop: keys): their FEC lines removed here as the job that handed them over
     removed them in its copy (the same lines as drop_committee), and the keys kept, a cleared one clearing the drop here.
