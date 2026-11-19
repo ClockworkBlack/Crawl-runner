@@ -427,3 +427,19 @@ def test_a_reply_that_says_no_fee_is_not_a_cost():
     assert orr.mentions_cost("Please use the link below for the online library to Municode. There is no fee for this request.") == []
     assert orr.mentions_cost("The records are provided free of charge.") == []
     assert orr.mentions_cost("There is no fee for the first hour; after that the cost is $25.00 per hour.") == ["$25.00"]
+
+
+def test_a_bounced_request_to_a_place_with_a_downloaded_code_is_closed_without_mail(tmp_path):
+    # Brantley County (Nov 2026): the letter to clerk@ bounced, and its code was downloaded since; nothing reached the
+    # clerk, so nothing is sent: the request is closed
+    _registry(tmp_path)
+    FakeSMTP.sent = []
+    r = orr.Requests(tmp_path, CFG, orr.Mailbox(ENV), log=lambda *_: None)
+    r._have = set()
+    r.send_batch(J, smtp_factory=FakeSMTP)
+    r.tracker.log("co-small", "bounced", "reply from mail delivery subsystem")
+    r._have = {"co-small"}
+    FakeSMTP.sent = []
+    out = r.withdraw(smtp_factory=FakeSMTP)
+    assert out["closed"] == 1 and FakeSMTP.sent == []
+    assert r.tracker.data["co-small"]["status"] == "withdrawn"

@@ -158,10 +158,31 @@ jobs:
           if seen:
               os.makedirs(os.path.dirname(path), exist_ok=True)
               json.dump(st, open(path, "w"), indent=1, sort_keys=True)
+          # every run, a line each, in logs/runner/<YYYY-MM>/runs-<YYYY-MM-DD>.jsonl: the runs whose logs are not kept
+          # (a success of publish-site, results, fec-reread, ga-money, the AI jobs...) are deleted here all the same,
+          # and LogView builds its crawl-runner folder from this archive, so without these lines it never saw them
+          import datetime as dt
+          def secs(a, b):
+              try:
+                  return int((dt.datetime.fromisoformat(b.replace("Z", "+00:00")) - dt.datetime.fromisoformat(a.replace("Z", "+00:00"))).total_seconds())
+              except (AttributeError, ValueError):
+                  return None
+          for created, rid, name, concl, updated in sorted(seen):
+              d = os.path.join(logs, created[:7])
+              os.makedirs(d, exist_ok=True)
+              f = os.path.join(d, f"runs-{created[:10]}.jsonl")
+              have = open(f).read() if os.path.exists(f) else ""
+              if f'"id": {rid},' in have:
+                  continue
+              zipf = f"{created[:10]}_{name}_{rid}.zip"
+              row = {"id": rid, "workflow": name, "created": created, "ended": updated, "conclusion": concl,
+                     "took": secs(created, updated), "logs": zipf if os.path.exists(os.path.join(d, zipf)) else None}
+              open(f, "a").write(json.dumps(row) + "\n")
           PY
           # keep 30 days of runner logs in the private repository (by the date in the file name)
           CUT=$(date -u -d '30 days ago' +%Y-%m-%d)
           for f in logs-repo/logs/runner/*/*.zip logs-repo/logs/runner/*/*.jobs.json; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done
+          for f in logs-repo/logs/runner/*/runs-*.jsonl; do [ -e "$f" ] || continue; b=$(basename "$f" .jsonl); [ "${b#runs-}" \< "$CUT" ] && rm -f "$f"; done
           cd logs-repo
           git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
           git add -A logs/runner 2>/dev/null || true

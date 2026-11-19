@@ -630,6 +630,21 @@ def cmd_elections(cfg, args):
 def cmd_records(cfg, args):
     from .openrecords import Requests, discover_contacts, draft, plan, write_review
 
+    if args.action == "codes":
+        # each place's ordinance records, for records-send (state/ordinance_codes.json; written by the crawl's merge job)
+        from .openrecords import CODES_FILE, ordinance_counts
+        from .registry import write_json_atomic
+
+        store = config.make_store(cfg)
+        try:
+            counts = ordinance_counts(store)
+        finally:
+            store.close()
+        (config.ROOT / CODES_FILE).parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(config.ROOT / CODES_FILE, {"as_of": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                                                     "counts": dict(sorted(counts.items()))}, indent=1)
+        print(json.dumps({"places": len(counts), "with_a_code": sum(1 for n in counts.values() if n >= 25)}))
+        return
     reqs = Requests(config.ROOT, cfg)
     jur = registry.jurisdictions(config.ROOT)
     if args.action == "contacts":
@@ -665,7 +680,12 @@ def cmd_records(cfg, args):
     if args.action == "status":
         print(json.dumps({"sending_enabled": reqs.enabled, "why_not": reqs.why_not() or None, **reqs.summary()}, indent=1))
         return
-    store = config.make_store(cfg)
+    # the database when it is here (the crawl's jobs); records-send runs without it and reads state/ordinance_codes.json
+    from pathlib import Path as _P
+
+    _db = _P(cfg.get("db_path") or cfg["data_dir"])
+    _db = _db if _db.suffix == ".db" else _db / "crawl.db"
+    store = config.make_store(cfg) if _db.exists() and _db.stat().st_size > 0 else None
     try:
         if args.action == "plan":
             reviews: list = []
@@ -681,6 +701,13 @@ def cmd_records(cfg, args):
                 print("\n" + "\n".join(draft(items[0]["jurisdiction"], reqs.requester or "[requester]",
                                              reqs.mailbox.sender or "", reqs.organization)))
         elif args.action == "send":
+            from .openrecords import CODES_FILE
+
+            if store is None and not (config.ROOT / CODES_FILE).exists():
+                # without the database or the crawl's counts, a place whose code is already crawled would be asked for it
+                print(json.dumps({"sent": 0, "why": f"no database and no {CODES_FILE} yet (the crawl's merge job writes it): "
+                                                    "no new requests this run; replies, follow-ups and withdrawals still ran"}))
+                return
             print(json.dumps(reqs.send_batch(jur, store, limit=args.limit, dry_run=args.dry_run), indent=1))
         elif args.action == "check":
             print(json.dumps(reqs.check_replies(), indent=1))
@@ -689,7 +716,8 @@ def cmd_records(cfg, args):
         elif args.action == "withdraw":
             print(json.dumps(reqs.withdraw(), indent=1))
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 def cmd_derive(cfg, args):
@@ -1674,7 +1702,7 @@ def build_parser() -> argparse.ArgumentParser:
     el.add_argument("--cap", type=int, default=100, help="reports: web searches this run")
     el.add_argument("--max-minutes", type=float); el.add_argument("--dry-run", action="store_true")
     el.add_argument("--status", action="store_true", help="reports: only what is on file, per election")
-    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines", "letter"])
+    rq = sub.add_parser("records"); rq.add_argument("action", choices=["status", "plan", "contacts", "find", "send", "check", "follow-up", "withdraw", "test", "deadlines", "letter", "codes"])
     rq.add_argument("--letter", help="letter: the file to send (config/private/outbox/<name>.txt)")
     rq.add_argument("--to", help="test: send the sample here instead of the project mailbox")
     rq.add_argument("--limit", type=int); rq.add_argument("--dry-run", action="store_true")

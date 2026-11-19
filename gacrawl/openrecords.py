@@ -227,14 +227,44 @@ def write_review(root: Path, reviews: list[dict]) -> Path:
     return p
 
 
+CODE_MIN = 25          # ordinance records that make a real code, not a stray ordinance or two
+CODES_FILE = "state/ordinance_codes.json"
+
+
+def ordinance_counts(store) -> dict:
+    """{jurisdiction: ordinance records} from the database (what `gacrawl records codes` writes to CODES_FILE)."""
+    with store._lock:
+        return {j: n for j, n in store.db.execute(
+            "SELECT jurisdiction, COUNT(*) FROM records WHERE kind='ordinance' AND jurisdiction <> '' GROUP BY 1")}
+
+
+_CODES: dict | None = None
+
+
+def _codes_on_file(root: Path | None = None) -> dict:
+    """The crawl's count of ordinance records per place (CODES_FILE, written by the merge job): what records-send reads
+    instead of the 15 GB database, which no longer fits on a private repository's runner (records-send failed at the
+    download on Nov 16, 17 and 18, 2026, and sent no follow-ups)."""
+    global _CODES
+    if _CODES is None:
+        import json as _json
+
+        p = (root or Path(__file__).resolve().parent.parent) / CODES_FILE
+        try:
+            _CODES = (_json.loads(p.read_text()) or {}).get("counts") or {}
+        except (OSError, ValueError):
+            _CODES = {}
+    return _CODES
+
+
 def crawlable_code(j: dict, store=None) -> bool:
     if any(j.get("portals", {}).get(k) for k in ("ecode360", "amlegal")):
         return True
     if store is not None:
         with store._lock:
             n = store.db.execute("SELECT COUNT(*) FROM records WHERE jurisdiction=? AND kind='ordinance'", (j["id"],)).fetchone()[0]
-        return n >= 25  # a real code, not a stray ordinance or two
-    return False
+        return n >= CODE_MIN
+    return int(_codes_on_file().get(j["id"]) or 0) >= CODE_MIN
 
 
 # ----------------------------------------------------------------------------- places with a downloaded code
@@ -634,7 +664,8 @@ class Requests:
         for jid, t in self.tracker.data.items():
             if jid not in self.have:
                 continue
-            if t.get("status") == "portal_only":
+            if t.get("status") in ("portal_only", "bounced"):
+                # nothing reached the clerk (a portal never used, a letter that bounced): closed, nothing to send
                 self.tracker.log(jid, "withdrawn", "a downloaded code is in imports/ordinances; nothing to submit")
                 out["closed"] += 1
                 continue

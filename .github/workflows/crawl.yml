@@ -982,8 +982,10 @@ jobs:
           # nightly. schools.json / school_bounds.json (the weekly registry) and school_people.json are kept too.
           # the nightly and weekly work this run did (scripts/cadence.py); a cancelled run does not count as having done it
           if [ "${{ job.status }}" = "success" ]; then python3 scripts/cadence.py done "$NIGHTLY" "$WEEKLY" || true; fi
+          # each place's ordinance records, for records-send (which no longer downloads the database)
+          gacrawl records codes || echo "::warning::ordinance counts not written; records-send keeps the last ones"
           bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
-            state/cadence.json state/progress.json state/channels.json state/blocked.json state/discovered.json \
+            state/ordinance_codes.json state/cadence.json state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
             state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
             state/coverage.json state/channel_ai.json data/coverage.md data/seed_review.md data/channel_review.md data/train \
