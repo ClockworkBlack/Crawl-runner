@@ -162,3 +162,17 @@ openrecords:
 
 data_dir: data                 # the database lives at data/crawl.db (override with GACRAWL_DB)
 state_dir: state
+
+schools:
+  # School boards' Simbli pages (meeting lists, agendas, minutes, policy manuals) as the Internet Archive already holds
+  # them: Simbli refuses the crawler, and the owner asked on Nov. 19, 2026 for this lawful way to those public records.
+  # Only existing captures, at the Archive's pace; never Simbli itself, never Save Page Now (gacrawl/simbli_archive.py).
+  simbli_archive: true
+  simbli_districts_per_run: 20
+
+archive:
+  # The owner's rule since Nov. 19, 2026: a public page that refuses the crawler (a 403, a bot-protection challenge, a
+  # robots.txt refusal) is read from the Internet Archive's existing copies (gacrawl/archive_sources.py, `gacrawl
+  # archive refused`; campaign sites and articles in gacrawl/candidates.py). A login or a paywall stays closed.
+  refused_sources: true
+  refused_sources_per_run: 10

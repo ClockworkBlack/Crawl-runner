@@ -20,7 +20,9 @@ For each county and each election in TARGETS, this step:
 
 What was found or not, per county and election, is kept in kv `elections:report:<county>:<date>` and summed up by
 `gacrawl elections reports --status` (and the coverage report). A county not found is searched again after
-RETRY_DAYS, at most MAX_TRIES times; nothing is built from a guessed URL.
+RETRY_DAYS, at most MAX_TRIES times; nothing is built from a guessed URL. A look whose searches could not be
+answered (the engine failed, refused the runner, or the run's cap ran out part-way) is not a look: the county stays
+"not searched yet" and is asked again on the next run.
 """
 from __future__ import annotations
 
@@ -34,6 +36,11 @@ from urllib.parse import urlsplit
 TARGETS = [("2023-11-07", "November 7, 2023", "general"), ("2021-11-02", "November 2, 2021", "general"),
            ("2023-12-05", "December 5, 2023", "runoff"), ("2021-11-30", "November 30, 2021", "runoff")]
 RETRY_DAYS, MAX_TRIES = 30, 3
+# The state kept per county and election ("at", "tries") is believed only at this version. Version 1 counted every
+# search as a look, and from Nov. 13 to 18, 2026 the search engine answered nothing at all (gacrawl/websearch.py):
+# 388 county-and-election look-ups were written off as "searched without one", none found, most with their tries
+# used up. A look now counts only when every search it made was answered.
+STATE_V = 2
 ARCHIVES = ("election.lab.ufl.edu",)        # keeps the counties' own result PDFs (University of Florida Election Lab)
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
           "December"]
@@ -86,7 +93,7 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
     from .store import Record
     from .websearch import Search
 
-    out = {"searched": 0, "found": 0, "stored": 0, "not_found": 0, "skipped": 0, "kept": [], "errors": []}
+    out = {"searched": 0, "found": 0, "stored": 0, "not_found": 0, "skipped": 0, "unanswered": 0, "kept": [], "errors": []}
     jur = [j for j in registry.jurisdictions(root) if j["kind"] == "county"]
     if counties:
         jur = [j for j in jur if j["id"] in counties]
@@ -104,18 +111,26 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
                 if late() or s.left() <= 0:
                     raise StopIteration
                 kk = f"elections:report:{j['id']}:{iso}"
-                st = json.loads(store.kv_get(kk) or "{}")
+                st = _state(store.kv_get(kk))
                 if st.get("url") or (st.get("tries", 0) >= MAX_TRIES) or \
                         (st.get("at") and (today - dt.date.fromisoformat(st["at"])).days < RETRY_DAYS):
                     out["skipped"] += 1
                     continue
                 host = urlsplit(j.get("website") or "").netloc.lower().removeprefix("www.")
                 seen, found, partial = set(), None, []
+                settled = getattr(s, "settled", lambda _q: True)
+                answered = True     # every search this look needed was asked and answered
                 for q in queries(j["name"], iso, label, kind, host):
-                    if found or s.left() <= 0 or late():
+                    if found:
+                        break
+                    if (s.left() <= 0 and not settled(q)) or late():
+                        answered = False
                         break
                     out["searched"] += 1
-                    for r in s.search(q, count=10):
+                    hits = s.search(q, count=10)
+                    if not hits and not settled(q):
+                        answered = False        # failed, or empty with nothing showing the engine answers
+                    for r in hits:
                         u = r.get("url") or ""
                         if u in seen or not _official(u, host):
                             continue
@@ -141,8 +156,14 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
                         # a city's copy of the county's report (its own contests only): kept for that city, and the
                         # county's full report is still looked for
                         partial.append((fr.url, rec))
-                st = {"at": today.isoformat(), "tries": st.get("tries", 0) + (0 if found else 1),
-                      **({"partial": sorted({*(st.get("partial") or []), *(u for u, _ in partial)})} if partial or st.get("partial") else {})}
+                if not found and not answered:
+                    # not a look: the county is asked again next run (a city's copy found on the way is still kept)
+                    out["unanswered"] += 1
+                    st = {k: v for k, v in st.items() if k in ("at", "tries", "partial", "v")}
+                else:
+                    st = {"at": today.isoformat(), "tries": st.get("tries", 0) + (0 if found else 1), "v": STATE_V}
+                if partial or st.get("partial"):
+                    st["partial"] = sorted({*(st.get("partial") or []), *(u for u, _ in partial)})
                 for u, prec in partial:
                     out["kept"].append({"county": j["id"], "election": iso, "url": u, "copy": True})
                     if not dry_run:
@@ -164,9 +185,9 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
                                     "opened": True}
                         out["stored"] += store.add(rec)
                     log(f"elections: {j['name']} {label}: {u}")
-                else:
+                elif answered:
                     out["not_found"] += 1
-                if not dry_run:
+                if not dry_run and st:
                     store.kv_set(kk, json.dumps(st))
     except StopIteration:
         pass
@@ -174,8 +195,23 @@ def run(fetcher, store, root, state_dir, deadline: float | None = None, counties
         s.save()
         if not dry_run:
             store.flush()
+    out["search_refused"] = bool(getattr(s, "refused", lambda: False)())
     out["status"] = status(store, root) if not dry_run else None
     return out
+
+
+def _state(raw: str | None) -> dict:
+    """A county-and-election's kept state. One written before STATE_V that found nothing is not believed (its tries
+    may all be searches that were never answered): only the city copies it found are carried over."""
+    try:
+        st = json.loads(raw or "{}")
+    except ValueError:
+        st = {}
+    if not isinstance(st, dict):
+        return {}
+    if st.get("url") or st.get("v") == STATE_V:
+        return st
+    return {"partial": st["partial"]} if st.get("partial") else {}
 
 
 def status(store, root) -> dict:
@@ -187,7 +223,7 @@ def status(store, root) -> dict:
     for iso, label, kind in TARGETS:
         got, miss, todo = [], [], []
         for c in cos:
-            st = json.loads(store.kv_get(f"elections:report:{c}:{iso}") or "{}")
-            (got if st.get("url") else miss if st else todo).append(c)
+            st = _state(store.kv_get(f"elections:report:{c}:{iso}"))
+            (got if st.get("url") else miss if st.get("at") else todo).append(c)
         res[iso] = {"found": len(got), "not_found": len(miss), "not_searched": len(todo), "missing": miss[:200]}
     return res

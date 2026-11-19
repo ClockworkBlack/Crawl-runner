@@ -76,7 +76,11 @@ def test_pages_until_the_total_and_checkpoints_each_year(tmp_path):
     assert meetings[0].text.endswith("City Hall, Kingsland, GA 31548")
     docs = [r for r in recs if r.kind == "document"]
     assert len(docs) == 40 and docs[0].meta["doc_type"] == "minutes" and docs[0].title == "City Council Meeting: Minutes 0"
-    assert [c.value for c in cps][:4] == ["2017-01-01", "2018-01-01", "2019-01-01", "2020-01-01"] and cps[0].stream == "events"
+    years = [c.value for c in cps if c.value.endswith("-01-01")]
+    assert years[:4] == ["2017-01-01", "2018-01-01", "2019-01-01", "2020-01-01"] and cps[0].stream == "events"
+    # and marks inside each year, at each new day, in order: a year that does not fit in one time slice carries on
+    marks = [c.value for c in cps if c.stream == "events"]
+    assert marks[:3] == ["2016-01-10", "2016-02-10", "2016-03-10"] and marks == sorted(marks)
     assert (cps[-1].stream, cps[-1].value) == ("full", FULL_PASS)                              # done: later runs are deltas
     # 2016 has 12 events: a 15-a-page server answers them in one page; 2017 likewise; no page is asked for twice
     pages = [(p.get("$filter"), p.get("$skip")) for u, p in api.calls if u.endswith("/Events")]
@@ -171,4 +175,39 @@ def test_finished_backfill_keeps_the_full_marker(tmp_path):
     assert store.cursors("kingsland:civicclerk") == {"full": FULL_PASS}
     store.clear_cursors("kingsland:civicclerk")                     # --full forgets everything
     assert store.cursors("kingsland:civicclerk") == {}
+    store.close()
+
+
+def test_a_year_stopped_part_way_carries_on_from_its_last_day(tmp_path):
+    """Macon-Bibb, Nov. 7-18, 2026: a first year that did not fit in one time slice began again at January 1 on each
+    of about 410 passes. And a file that could not be downloaded was asked for again on every one of them."""
+    from gacrawl.fetch import OutOfTime, TooLarge
+
+    api = FakeAPI()
+    store = Store(tmp_path / "data")
+    real_get, budget = api.get, {"left": 6}
+
+    def limited(url, params=None, headers=None, **kw):
+        if url.endswith("3.pdf"):
+            raise TooLarge("response over the limit")
+        if budget["left"] <= 0:
+            raise OutOfTime("this source's time slice used up")
+        budget["left"] -= 1
+        return real_get(url, params=params, headers=headers, **kw)
+
+    api.get = limited
+    cursors = {}
+    for _ in range(40):
+        try:
+            for r in CivicClerk(api, "kingslandga").meetings("2016-01-01", store=store, cursors=dict(cursors)):
+                if isinstance(r, Checkpoint):
+                    cursors[r.stream] = r.value
+                else:
+                    r.source_id = "kingsland:civicclerk"
+                    store.add(r)
+            break
+        except OutOfTime:
+            budget["left"] = 6
+    assert cursors.get("full") == FULL_PASS and len(store.read("kingsland:civicclerk", "meeting")) == 40
+    assert store.url_seen("https://kingslandga.api.civicclerk.com/v1/stream/KINGSLANDGA/3.pdf")["status"] == 413      # noted, not asked for on each pass
     store.close()

@@ -52,7 +52,7 @@ OFFICE_WORDS = ("governor", "lieutenant", "attorney general", "secretary of stat
                 "police", "public safety", "principal", "alder", "city manager", "county manager", "city administrator",
                 "board of elections", "elections board", "election board", "registrar", "constable", "marshal",
                 "public defender")
-VERSION = 1
+VERSION = 2
 RETRY_DAYS = 30
 SOCIAL = ("facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com", "youtube.com", "linkedin.com", "threads.net",
           "nextdoor.com", "bsky.app")
@@ -203,6 +203,12 @@ class Discovery:
         except (OSError, ValueError):
             self.st = {}
         self.st.setdefault("v", VERSION); self.st.setdefault("items", {}); self.st.setdefault("tried", {})
+        if int(self.st.get("v") or 1) < 2:
+            # once: searches "tried" from Nov. 13, 2026 until empty answers were checked were never answered (the
+            # engine gave nothing at all, gacrawl/websearch.py); they are owed again. News entries ("n:") opened
+            # their page and stand.
+            self.st["tried"] = {k: v for k, v in self.st["tried"].items() if k.startswith("n:") or str(v) < "2026-11-13"}
+            self.st["v"] = 2
         self.review_p = root / "data" / "seed_review.md"
         self.log_p = root / "data" / "train" / "discover_log.jsonl"
         self.cands = load_candidates(root)
@@ -596,6 +602,10 @@ class Discovery:
                 break
             res = self.search.search(task["q"])
             self.stats["searches"] += 1
+            if not res and not getattr(self.search, "settled", lambda _q: True)(task["q"]):
+                # the search failed or the engine is not answering (gacrawl/websearch.py): not a try, asked again
+                self.stats["unanswered"] = self.stats.get("unanswered", 0) + 1
+                continue
             self.st["tried"][task["key"]] = dt.date.today().isoformat()
             for hit in res[:max_pages]:
                 if time.monotonic() > deadline:

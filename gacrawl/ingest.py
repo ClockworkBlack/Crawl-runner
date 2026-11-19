@@ -17,6 +17,7 @@ import hashlib
 import io
 import re
 import statistics
+import threading
 from pathlib import Path
 
 from .extract import ORDINANCE_HEADING
@@ -142,20 +143,65 @@ OCR_BUDGET_S = 90.0     # and at most this long per document during a crawl; the
 OCR_DPI = 300
 
 
+# PDFium is not thread-safe: no two threads may be inside it at once, not even on different documents, and
+# pypdfium2's calls release the interpreter lock, so nothing else keeps them apart. The crawl reads several hosts'
+# documents in parallel; two PDFs opened at the same moment ended the whole shard with "Fatal Python error:
+# Segmentation fault" in get_page or _open_pdf (33 shards, Nov. 7-18, 2026), losing what its other workers had in
+# hand. Every PDFium call is made under this lock, and every PDFium object is closed under it too (left to the
+# garbage collector, its finalizer would call into PDFium from whichever thread happened to collect it).
+_PDFIUM_LOCK = threading.RLock()
+
+
+def _pdfium_texts(data: bytes) -> list[str]:
+    import pypdfium2 as pdfium
+
+    with _PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(data)
+        try:
+            texts = []
+            for i in range(len(pdf)):
+                page = pdf[i]
+                try:
+                    tp = page.get_textpage()
+                    try:
+                        texts.append(tp.get_text_range().replace("\r\n", "\n").replace("\r", "\n"))
+                    finally:
+                        tp.close()
+                finally:
+                    page.close()
+            return texts
+        finally:
+            pdf.close()
+
+
+def _pdfium_render(data: bytes, i: int):
+    """Page i drawn as a PIL image (its own copy of the pixels: nothing of PDFium's outlives the lock)."""
+    import pypdfium2 as pdfium
+
+    with _PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(data)
+        try:
+            page = pdf[i]
+            try:
+                bitmap = page.render(scale=OCR_DPI / 72)
+                try:
+                    return bitmap.to_pil().copy()
+                finally:
+                    bitmap.close()
+            finally:
+                page.close()
+        finally:
+            pdf.close()
+
+
 def _pdf_pages(data: bytes):
-    """(page texts, renderer) for a PDF: PDFium (C, fast, runs outside the interpreter lock) first, pdfplumber
+    """(page texts, renderer) for a PDF: PDFium (C, fast) first, one document at a time (_PDFIUM_LOCK); pdfplumber
     when PDFium cannot open the file. The renderer draws one page as a PIL image for OCR."""
     try:
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(data)
-        texts = []
-        for i in range(len(pdf)):
-            tp = pdf[i].get_textpage()
-            texts.append(tp.get_text_range().replace("\r\n", "\n").replace("\r", "\n"))
+        texts = _pdfium_texts(data)
 
         def render(i: int):
-            return pdf[i].render(scale=OCR_DPI / 72).to_pil()
+            return _pdfium_render(data, i)
         return texts, render
     except Exception:  # noqa: BLE001 — damaged or unusual file: the slower reader may still manage
         pass
@@ -165,7 +211,8 @@ def _pdf_pages(data: bytes):
     texts = [(pg.extract_text() or "") for pg in pdf.pages]
 
     def render(i: int):
-        return pdf.pages[i].to_image(resolution=OCR_DPI).original
+        with _PDFIUM_LOCK:      # pdfplumber draws pages with PDFium as well
+            return pdf.pages[i].to_image(resolution=OCR_DPI).original
     return texts, render
 
 

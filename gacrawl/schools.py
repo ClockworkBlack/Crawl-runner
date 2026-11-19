@@ -120,6 +120,21 @@ def district_matcher(root: Path):
         for cand in (c + "city", c + "county", c.removesuffix("city"), c.removesuffix("county")):
             if cand in by_key:
                 return by_key[cand]
+        # The federal names of four systems matched no district, and the School Districts tab showed 0 schools for
+        # them (Chatham County, 35,744 students; Spalding; Upson; Decatur City): a city joined to its county by a
+        # hyphen ("Savannah-Chatham County", "Griffin-Spalding County", "Thomaston-Upson County"), whose district is
+        # the county's, and "City Schools of Decatur", the city's.
+        n = (lea_name or "").strip()
+        if "-" in n:
+            tail = _core(n.rsplit("-", 1)[1])
+            for cand in (tail, tail + "county"):
+                if cand in by_key:
+                    return by_key[cand]
+        m = re.match(r"(?i)\s*city (?:schools?|school district|school system) of (.+)$", n)
+        if m:
+            cand = _core(m.group(1)) + "city"
+            if cand in by_key:
+                return by_key[cand]
         return None
 
     return match

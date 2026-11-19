@@ -96,12 +96,16 @@ agencies:
     pages:
       - https://gefa.georgia.gov/past-events
     follow: ["/events/20"]
+  # The ATL and GRTA became the Georgia Transportation Efficiency Authority (HB 297, signed May 12, 2026). The ATL's
+  # board page answered 404 from Nov. 13 (0 meetings on the site); its site says it is no longer updated and points to
+  # gtea.ga.gov, whose board page lists the coming dates and each past meeting's agendas, minutes and presentations
+  # (opened Nov. 18, 2026). The id stays atl-transit: readers who picked this authority keep it picked.
   - id: atl-transit
     kind: authority
-    name: Atlanta-region Transit Link Authority (ATL)
-    agency: Atlanta-region Transit Link Authority
+    name: Georgia Transportation Efficiency Authority (GTEA; formerly the ATL and GRTA)
+    agency: Georgia Transportation Efficiency Authority
     pages:
-      - https://atltransit.ga.gov/the-atl-board/
+      - https://gtea.ga.gov/board/
   - id: jekyll-island
     kind: authority
     name: Jekyll Island Authority

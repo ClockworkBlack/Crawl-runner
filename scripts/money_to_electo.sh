@@ -23,7 +23,8 @@ asset() { gh api "repos/$REPO/releases/tags/$DATA_TAG" --jq ".assets[] | select(
 get() { local id; id=$(asset "$1"); [ -n "$id" ] && gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$id" > "$2" && [ -s "$2" ]; }
 
 T0=$(date +%s)
-get crawl.db.zst "$W/crawl.db.zst" || { echo "money push: no stored database"; exit 1; }
+# the database is stored in parts (scripts/ci_db.sh): fetch puts it together and checks it
+bash "$(dirname "$0")/ci_db.sh" fetch "$W/crawl.db.zst" || { echo "money push: no stored database"; exit 1; }
 zstd -d -q -f --rm "$W/crawl.db.zst" -o "$W/crawl.db"
 export GACRAWL_DB="$W/crawl.db"
 if get fec-delta.db.zst "$W/h/fec.db.zst"; then

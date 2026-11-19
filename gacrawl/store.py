@@ -265,8 +265,19 @@ class Store:
         now = utcnow()
         with self._lock:
             self._begin()
-            cur = self.db.execute("SELECT rid, hash, thash FROM records WHERE key=?", (key,)).fetchone()
+            cur = self.db.execute("SELECT rid, hash, thash, published, jurisdiction, evidence FROM records WHERE key=?", (key,)).fetchone()
             if cur and cur["hash"] == h:
+                # the hash covers the source, kind, address, title, text and meta, not these three columns: a record
+                # sent again with a date it lacked, or a corrected one (the minutes deriver's "the heading's date
+                # when the document has none"), or with its place or evidence filled in, was dropped as unchanged
+                # and the stored row kept its empty or wrong value. A value that is given and differs is stored.
+                fix = {c: v for c, v in (("published", rec.published), ("jurisdiction", rec.jurisdiction), ("evidence", rec.evidence))
+                       if v and v != (cur[c] or "")}
+                if fix:
+                    self.db.execute(f"UPDATE records SET {', '.join(c + '=?' for c in fix)}, changed_at=?, version=version+1 WHERE rid=?",
+                                    (*fix.values(), now, cur["rid"]))
+                    self._maybe_commit()
+                    return True
                 self._maybe_commit()
                 return False
             meta = json.dumps(rec.meta, ensure_ascii=False, default=str)
@@ -518,6 +529,18 @@ class Store:
             for r in rows:
                 yield _row_to_dict(r)
             last_t, last_r = rows[-1]["changed_at"], rows[-1]["rid"]
+
+    def forget_unrecorded_documents(self, since: str) -> int:
+        """Frontier rows that say a PDF was read (status 200) since `since`, with no record of it: removed, so the
+        file is read again. The frontier used to be marked before the file was parsed, and a run that died in the
+        parse (the PDF reader's crashes, Nov. 7-18, 2026) left the file "read" for ten years with nothing stored."""
+        with self._lock:
+            self._begin()
+            n = self.db.execute(
+                "DELETE FROM urls WHERE status=200 AND fetched_at >= ? AND (content_type LIKE '%pdf%' OR lower(url) LIKE '%.pdf') "
+                "AND NOT EXISTS (SELECT 1 FROM records r WHERE r.url = urls.url)", (since,)).rowcount
+            self._maybe_commit(force=True)
+        return n
 
     def delete_where(self, where: str, params: tuple = ()) -> int:
         with self._lock:

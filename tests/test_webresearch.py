@@ -155,12 +155,30 @@ def test_no_search_left_is_owed_not_done(tmp_path):
     prog = Progress(tmp_path / "cp.json")
     now = dt.datetime(2026, 11, 12, tzinfo=dt.timezone.utc)
     prog.update("web:jane", last_ok=(now - dt.timedelta(days=2)).isoformat(), search="skipped")
-    prog.update("web:done", last_ok=(now - dt.timedelta(days=2)).isoformat(), search="ok")
+    from gacrawl.webresearch import SEARCH_V
+
+    prog.update("web:done", last_ok=(now - dt.timedelta(days=2)).isoformat(), search="ok", sv=SEARCH_V)
     cands = [dict(JANE), {**JANE, "id": "done"}, {**JANE, "id": "new"}, {**JANE, "id": "full"}]
     prog.update("cand:full", last_ok=now.isoformat(), counts={"mention": 9})
     s.cap = 5
     due = [(c["id"], only) for c, only in lane.due(cands, prog, now)]
     assert due == [("new", False), ("full", False), ("jane", True)]      # nothing on file first; the owed search last
+    # "searched" before empty answers were checked (the engine answered nothing for six days): the search is owed
+    prog.update("web:done", last_ok=(now - dt.timedelta(hours=3)).isoformat(), search="ok", sv=None)
+    assert ("done", True) in [(c["id"], only) for c, only in lane.due(cands, prog, now)]
+
+
+def test_a_search_never_answered_is_owed_not_done(tmp_path):
+    class Unanswered(FakeSearch):
+        def settled(self, q):
+            return False
+
+    s = Unanswered([], cap=5)
+    r, store = setup(tmp_path, F({}), s)
+    lane = WebLane(r, tmp_path / "state", s)
+    c = dict(JANE)
+    res = lane.one(c, r._classifier(c), lambda rec: None, "2016-01-01")
+    assert res["search"] == "skipped" and s.n == 1
     store.close()
 
 

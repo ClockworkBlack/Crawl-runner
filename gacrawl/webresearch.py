@@ -74,6 +74,8 @@ def office_words(office: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+SEARCH_V = 2    # progress "search: ok" is believed at this version (gacrawl/websearch.py: empty answers are checked)
+
 class WebLane:
     def __init__(self, researcher, state_dir: Path, search=None):
         self.r = researcher
@@ -230,6 +232,11 @@ class WebLane:
             if not cached:
                 with self._lock:
                     self.stats["web_searches"] += 1
+            # a search that failed, or came back empty with nothing showing the engine answers (gacrawl/websearch.py:
+            # for six days in November 2026 it answered nothing at all, and every candidate searched then was marked
+            # done), is not a look: owed, like one that could not run
+            if not hits and not getattr(self.search, "settled", lambda _q: True)(q):
+                return None
         from .candidates import domain_of
 
         # sites that are the place's own: its papers, its government's website, the candidate's own site. Only there
@@ -301,6 +308,8 @@ class WebLane:
                 out.append((c, False))
             elif p.get("search") == "skipped" and age > 1 and self.search is not None:
                 out.append((c, True))        # the outlets were asked; only the web search is owed
+            elif p.get("search") == "ok" and p.get("sv") != SEARCH_V and self.search is not None:
+                out.append((c, True))        # "searched" before empty answers were checked: asked again
 
         def rank(item):
             c, search_only = item

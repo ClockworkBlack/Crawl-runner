@@ -22,7 +22,7 @@ packets and profile supplements in Electo's own shapes.
 | **Scheduler** (`gacrawl run`) | Tiered cadence (counties and cities ≥10k daily, 1k–10k weekly, smaller monthly), most-overdue first, several hosts in parallel, inside a time budget. Page crawling only inside off-peak windows; APIs and feeds anytime. |
 | **Parallel runs** (`--shard i/N`, `delta`, `merge`) | Sources split across runners by host, so each site is only ever hit from one place. Each runner ships a small delta; `merge` applies them (newest wins, idempotent). |
 | **Politeness** | robots.txt (incl. Crawl-delay), per-host spacing with per-host floors (`http.host_intervals`), back-off on 429/503/slow responses, Retry-After, conditional GETs, honest User-Agent. |
-| **Blocked sites** (`gacrawl blocked`, `gacrawl tasks`) | A host answering with a bot-protection challenge is left alone for a week; its sources re-route where possible; the rest becomes a manual task list with an Open Records Act request template. The crawler never tries to defeat bot protection. |
+| **Blocked sites** (`gacrawl blocked`, `gacrawl tasks`) | A host answering with a bot-protection challenge is left alone for a week; its sources re-route where possible; the rest becomes a manual task list with an Open Records Act request template. The crawler never tries to defeat bot protection; the refused sources are read from the Internet Archive's copies instead (`gacrawl archive refused`). |
 | **Electo bridge** (`gacrawl electo import`) | Imports every person on a Georgia ballot 2016–2026 from Electo (7,866 after folding alternate ballot names), ties local candidates to their city/county, seeds campaign sites and social accounts from existing profiles, flags split keys, and takes Electo's confirmed code-of-ordinances links. |
 | **Candidate research** (`gacrawl candidates research`) | Mentions in every crawled official record (full-text search, no network); roll-call votes from the database (no network); news via GDELT with several names per query, each article **opened** and checked for the name **and** the place before it counts (only excerpts kept); Google News hits as leads; campaign-site statements and endorsements; verified social posts; Bluesky mentions; contributions (CSV import, FEC). Budgeted and resumable. |
 | **Web lane** (`gacrawl/webresearch.py`, `candidates.web*` in settings) | What the news index's three-month window and the official records never reach (three of four profiles had nothing after the first full pass). Per candidate, people with nothing on file first: the **trusted outlets' own archives** (the WordPress news API of the county's papers, papers named for the place, and the statewide outlets for state offices; one phrase search per outlet back to 2016; the API answers with the story's text, so no page is opened) and **one web search** (DuckDuckGo through `ddgs`, no key; 300 fresh searches a run, answers kept 30 days) whose hits are opened only on sites already trusted: official sites and listed outlets. Anything else is left alone (not opened, not kept, not sent to the Rumor Mill). A page counts when it names the person and their place, or, on the place's own paper or website, their office beside the name. Kept as `article` records (`meta.via`: `outlet_archive` or `web_search`); progress per candidate (`web:<id>`), again after 30 days; a search that could not run is owed the next day. |
@@ -62,14 +62,42 @@ packets and profile supplements in Electo's own shapes.
 - Unverified material never reaches a profile or packet's sources; it sits in the Rumor Mill with a status
   (unverified → corroborated / debunked / retracted) and a corroboration trail.
 - Packet `vote_topics` are counts of recorded votes, not stated positions.
-- The Wayback Machine is read only for what is gone or no longer theirs (`gacrawl/wayback.py`): a campaign site
-  that answers 404 / no such host, or whose domain lapsed and now shows a casino, a for-sale page or a page in
-  another language, is read from its last capture that still named the candidate (its pages as captured up to that
-  day; records link the archived copy, `meta.original` is the old address, the profile's `site.archived` says when
-  and why); an article that answers 404/410 is read from its newest capture (`meta.archived_url`). A page that
-  answers but is closed (a paywall, a login, 401/402/403, a challenge page) is never read through an archive. One
-  request every 4 s, no retry after a 429, and the first 429 or refusal switches it off for the run
-  (`candidates.archive`, `archive_sites_per_run`, `archive_articles_per_run`).
+- **The Wayback Machine** (the owner's rule since Nov. 19, 2026; it replaced "only what is gone" after the
+  exceptions it had needed) is read for a public page that is gone, no longer theirs, or **refuses the crawler**:
+  - gone or no longer theirs: a campaign site that answers 404 / no such host, or whose domain lapsed and now shows a
+    casino, a for-sale page or a page in another language, is read from its last capture that still named the
+    candidate; an article that answers 404/410 from its newest capture;
+  - refusing: a site, page or article that answers with a 403, a bot-protection challenge or a robots.txt refusal is
+    read from the Archive's existing copies: campaign sites and articles (`gacrawl/candidates.py`, a refusing site
+    looked at again after 60 days), every refused crawl source (`gacrawl archive refused`,
+    `gacrawl/archive_sources.py`: agendas, minutes and council pages first, 10 sources a run, each again after 30
+    days) and school boards' Simbli pages (`gacrawl schools simbli-archive`, below);
+  - still closed: a login or a paywall (401, 402) is not a public page and is never read through an archive.
+  Every such record links the archived copy (`url`), with `meta.original` the page's address and `meta.captured` or
+  `meta.archived` the capture day. Only captures the Archive already holds: never Save Page Now (it would have the
+  Archive fetch the refusing site on the crawler's behalf), never a challenge solved, a login, or the crawler
+  presenting itself as anything else. One request every 4 s, no retry after a 429, and the first 429 or refusal
+  switches it off for the run (`candidates.archive`, `archive_sites_per_run`, `archive_articles_per_run`;
+  `archive.refused_sources`, `schools.simbli_archive`). Many firewalls turn the Archive away too: a capture that is the
+  challenge page is left.
+
+## School boards on Simbli (the routes to records the crawler is refused)
+
+Simbli answers the crawler with a bot-protection challenge, on its main host and its accessible-view host alike. The
+crawler does not get past the challenge; the same records reach the site three other ways:
+
+| Route | What it gives | How |
+|---|---|---|
+| **The Internet Archive's copies** (`gacrawl schools simbli-archive`, `gacrawl/simbli_archive.py`) | Past meetings (date, title, body, whether minutes were published), the policy manual's index, and a meeting's own page (agenda or minutes text) where the Archive captured it, 2016 to mid-2024 | The capture index (CDX) for each district's meeting list and policy list by its Simbli number (from the registry), then the captured pages, at the Archive's pace (one request every 4 s, the first refusal ends the run). Captures from about October 2024 on are Simbli's challenge page (1-2 KB) and are skipped. 20 districts a run, each again after 90 days. Records link the Archive's copy; `meta.original` is the Simbli address, `meta.captured` the capture day. A meeting page found this way is a `document`, so the minutes deriver reads its motions and votes |
+| **The district's own website** (derive step `board_schedules`, `gacrawl/board_schedules.py`) | Upcoming regular meetings | The Open Meetings Act has every board post its regular meetings' dates on its website a week ahead (O.C.G.A. § 50-14-1(d)(1)); the crawl already stores the districts' pages, and this reads the part that names itself the board's meeting schedule |
+| **Open records requests** (by hand, or `gacrawl records` once extended to school boards) | Current agendas and minutes | Agendas and minutes are public records (§ 50-14-1(e)); a request to the district's records officer for the board's minutes since a date is answered under the Open Records Act (§ 50-18-71). Not sent automatically: each request is a letter to a district |
+
+Not used, and why: Save Page Now (it would have the Archive fetch Simbli on the crawler's behalf, which is a way around
+Simbli's refusal rather than a reading of what was already public); assistive.eboardsolutions.com (behind the same
+protection); anything that changes how the crawler presents itself, solves a challenge, or logs in. The honest way to
+the live pages is eBOARDsolutions' permission: a request to support@eboardsolutions.com to allow the crawler's
+User-Agent (`GACivicCrawler/0.3 (+https://github.com/ClockworkBlack/Crawl)`) at its crawl rate, or a public feed of
+meetings, would make the live Simbli source in the registry work as it is.
 
 ## Quick start
 

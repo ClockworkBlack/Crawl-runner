@@ -32,7 +32,7 @@ from typing import Iterator
 
 import yaml
 
-from ..fetch import Blocked, Disallowed, Fetcher
+from ..fetch import Blocked, Disallowed, Fetcher, OutOfTime
 from ..store import Record, Store
 
 API = "https://www.legis.ga.gov/api/"
@@ -403,7 +403,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
                     try:
                         detail = api.member_detail(m["id"], sid, m.get("chamber") or 1)
                         out["member_details"] += 1
-                    except (Blocked, Disallowed, TokenRefused):
+                    except (Blocked, Disallowed, TokenRefused, OutOfTime):
                         raise
                     except Exception as exc:  # noqa: BLE001
                         log(f"  member {m['id']}: {type(exc).__name__}: {exc}"[:200])
@@ -440,6 +440,7 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
         seen_ids = set()
         fetched = 0
         waiting = 0
+        spent = False
         for _, _, b in sorted(todo, key=lambda t: t[:2]):
             lid = b["meta"]["legislation_id"]
             if lid in seen_ids:
@@ -448,13 +449,17 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
             if _read_already(store, b, current):
                 continue  # fetched since the bill last moved
             mark = f"legis:votes:{lid}"
-            if timed_out() or fetched >= budget:
+            if timed_out() or spent or fetched >= budget:
                 waiting += 1   # counted, so each run says how many bills' roll calls are still to read
                 continue
             try:
                 recs = api.roll_calls(lid, b["meta"]["number"], int(b["meta"]["session"]), b["meta"].get("session_name", ""), b["meta"].get("caption", ""))
             except (Blocked, Disallowed, TokenRefused):
                 raise
+            except OutOfTime:
+                spent = True   # the next request would end past the deadline: this bill and the rest wait, counted
+                waiting += 1
+                continue
             except Exception as exc:  # noqa: BLE001
                 log(f"  votes {lid}: {type(exc).__name__}: {exc}"[:200])
                 continue
@@ -476,6 +481,14 @@ def update(fetcher: Fetcher, store: Store, root, deadline: float | None = None, 
         store.flush()
     except (Blocked, Disallowed) as exc:
         out["error"] = str(exc)
+    except OutOfTime as exc:
+        # the time budget ran out between two requests (the fetcher will not start a wait that ends past the
+        # deadline). Until Nov. 2026 this escaped: with a minute or two left in the merge job the step died with a
+        # traceback while listing bills, the roll calls were never reached, the run was not counted in
+        # legis_refusals and the refusal marker was not cleared. What was read is kept; the rest is next run's.
+        store.flush()
+        out["out_of_time"] = str(exc)[:160]
+        log(f"the legislature step's time is up ({exc}); what was read is kept, the rest waits for the next run")
     except TokenRefused as exc:
         # the site said no for now: what was read is kept, the step stops (every bill left would only be refused
         # too), and the refusal is counted so the coverage report shows how often it happens

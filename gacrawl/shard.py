@@ -89,7 +89,10 @@ def merge_delta(store: Store, delta: Path) -> dict:
             n_rec = db.execute(
                 f"INSERT INTO main.records({cols}) SELECT {cols} FROM d.records WHERE true "
                 f"ON CONFLICT(key) DO UPDATE SET {upd}, first_seen=min(records.first_seen, excluded.first_seen) "
-                f"WHERE excluded.changed_at >= records.changed_at AND excluded.hash <> records.hash").rowcount
+                f"WHERE excluded.changed_at >= records.changed_at AND (excluded.hash <> records.hash "
+                # the columns the hash does not cover (Store.add stores a new date, place or evidence under the same hash)
+                f"OR coalesce(excluded.published, '') <> coalesce(records.published, '') "
+                f"OR excluded.jurisdiction <> records.jurisdiction OR excluded.evidence <> records.evidence)").rowcount
             n_url = db.execute(
                 "INSERT INTO main.urls SELECT * FROM d.urls WHERE true ON CONFLICT(url) DO UPDATE SET "
                 "source_id=excluded.source_id, status=excluded.status, content_type=excluded.content_type, "

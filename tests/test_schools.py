@@ -497,3 +497,16 @@ def test_milestones_from_counts_when_no_all_grades_row():
                 "2024-25,602,Atkinson County,ALL,All Schools,4,All Students,English Language Arts,60,20,5,33,8\n")
     rows = schools.parse_gosa_csv(csv_text, "eog_ela", s)
     assert [(r["district_code"], r["level"], r["value"]) for r in rows] == [("601", "district", 40.0)]
+
+
+def test_federal_names_with_a_city_joined_to_the_county_find_their_district():
+    """Chatham, Spalding, Upson and Decatur City showed 0 schools on the School Districts tab: NCES names them
+    "Savannah-Chatham County", "Griffin-Spalding County", "Thomaston-Upson County" and "City Schools of Decatur"."""
+    from gacrawl import config
+    from gacrawl.schools import district_matcher
+
+    m = district_matcher(config.ROOT)
+    assert [m(n) for n in ("Savannah-Chatham County", "Griffin-Spalding County", "Thomaston-Upson County", "City Schools of Decatur")] == \
+        ["sd-chatham", "sd-spalding", "sd-upson", "sd-city-decatur"]
+    assert m("Decatur County") == "sd-decatur" and m("State Schools") is None
+    assert m("State Specialty Schools- II Statesboro STEAM Academy") is None     # a state charter school: no local district

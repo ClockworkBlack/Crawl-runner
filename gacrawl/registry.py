@@ -286,13 +286,54 @@ def guide_sources(root: Path, defaults: dict | None = None) -> list[dict]:
     return out
 
 
+API_PORTALS = ("legistar:", "civicclerk:")
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z]", "", (s or "").lower())
+
+
+def shared_portal_owners(J: list[dict], defaults: dict | None = None) -> dict[str, str]:
+    """{endpoint: jurisdiction id} for every Legistar or CivicClerk system more than one government's registry entry
+    points at: the one whose name the system's own client name carries ("charltoncoga" is Charlton County's), else a
+    county among them, else the first. The others do not read it.
+
+    A city whose website is a page on its county's site picks up the county's portal links in the seed: Folkston and
+    Homeland (pages of charltoncountyga.us) each read Charlton County's CivicClerk as their own, and 969 and 97 of the
+    county's meetings were filed as theirs, beside the same meetings under the county."""
+    by: dict[str, list[dict]] = {}
+    for j in J:
+        for s in sources_for(j, defaults):
+            ep = s.get("endpoint") or ""
+            if ep.startswith(API_PORTALS):
+                by.setdefault(ep, []).append(j)
+    out = {}
+    for ep, js in by.items():
+        if len({j["id"] for j in js}) < 2:
+            continue
+        client = _norm(ep.split(":", 1)[1])
+        core = lambda j: _norm(j["name"]).replace("county", "")
+        named = [j for j in js if core(j) and core(j) in client]
+        # the most of the client's name: "maconbibbcoga" is Macon-Bibb's (the consolidated government), not Bibb County's
+        named.sort(key=lambda j: (-len(core(j)), j.get("kind") != "consolidated"))
+        cons = [j for j in js if j.get("kind") == "consolidated"]
+        county = [j for j in js if j.get("kind") == "county"]
+        out[ep] = (named or cons or county or js)[0]["id"]
+    return out
+
+
 def all_sources(root: Path, defaults: dict | None = None) -> list[dict]:
     """Registry-derived sources plus the newsrooms in config/press.yaml and the hand-written ones in
     config/sources.yaml (which win on id clash)."""
     hand = {s["id"]: s for s in (load_yaml(root / "config" / "sources.yaml").get("sources") or [])}
     out = []
-    for j in jurisdictions(root):
+    J = jurisdictions(root)
+    owner = shared_portal_owners(J, defaults)
+    for j in J:
         for s in sources_for(j, defaults):
+            ep = s.get("endpoint") or ""
+            if ep in owner and owner[ep] != j["id"]:
+                continue        # another government's meeting system, read under that government (shared_portal_owners)
             out.append({**s, **hand.pop(s["id"], {})})
     for s in press_sources(root, defaults) + guide_sources(root, defaults):
         out.append({**s, **hand.pop(s["id"], {})})

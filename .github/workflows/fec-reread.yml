@@ -103,7 +103,12 @@ jobs:
         run: |
           [ -n "$FEC_API_KEY" ] || { echo "::error title=FEC API key::No FEC_API_KEY secret in this repository: the FEC refuses the shared DEMO_KEY after a few calls, so nothing can be re-read. Add the secret (a free key from api.open.fec.gov/developers) and run this again."; exit 1; }
           END=$(( $(date +%s) + ${{ inputs.minutes || '270' }} * 60 ))
-          round=0
+          round=0; last=""; same=0
+          # Each round reads, hands over and pushes the money. Only the reading was budgeted: a push took 2 h 50 min
+          # (Nov. 17) and the job was killed at its limit ten times from Nov. 12 to 17, with the coverage step unrun.
+          # Now the push gets what the run has left (or is skipped when the round read nothing), and two rounds in a
+          # row that leave the same lines unread end the run: one committee the FEC answers with HTTP 504 every time
+          # (C00718866) kept four runs a day going for 5 h 50 min each, re-pushing a delta of no new records.
           while :; do
             LEFT=$(( (END - $(date +%s)) / 60 ))
             [ "$LEFT" -ge 8 ] || { echo "the run's minutes are used; the next run carries on"; break; }
@@ -113,11 +118,17 @@ jobs:
             timeout -s INT -k 3m "$((M + 15))m" gacrawl finance --reread-only --max-minutes "$M" || echo "the re-read stopped; what it read is kept"
             echo "::endgroup::"
             bash scripts/fec_handoff.sh
-            if [ "$IS_MAIN" = "true" ]; then
-              bash scripts/money_to_electo.sh "FEC re-read, round $round" fec-delta.db || echo "::warning::the money push of round $round did not finish; the next round or the crawl brings it"
-            fi
             n=$(python3 scripts/fec_left.py); echo "old FEC lines left after round $round: $n"
+            PUSH=$(( (END - $(date +%s)) / 60 ))
+            if [ "$IS_MAIN" = "true" ] && [ "$n" != "$last" ] && [ "$PUSH" -ge 5 ]; then
+              timeout -s TERM -k 2m "${PUSH}m" bash scripts/money_to_electo.sh "FEC re-read, round $round" fec-delta.db \
+                || echo "::warning::the money push of round $round did not finish in the $PUSH minutes left; the next round or the crawl brings it"
+            elif [ "$n" = "$last" ]; then echo "this round read nothing new: no push"
+            fi
             [ "$n" = "0" ] && { echo "the re-read is complete"; break; }
+            if [ "$n" = "$last" ]; then same=$((same + 1)); else same=0; fi
+            [ "$same" -ge 2 ] && { echo "::warning title=FEC re-read::$n lines left unread after three rounds in a row (the FEC refuses them, e.g. HTTP 504); the next run asks again"; break; }
+            last=$n
           done
       - name: Hand it to the crawl (whatever was read, when the rounds stopped before their own hand-off)
         if: always() && steps.left.outputs.n != '0' && steps.read.outcome != 'success'

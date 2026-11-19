@@ -24,6 +24,7 @@ from ..store import Record
 
 API = "https://webapi.legistar.com/v1/{client}"
 PAGE = 1000
+SWEEP_STEP = 5      # office holders read between two saves of a first pass's roll calls (Legistar._sweep_all)
 
 MATTER_SELECT = ("MatterId,MatterGuid,MatterFile,MatterName,MatterTitle,MatterTypeName,MatterStatusName,"
                  "MatterBodyName,MatterIntroDate,MatterAgendaDate,MatterPassedDate,MatterEnactmentDate,"
@@ -137,7 +138,9 @@ class Legistar:
             for m in self._paged("/matters", flt, "MatterLastModifiedUtc", limit, MATTER_SELECT):
                 if keep(m):
                     yield self._matter(m)
-            yield Checkpoint("matters", b)
+            # never past today: a pass that stops after this point resumes here days later, and a mark of "tomorrow"
+            # (the walk's end) left everything changed in between unread
+            yield Checkpoint("matters", min(b, dt.date.today().isoformat()))
 
     # ------------------------------------------------------------------ meetings
     def _meeting_record(self, e: dict, extra: dict | None = None) -> Record:
@@ -227,14 +230,86 @@ class Legistar:
                 out[int(pid)] = p.get("OfficeRecordFullName") or ""
         return out
 
+    def _sweep_all(self, persons: dict[int, str], items_seen: dict, store, source_id, cursors) -> Iterator[Record]:
+        """Every office holder's whole voting record (a first or resumed pass), SWEEP_STEP people at a time: their
+        roll calls are yielded, merged into what is stored, and a Checkpoint ("votes_person") marks the last person
+        done, so a pass its time slice stops carries on with the next person.
+
+        Until Nov. 2026 nothing was yielded before the last person had been read. A government with more history
+        than one slice holds (DeKalb County: 203 office records; Powder Springs: 168) started again at the first
+        person on every pass, about 300 times from Nov. 7 to 18 ("partial (api resume): 0 new / 203 seen"), stored
+        no votes, and, the pass never ending, was never read as a delta either: no new meeting since Nov. 7."""
+        from ..channels import Checkpoint
+
+        try:
+            after = int((cursors or {}).get("votes_person") or 0)
+        except ValueError:
+            after = 0
+        todo = sorted(p for p in persons if p > after)
+        stored_votes = self._stored(store, source_id, "vote")
+        stored_items = None
+        acc: dict[int, dict[int, dict]] = {}
+        readers: dict[int, list[str]] = {}
+        touched: set[int] = set()
+        for n, pid in enumerate(todo, 1):
+            try:
+                rows = list(self._paged(f"/persons/{pid}/votes", None))
+            except RuntimeError as exc:
+                if "HTTP 404" not in str(exc) and "HTTP 400" not in str(exc):
+                    raise
+                rows = []
+            for v in rows:
+                iid = v.get("VoteEventItemId")
+                if iid is None:
+                    continue
+                iid = int(iid)
+                vp = v.get("VotePersonId") or pid
+                acc.setdefault(iid, {})[int(vp)] = {"person": v.get("VotePersonName") or persons[pid], "person_id": vp,
+                                                    "vote": v.get("VoteValueName"), "_sort": v.get("VoteSort") or 0}
+                url = f"{self.base}/persons/{pid}/votes"
+                if url not in readers.setdefault(iid, []):
+                    readers[iid].append(url)
+                touched.add(iid)
+            if n % SWEEP_STEP and n != len(todo):
+                continue
+            for iid in sorted(touched):
+                info = items_seen.get(iid)
+                if info is None:
+                    if stored_items is None:
+                        stored_items = self._stored(store, source_id, "agenda_item")
+                    r = stored_items.get(iid)
+                    if r is None:
+                        continue  # an item outside the crawl window
+                    m = r["meta"]
+                    info = {"EventId": m.get("EventId"), "EventBodyName": m.get("EventBodyName"), "EventDate": r.get("published"),
+                            "page": r["url"], "EventItemId": iid, "title": r.get("title") or "", "MatterId": m.get("EventItemMatterId"),
+                            "MatterFile": m.get("EventItemMatterFile"), "passed": m.get("EventItemPassedFlagName"),
+                            "action": m.get("EventItemActionName")}
+                merged = dict(acc[iid])
+                old = stored_votes.get(iid)
+                if old:  # the members read in an earlier step of this pass (or an earlier pass) stay on the roll call
+                    for x in old["meta"].get("votes") or []:
+                        if x.get("person_id") is not None and int(x["person_id"]) not in merged:
+                            merged[int(x["person_id"])] = {**x, "_sort": 99}
+                    for u in (old["meta"].get("opened_urls") or []):
+                        if u and u not in readers[iid]:
+                            readers[iid].append(u)
+                rows_ = sorted(merged.values(), key=lambda x: (x.get("_sort") or 0, x.get("person") or ""))
+                yield self._vote_record(info, [{k: v for k, v in x.items() if k != "_sort"} for x in rows_], readers.get(iid) or [""])
+            touched = set()
+            yield Checkpoint("votes_person", str(pid))
+
     def sweep_votes(self, since_iso: str | None, items_seen: dict, store=None, source_id: str | None = None,
-                    refresh_event=None) -> Iterator[Record]:
+                    refresh_event=None, cursors: dict | None = None) -> Iterator[Record]:
         """Roll calls assembled from each office holder's votes (/persons/{id}/votes): one paged call per person
         instead of one call per agenda item. A delta (`since_iso`) asks only for votes recorded or changed since then,
         merges them into the stored roll call, and re-reads the agenda of each affected meeting once (for the
         item's result and action)."""
         persons = self.person_ids()
         if not persons:
+            return
+        if not since_iso:
+            yield from self._sweep_all(persons, items_seen, store, source_id, cursors)
             return
         flt = f"VoteLastModifiedUtc ge {_odate(since_iso)}" if since_iso else None
         by_item: dict[int, dict[int, dict]] = {}
@@ -318,8 +393,12 @@ class Legistar:
             last_items = prev_meta.get("items_fetched") or ""
             stale = not last_items or last_items < (today - dt.timedelta(days=items_refresh_days)).isoformat()
             if force_items or changed or stale:
+                # the items first: the meeting's stamp (items_fetched, its new EventLastModifiedUtc) says they were
+                # read. Stored before the request that ran out of time, it kept them from being asked for again
+                # for a week, or for good once the meeting was older than the lookback.
+                items = list(self._item_records(e, items_seen))
                 yield self._meeting_record(e, {"items_fetched": today.isoformat()})
-                yield from self._item_records(e, items_seen)
+                yield from items
             else:
                 yield self._meeting_record(e, {"items_fetched": last_items})
 
@@ -331,8 +410,9 @@ class Legistar:
                 except RuntimeError:
                     return
             if e and eid not in {int(i["EventId"]) for i in items_seen.values()}:
+                items = list(self._item_records(e, items_seen))
                 yield self._meeting_record(e, {"items_fetched": today.isoformat()})
-                yield from self._item_records(e, items_seen)
+                yield from items
 
         if modified_since:
             # changed since the last run, or recent enough that minutes/votes may still be arriving
@@ -348,7 +428,9 @@ class Legistar:
                 flt = f"EventDate ge {_odate(a)} and EventDate lt {_odate(b)}"
                 for e in self._paged("/events", flt, "EventDate", limit, EVENT_SELECT):
                     yield from one(e, force_items=True)
-                yield Checkpoint("events", b)
+                # never past today (the walk runs a year ahead for scheduled meetings): a resumed pass reads from the
+                # day it stopped, not from next year
+                yield Checkpoint("events", min(b, today.isoformat()))
         if not with_votes:
             return
         swept = False
@@ -359,7 +441,7 @@ class Legistar:
                 persons = {}
             if persons:
                 swept = True
-                yield from self.sweep_votes(modified_since, items_seen, store, source_id, refresh_event=refresh)
+                yield from self.sweep_votes(modified_since, items_seen, store, source_id, refresh_event=refresh, cursors=cursors)
         if not swept:  # no office records here: read each passed item's roll call
             for info in list(items_seen.values()):
                 if info.get("passed"):

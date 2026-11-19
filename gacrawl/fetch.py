@@ -19,6 +19,14 @@ from .blocked import Blocked, BlockList, looks_blocked
 from .polite import RateLimiter, RobotsCache, SlotPastDeadline, host_of, parse_retry_after
 
 
+# A connection that fails: refused, timed out, or dropped while the body was being read. requests raises the last as
+# ChunkedEncodingError (or ContentDecodingError), which is neither a ConnectionError nor a Timeout, so it used to end
+# the whole source instead of being tried again ("co-dekalb:legistar: error (api): ChunkedEncodingError: Connection
+# broken: BrokenPipeError", Nov. 11, 14, 15, 16 and 18, 2026).
+NET_ERRORS = (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError,
+              requests.exceptions.ContentDecodingError)
+
+
 class OutOfTime(Exception):
     """The run's time budget is spent: raised at the next request so a long source stops promptly."""
 
@@ -310,7 +318,7 @@ class Fetcher:
                         r.close()
                         raise TooLarge(f"response over {limit} bytes: {full}")
                 body = b"".join(chunks)
-            except (requests.ConnectionError, requests.Timeout) as exc:
+            except NET_ERRORS as exc:
                 last_exc = exc
                 self.limiter.record(full, 599, time.monotonic() - t0)
                 if _unreachable(exc):
@@ -372,7 +380,7 @@ class Fetcher:
                 body = r.content
                 if len(body) > self.max_bytes:
                     raise TooLarge(f"response over {self.max_bytes} bytes: {full}")
-            except (requests.ConnectionError, requests.Timeout) as exc:
+            except NET_ERRORS as exc:
                 last_exc = exc
                 self.limiter.record(full, 599, time.monotonic() - t0)
                 self._sleep(min(60, 2 ** attempt * 5))

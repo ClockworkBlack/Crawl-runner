@@ -16,3 +16,19 @@
     twice (every research mention citing them has a twin citing co-dekalb:legistar). Only the Legistar copies go;
     the site's own pages stay, and the scheduler now keeps a site off a portal another source owns.
   date: 2026-11-07
+- source: folkston:civicclerk
+  reason: >-
+    charltoncoga.api.civicclerk.com is Charlton County's meeting system, read as co-charlton:civicclerk. Folkston's
+    registry entry picked it up from its website (a page of the county's site), and 969 of the county's meetings were
+    filed as Folkston's. gacrawl/registry.py now reads a shared Legistar or CivicClerk system under one government.
+  date: 2026-11-18
+- source: homeland:civicclerk
+  reason: >-
+    The same as Folkston: Charlton County's CivicClerk system, 97 of the county's meetings filed as Homeland's.
+  date: 2026-11-18
+- source: co-bibb:civicclerk
+  reason: >-
+    maconbibbcoga.api.civicclerk.com is the meeting system of Macon-Bibb County, one consolidated government, read
+    as macon-bibb:civicclerk. Bibb County's registry entry read it a second time, so every meeting was stored twice
+    (both reads also stalled in their first year, Nov. 7-18). It is read once now, under macon-bibb.
+  date: 2026-11-18

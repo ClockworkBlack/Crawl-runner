@@ -337,8 +337,9 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                     return sid, f"partial ({chosen['channel']} {mode}): {new} new / {total} seen"
             store.flush()
             if not modified_since:
-                store.clear_cursors(sid, keep=("full",))  # backfill complete; later runs are deltas (the reader's
-                                                           # "full pass done" marker stays)
+                # backfill complete; later runs are deltas (the reader's "full pass done" marker stays, and the
+                # sitemap's "whole list read")
+                store.clear_cursors(sid, keep=("full", "sitemap_read"))
             done = {"reader": READER_VERSIONS[reader_of(src, {"chosen": chosen})]} if reader_of(src, {"chosen": chosen}) in READER_VERSIONS else {}
             progress.update(sid, status="ok", last_ok=started, channel=chosen["channel"], mode=mode, new=new, seen=total,
                             fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"], **done)
@@ -357,6 +358,12 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             return sid, f"blocked after {total} records: {exc}"
         except Disallowed as exc:
             store.flush()
+            if "unreachable" in str(exc):
+                # robots.txt could not be fetched (a timeout, a dropped connection): not a refusal. Filed as one
+                # ("stopped"), a single connect timeout kept the source away for a whole cadence: up to a month
+                # for a small town. As an error it is tried again after the usual back-off.
+                progress.update(sid, status=f"error ({chosen['channel']}): unreachable: {exc}"[:300])
+                return sid, f"error ({chosen['channel']}): unreachable: {exc}"[:300]
             progress.update(sid, status=f"stopped: robots.txt disallows {exc}")
             return sid, f"stopped: robots.txt disallows {exc}"
         except Exception as exc:  # noqa: BLE001

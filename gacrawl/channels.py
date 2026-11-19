@@ -56,6 +56,13 @@ COLD = re.compile(r"calendar|event|parks?-and-rec|facility|login|search|sitemap|
                   re.I)
 
 
+
+class ChannelDown(Exception):
+    """The channel's own address (the feed, the sitemap, the posts API) did not answer 200 this time. Raised so the run
+    is recorded as an error and the source's last good run stands: taken as "nothing new", the next run's cut-off moved
+    past everything published in between, for good."""
+
+
 @dataclass
 class Checkpoint:
     """Yielded by a crawl when a backfill window is complete: resume from `value` next time."""
@@ -116,17 +123,23 @@ class ChannelCache:
         return hit
 
     def put(self, source_id: str, chosen: Probe, probes: list[Probe], save: bool = True, url: str = ""):
-        self.data[source_id] = {  # dict assignment is atomic; the file write is locked
+        row = {
             "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "chosen": asdict(chosen),
             "probes": [asdict(p) for p in probes],
             **({"url": url} if url else {}),   # the source's address when probed: a changed website is probed again
         }
+        # under the lock: save() walks the dict to write it, and a key added meanwhile by another worker ended that
+        # worker's source ("error choosing channel: dictionary changed size during iteration", 10 sources, Nov. 8-9)
+        with self._lock:
+            self.data[source_id] = row
         if save:
             self.save()
 
     def invalidate(self, source_id: str):
-        if self.data.pop(source_id, None) is not None:
+        with self._lock:
+            gone = self.data.pop(source_id, None) is not None
+        if gone:
             self.save()
 
     def save(self):
@@ -356,11 +369,16 @@ def _skip_fresh(ctx: CrawlContext | None, url: str, depth: int | None = None) ->
     return False
 
 
-def _mark(ctx: CrawlContext | None, sid: str, r) -> None:
+def _mark(ctx: CrawlContext | None, sid: str, r, asked: str = "") -> None:
+    """The frontier's note that this address was fetched. `asked`: the address as it was requested, noted as well when
+    the answer came from another one (http to https, a moved file): the frontier is asked about links as they are
+    written, so a link that redirects was never "fresh" and was downloaded again on every run."""
     if ctx:
         ctx.stats["fetched"] += 1
         if ctx.frontier:
             ctx.frontier.mark_url(r.url, r.status, sid, r.content_type, r.content if r.status == 200 else None)
+            if asked and asked != r.url:
+                ctx.frontier.mark_url(asked, r.status, sid, r.content_type)
 
 
 def _deadline(fetcher) -> float | None:
@@ -402,9 +420,7 @@ def page_extras(fetcher: Fetcher, sid: str, src: dict, r, html: str):
 def _try_get(fetcher: Fetcher, url: str, ctx: CrawlContext | None, sid: str):
     """One page: None when it is too large or its server dropped the connection (that page is skipped and noted;
     the rest of the source goes on). Refusals (robots, bot protection) still stop the source, as before."""
-    import requests
-
-    from .fetch import TooLarge
+    from .fetch import NET_ERRORS, TooLarge
 
     try:
         return fetcher.get(url)
@@ -414,7 +430,7 @@ def _try_get(fetcher: Fetcher, url: str, ctx: CrawlContext | None, sid: str):
         if ctx and ctx.frontier:
             ctx.frontier.mark_url(url, 413, sid, "too large")
         return None
-    except (requests.ConnectionError, requests.Timeout):
+    except NET_ERRORS:
         if ctx is not None:
             ctx.conn_errors = getattr(ctx, "conn_errors", 0) + 1
             if ctx.conn_errors >= 5:
@@ -433,10 +449,13 @@ def _page_record(fetcher: Fetcher, sid: str, url: str, src: dict, ctx: CrawlCont
     r = _try_get(fetcher, url, ctx, sid)
     if r is None:
         return None
-    _mark(ctx, sid, r)
     if r.status != 200:
+        _mark(ctx, sid, r, url)
         return None
+    # the frontier's "read" mark only once the document is read: written first, a run that died while a PDF was being
+    # parsed (33 shards did, Nov. 7-18, 2026) left the file marked read for ten years with no record of it
     doc = _doc_record(r, sid, src, stop_at=_deadline(fetcher))
+    _mark(ctx, sid, r, url)
     if doc or "html" not in r.content_type:
         return doc
     title, md = extract.html_to_markdown(r.text, r.url)
@@ -541,7 +560,9 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
             params["modified_after" if modified_since else "after"] = (modified_since or since + "T00:00:00")
             r = fetcher.get(endpoint, params=params, use_cache=not modified_since)
             if r.status != 200:
-                break
+                if page == 1:
+                    raise ChannelDown(f"the posts API answered HTTP {r.status}")
+                break               # past the last page (WordPress answers 400 there)
             rows = r.json()
             if not rows:
                 break
@@ -557,6 +578,8 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
 
     if ch == "feed":
         r = fetcher.get(endpoint, use_cache=not modified_since)
+        if r.status != 200:
+            raise ChannelDown(f"the feed answered HTTP {r.status}")
         for item in parse_feed(r.content):
             if cutoff and _date10(item.get("published")) and _date10(item["published"]) < cutoff:
                 continue  # already had this on the last run
@@ -566,7 +589,9 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                 page = _page_record(fetcher, sid, item["link"], src, ctx)
                 if page:
                     page.channel = "feed"
-                    page.published = page.published or item["published"]
+                    # the feed's own date first: the page's is read from its text, where the first date is often
+                    # one the story mentions (a release of Nov. 17 announcing a Dec. 15 hearing was dated Dec. 15)
+                    page.published = item["published"] or page.published
                     page.meta["guid"] = item["id"]
                     yield from with_extras(page)
                     continue
@@ -593,7 +618,10 @@ def _coverage(fetcher: Fetcher, src: dict, ctx: CrawlContext, max_pages: int) ->
         return
     sm = next((p for p in ctx.probes if p.get("channel") == "sitemap" and p.get("ok")), None)
     if sm:
-        yield from _sitemap_crawl(fetcher, src, sm["endpoint"], ctx, max_pages, None, use_cache=True)
+        try:
+            yield from _sitemap_crawl(fetcher, src, sm["endpoint"], ctx, max_pages, None, use_cache=True)
+        except ChannelDown:
+            return          # the feed or posts API was read; the site's own pages wait for the next run
     else:
         yield from _html_crawl(fetcher, src, max_pages, ctx)
 
@@ -602,29 +630,42 @@ def _sitemap_crawl(fetcher: Fetcher, src: dict, endpoint: str, ctx: CrawlContext
                    use_cache: bool = True) -> Iterator[Record]:
     sid = src["id"]
     r = fetcher.get(endpoint, use_cache=use_cache)
+    if r.status != 200:
+        raise ChannelDown(f"the sitemap answered HTTP {r.status}")
+    # "Unchanged since the last run" is a reason to skip a page only if the page has been read. A run reads at most
+    # max_pages of the list (40 to 150), was marked complete, and every later run then dropped the pages it never
+    # reached, their dates being older than the last run: Cobb County's site, 120 of 807 pages read and the other
+    # 687 skipped for good; 240 sources are read this way. So the cut-off applies to pages the frontier has seen,
+    # never to one it has not; and a child sitemap is skipped as unchanged only once a run has got through the whole
+    # list without reaching max_pages (the "sitemap_read" mark).
+    store = ctx.frontier if ctx else None
+    whole = bool(store is not None and (ctx.cursors or {}).get("sitemap_read"))
     entries = _sitemap_entries(r.content)
     if entries and all(loc.endswith(".xml") or "sitemap" in loc.lower() for loc, _ in entries[:5]):
         nested = []
         for loc, lastmod in entries[:50]:
-            if cutoff and lastmod and lastmod[:10] < cutoff:
+            if whole and cutoff and lastmod and lastmod[:10] < cutoff:
                 continue  # whole child sitemap unchanged since last run
             try:
                 nested += _sitemap_entries(fetcher.get(loc, use_cache=use_cache).content)
             except (Disallowed, Blocked):
                 pass
         entries = nested
-    entries = [(loc, lm) for loc, lm in entries if not (cutoff and lm and lm[:10] < cutoff)]
+    seen = getattr(store, "url_seen", None)
+    entries = [(loc, lm) for loc, lm in entries if not (cutoff and lm and lm[:10] < cutoff and (seen is None or seen(loc)))]
     # relevant pages first, so max_pages is spent where the records are
     urls = sorted(_filter_urls([loc for loc, _ in entries], src), key=lambda u: (not HOT.search(u), bool(COLD.search(u))))
     n = 0
     for u in urls:
         if n >= max_pages:
-            break
+            return              # more of the list is left for the next run: no "whole list read" mark
         if _skip_fresh(ctx, u, depth=2):
             continue
         rec = _page_record(fetcher, sid, u, src, ctx)
         n += 1
         yield from with_extras(rec)
+    if store is not None and not whole:
+        yield Checkpoint("sitemap_read", dt.date.today().isoformat())
 
 
 def _html_crawl(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext | None = None) -> Iterator[Record]:
@@ -644,11 +685,12 @@ def _html_crawl(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext |
         r = _try_get(fetcher, url, ctx, src["id"])
         if r is None:
             continue
-        _mark(ctx, src["id"], r)
         if r.status != 200:
+            _mark(ctx, src["id"], r, url)
             continue
         count += 1
         doc = _doc_record(r, src["id"], src, stop_at=_deadline(fetcher))
+        _mark(ctx, src["id"], r, url)   # after the document is read (see _page_record)
         if doc:
             yield doc
             continue

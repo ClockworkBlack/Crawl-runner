@@ -6,8 +6,10 @@ them; when the newest is someone else's, a binary search over the captures finds
 pages are read as captured on or before that day, at most `site_max_pages`, the issue, about and endorsement pages
 first. A news article that answers 404 or 410 is read from its newest capture.
 
-Never for a page that answers but is closed: a paywall, a login or a refusal (401, 402, 403, a challenge page) is not
-gone, and its text is not fetched from an archive.
+Since Nov. 19, 2026 (the owner's rule) also for a public page that refuses the crawler (a 403, a bot-protection
+challenge, a robots.txt refusal): campaign sites and articles here, refused crawl sources in gacrawl/archive_sources.py,
+school boards' Simbli pages in gacrawl/simbli_archive.py. Never for a page that is closed: a login or a paywall (401,
+402) is not public, and its text is not fetched from an archive. Only existing captures: never Save Page Now.
 
 Polite by the Internet Archive's limits: one request every 4 seconds (http.host_intervals; its capture index allows
 about 24 a minute), no retry after a 429 (http.host_retries: 0), and the first 429, 5xx, refusal or robots.txt

@@ -30,7 +30,7 @@ from typing import Iterator
 from urllib.parse import urljoin
 
 from .. import extract
-from ..fetch import Blocked, Disallowed, Fetcher
+from ..fetch import Blocked, Disallowed, Fetcher, OutOfTime
 from ..store import Record
 
 BASE_RX = re.compile(r"(https?://[^/]+/[a-z]{2}/[a-z0-9\-]+/Board\.nsf)", re.I)
@@ -159,7 +159,7 @@ class BoardDocs:
         for com in self.committees():
             try:
                 meetings = self.meetings(com["id"])
-            except (Blocked, Disallowed):
+            except (Blocked, Disallowed, OutOfTime):
                 raise
             except Exception:  # noqa: BLE001
                 continue
@@ -167,14 +167,17 @@ class BoardDocs:
                 if mt["date"] and mt["date"] < since:
                     continue
                 mkey = f"{source_id}|meeting|boarddocs|{mt['id']}"
-                if store is not None and store.has(mkey) and (modified_since or True) and (not mt["date"] or mt["date"] < recent):
-                    continue  # already stored and outside the lookback window
+                if store is not None and store.has(mkey) and (modified_since or True) and (not mt["date"] or mt["date"] < recent) \
+                        and (store.get_meta(mkey) or {}).get("items"):
+                    continue  # already stored, with its agenda, and outside the lookback window (one stored with no
+                              # items, as a stopped run used to leave them, is read again)
                 try:
                     items = self.agenda(com["id"], mt["id"])
-                except (Blocked, Disallowed):
+                except (Blocked, Disallowed, OutOfTime):
                     raise
                 except Exception:  # noqa: BLE001
-                    items = []
+                    continue    # not stored as a meeting with no agenda: a stored meeting outside the lookback is
+                                # never asked for again, so one failed call left it an empty shell for good
                 agenda_res = f"{self.base}/BD-GetAgenda?open&id={mt['id']}"
                 yield Record(source_id, "meeting", f"{self.base}/goto?open&id={mt['id']}", title=f"{com['name'] or 'Board'} {mt['name']} {mt['date']}".strip(),
                              text="\n".join(f"{i['order']}. {i['title']}" for i in items)[:20000], published=mt["date"] or None,
@@ -190,7 +193,7 @@ class BoardDocs:
                         try:
                             detail = self.item(it["id"])
                             opened_items += 1
-                        except (Blocked, Disallowed):
+                        except (Blocked, Disallowed, OutOfTime):
                             raise
                         except Exception:  # noqa: BLE001
                             detail = None
@@ -208,7 +211,7 @@ class BoardDocs:
                             continue
                         try:
                             r = self.f.get(fdoc["url"])
-                        except (Blocked, Disallowed):
+                        except (Blocked, Disallowed, OutOfTime):
                             raise
                         except Exception:  # noqa: BLE001
                             continue

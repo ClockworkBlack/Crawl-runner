@@ -254,3 +254,37 @@ def test_a_roll_call_that_does_not_add_up_is_kept_marked_and_read_again(server, 
     assert [o.get("failed_check", 0) for o in outs] == [1, 1, 1, 0]           # read three times, then left alone
     assert legis.votes_waiting(store, root) == 0 and store.kv_get("legis:votes_try:558") == "3"
     assert all(o["members"] == 0 and o["bills"] == 0 for o in outs)          # votes only: no member or bill lists read
+
+
+def test_time_running_out_between_requests_ends_the_step_cleanly(server, fetcher, tmp_path, monkeypatch):
+    """Nov. 18, 2026 (two of the day's three crawls): with a minute left in the merge job the bill list raised OutOfTime
+    out of update(), the step ended in a traceback, the roll calls were never reached and the run went uncounted."""
+    from gacrawl.fetch import OutOfTime
+
+    monkeypatch.setattr(legis, "API", server + "/api/")
+    root = tmp_path / "proj"
+    (root / "config").mkdir(parents=True)
+    import yaml
+
+    (root / "config" / "legislature.yaml").write_text(yaml.safe_dump({
+        "sessions": {"current": [1033], "history": [1033], "names": {1033: "2025-2026"}, "years": {1033: [2025, 2026]}},
+        "votes": {"key_bills": [], "all_passed_in_current": True, "max_bills_per_run": 5}, "members": {"recheck_days": 30}}))
+    store = Store(root / "data")
+    real = legis.Legis.legislation
+
+    def spent(self, session):
+        raise OutOfTime("https://www.legis.ga.gov: next turn at +1s is past the deadline (the run's time budget)")
+
+    monkeypatch.setattr(legis.Legis, "legislation", spent)
+    said = []
+    out = legis.update(fetcher, store, root, log=said.append)
+    assert "past the deadline" in out["out_of_time"] and out["members"] == 2      # what was read is kept
+    assert any("time is up" in str(x) for x in said)
+    assert json.loads(store.kv_get("legis_refusals"))[-1]["refused"] is False     # the run is counted, as not refused
+    assert len(store.query("kind='legislator'")) == 2
+    # the roll calls: a bill whose turn would end past the deadline waits and is counted, with every bill after it
+    monkeypatch.setattr(legis.Legis, "legislation", real)
+    monkeypatch.setattr(legis.Legis, "roll_calls", lambda self, *a, **k: (_ for _ in ()).throw(OutOfTime("no time for the next turn")))
+    out = legis.update(fetcher, store, root, log=lambda *_: None)
+    assert "out_of_time" not in out and out["bills"] == 2 and out["vote_bills"] == 0 and out["vote_bills_waiting"] >= 1
+    store.close()

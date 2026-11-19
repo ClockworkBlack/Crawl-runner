@@ -103,6 +103,8 @@ jobs:
       free: ${{ steps.plan.outputs.free }}
       police_news_minutes: ${{ steps.plan.outputs.police_news }}
       finance_minutes: ${{ steps.plan.outputs.finance_minutes }}
+      nightly: ${{ steps.cadence.outputs.nightly }}
+      weekly: ${{ steps.cadence.outputs.weekly }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,6 +116,12 @@ jobs:
           bash scripts/ci_runner.sh mode
           set -a; . <(grep -E '^(PUBLIC_RUNNER|DATA_REPO)=' "$GITHUB_ENV"); set +a
           bash scripts/ci_runner.sh pull-state
+      - name: Nightly and weekly work due (by the day it was last done, state/cadence.json)
+        id: cadence
+        run: |
+          # the backfill chain's queued run takes the place of the scheduled nightly and weekly runs (scripts/cadence.py),
+          # so whichever run comes first after the work is due does it
+          python3 scripts/cadence.py due "${{ github.event.schedule }}" "$IS_MAIN" | tee -a "$GITHUB_ENV" | tr 'A-Z' 'a-z' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5
         with: {python-version: "3.12", cache: pip}
       - name: Install (only when this job runs the crawler, for seeding or the Electo import)
@@ -279,7 +287,12 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: The job's clock (optional steps fit their minutes to what is left; scripts/budget.sh)
-        run: echo "MERGE_T0=$(date +%s)" >> "$GITHUB_ENV"; echo "MERGE_LIMIT=350" >> "$GITHUB_ENV"
+        run: |
+          echo "MERGE_T0=$(date +%s)" >> "$GITHUB_ENV"; echo "MERGE_LIMIT=350" >> "$GITHUB_ENV"
+          # the nightly and weekly work as the prepare job found it due (scripts/cadence.py)
+          n="${{ needs.prepare.outputs.nightly }}"; w="${{ needs.prepare.outputs.weekly }}"
+          if [ -n "$n" ]; then echo "NIGHTLY=$n" >> "$GITHUB_ENV"; fi
+          if [ -n "$w" ]; then echo "WEEKLY=$w" >> "$GITHUB_ENV"; echo "OPTIMIZE_FTS=$w" >> "$GITHUB_ENV"; fi
       - uses: actions/checkout@v4
         with:
           # the public runner keeps no credential in a checkout that processes crawled pages (it writes to the private
@@ -469,6 +482,9 @@ jobs:
           part "$M" gacrawl schools sites
           # GaDOE's funding files; what was read is skipped
           part 6 gacrawl schools budgets
+          # school boards' Simbli pages (meetings, agendas, minutes, policies) from the Internet Archive's existing
+          # captures: Simbli refuses the crawler (gacrawl/simbli_archive.py; 20 districts a run, 4 s between requests)
+          part 15 gacrawl schools simbli-archive
           gacrawl schools people || true    # local: from pages already in the database; feeds the research and export
       - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
         # Early too, for the same reason as the schools: after the research block it found no time left in every run.
@@ -514,6 +530,13 @@ jobs:
           python3 -c "import json;d=json.load(open('/tmp/ag.json'));print({k:d.get(k) for k in ('agencies','pages','meetings','new')});[print(' ',k,v) for k,v in d.get('by',{}).items()];[print('  error:',e) for e in d.get('errors',[])]" || true
           timeout -s INT -k 1m 7m gacrawl legis meetings --max-minutes 5 > /tmp/lm.json || echo "the legislature's schedule stopped after 7 minutes"
           python3 -c "import json;print(json.load(open('/tmp/lm.json')).get('meetings'))" || true
+      - name: Sources that refuse the crawler, from the Internet Archive's copies (gacrawl/archive_sources.py)
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          # before deriving, so tonight's derive reads the minutes and results found this way
+          M=$(bash scripts/budget.sh 18); [ "$M" -le 0 ] && { echo "no time left for the archive; the next run reads it"; exit 0; }
+          timeout -s INT -k 2m "$((M + 4))m" gacrawl archive refused --max-minutes "$M" || echo "the archive step stopped after $((M + 4)) minutes"
       - name: Derive (election results, minutes -> votes, ballot questions, appointments, guides)
         continue-on-error: true      # an error here leaves last run's derived data; it must not stop the export and the site
         timeout-minutes: 20
@@ -569,7 +592,11 @@ jobs:
           # the job's clock: every long optional step fits what is left (scripts/budget.sh), so the steps that save the
           # run (database, bundle, state, Electo, the site) keep their reserve; a full research block (200 minutes on
           # the public runner) otherwise pushed the job past its 350-minute limit before any of them ran
-          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left in this run for research; the next run does it"; exit 0; }
+          # and never all of it: at most RESEARCH_CAP minutes, leaving RESEARCH_KEEPS for the steps after it (from Nov. 14
+          # a 200-minute block left the legislature, money, Code changes and six more steps 0 minutes in most runs, while
+          # most blocks added fewer than 80 records)
+          CAP=${{ vars.RESEARCH_CAP || '90' }}; [ "$M" -gt "$CAP" ] && M=$CAP
+          M=$(bash scripts/budget.sh "$M" "${{ vars.RESEARCH_KEEPS || '120' }}"); [ "$M" -le 0 ] && { echo "no time left in this run for research; the next run does it"; exit 0; }
           # watchdog as on the crawl: SIGINT after the budget lets research finish the candidates in hand and save
           if [ "$PUBLIC_RUNNER" = "true" ]; then
             timeout -s INT -k 2m "$((M + 5))m" gacrawl candidates research --max-minutes "$M" --workers 12 || echo "research stopped by the watchdog after $((M + 5)) minutes"
@@ -803,9 +830,9 @@ jobs:
         timeout-minutes: 20
         run: |
           if [ ! -f crawl.db.zst ] || [ data/crawl.db -nt crawl.db.zst ]; then bash scripts/ci_db.sh push; fi
-          cp crawl.db.zst tempsave-crawl.db.zst
-          gh release upload "$DATA_TAG" tempsave-crawl.db.zst --clobber
-          echo "temp save: tempsave-crawl.db.zst ($(du -h tempsave-crawl.db.zst | cut -f1)), kept until a later run's data is on Electo"
+          # stored in parts like the database itself (GitHub refuses a release file of 2 GiB): scripts/ci_db.sh
+          bash scripts/ci_db.sh store crawl.db.zst tempsave-crawl.db.zst
+          echo "temp save: tempsave-crawl.db.zst ($(du -h crawl.db.zst | cut -f1)), kept until a later run's data is on Electo"
       - name: Money read while this run worked (the FEC re-read's and the Georgia money job's newest hand-offs)
         # they hand over and push money to the site every round (scripts/money_to_electo.sh); this run's export would
         # otherwise put money as old as the merge's start back on the site. Applied again here (the same lines change
@@ -943,8 +970,10 @@ jobs:
           # kept between runs (in the private data repository when the public runner runs this; config/runner.json).
           # Entity ids, organization lookups and profile input counts live in the database; legis_people is rebuilt
           # nightly. schools.json / school_bounds.json (the weekly registry) and school_people.json are kept too.
+          # the nightly and weekly work this run did (scripts/cadence.py); a cancelled run does not count as having done it
+          if [ "${{ job.status }}" = "success" ]; then python3 scripts/cadence.py done "$NIGHTLY" "$WEEKLY" || true; fi
           bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
-            state/progress.json state/channels.json state/blocked.json state/discovered.json \
+            state/cadence.json state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
             state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
             state/coverage.json state/channel_ai.json data/coverage.md data/seed_review.md data/channel_review.md data/train \

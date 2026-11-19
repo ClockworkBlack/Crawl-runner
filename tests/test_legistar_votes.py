@@ -153,3 +153,81 @@ def test_fallback_without_office_records(tmp_path):
     assert {r.meta["EventItemId"] for r in recs if r.kind == "vote"} == {11, 12, 21, 22}
     assert sum(c.startswith("/eventitems/") for c in api.calls) == 4       # read per passed item instead
     store.close()
+
+
+def test_a_first_pass_stopped_in_the_vote_sweep_carries_on_with_the_next_person(tmp_path, monkeypatch):
+    """DeKalb County and Powder Springs, Nov. 7-18, 2026: about 300 passes each began the sweep at the first office
+    holder, ran out of time before the last, stored no vote and never became a delta."""
+    from gacrawl.fetch import OutOfTime
+    from gacrawl.sources import legistar
+
+    monkeypatch.setattr(legistar, "SWEEP_STEP", 1)
+    api, store = Api(), Store(tmp_path)
+    real_get, budget = api.get, {"left": 0}
+
+    def limited(url, params=None, **kw):
+        if "/persons/" in url:
+            if budget["left"] <= 0:
+                raise OutOfTime("this source's time slice used up")
+            budget["left"] -= 1
+        return real_get(url, params=params, **kw)
+
+    api.get = limited
+
+    def one_pass(cursors):
+        lg, marks = Legistar(api, "x"), dict(cursors)
+        try:
+            for r in lg.meetings("2016-01-01", store=store, source_id="x:legistar", cursors=cursors):
+                if isinstance(r, channels.Checkpoint):
+                    marks[r.stream] = r.value
+                else:
+                    r.source_id = "x:legistar"
+                    store.add(r)
+        except OutOfTime:
+            store.flush()
+            return marks, False
+        store.flush()
+        return marks, True
+
+    budget["left"] = 1          # one request reads one person's votes here: one person a pass
+    marks, done = one_pass({})
+    assert not done and marks["votes_person"] == "101"
+    # the walk's marks are never past today (a resumed pass used to start at "tomorrow" and at next year)
+    assert marks["events"] <= TODAY.isoformat()
+    votes = {r["meta"]["EventItemId"]: r for r in store.query("kind='vote'")}
+    assert set(votes) == {11, 12, 21, 22} and [v["person"] for v in votes[11]["meta"]["votes"]] == ["Pat Local"]
+    budget["left"] = 1
+    marks, done = one_pass(marks)
+    assert not done and marks["votes_person"] == "102"
+    budget["left"] = 99
+    marks, done = one_pass(marks)
+    assert done
+    votes = {r["meta"]["EventItemId"]: r for r in store.query("kind='vote'")}
+    assert {v["person"]: v["vote"] for v in votes[12]["meta"]["votes"]} == {"Pat Local": "Yea", "Kim Post": "Nay", "Lee Ward": "Yea"}
+    assert all(len(v["meta"]["votes"]) == 3 for v in votes.values())
+    store.close()
+
+
+def test_a_meetings_stamp_is_stored_after_its_items_are_read(tmp_path):
+    from gacrawl.fetch import OutOfTime
+
+    api, store = Api(), Store(tmp_path)
+    crawl(api, store)
+    api.events[1]["EventLastModifiedUtc"] = "2026-11-01T00:00:00"      # the recent meeting changed
+    real_get = api.get
+
+    def no_items(url, params=None, **kw):
+        if url.endswith("/eventitems"):
+            raise OutOfTime("this source's time slice used up")
+        return real_get(url, params=params, **kw)
+
+    api.get = no_items
+    lg, got = Legistar(api, "x"), []
+    try:
+        for r in lg.meetings("2016-01-01", modified_since="2026-10-01T00:00:00", store=store, source_id="x:legistar"):
+            got.append(r)
+    except OutOfTime:
+        pass
+    # nothing says the changed meeting was refreshed: the next run reads its items
+    assert not [r for r in got if r.kind == "meeting" and r.meta.get("EventId") == 2]
+    store.close()

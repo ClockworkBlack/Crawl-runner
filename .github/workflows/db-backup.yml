@@ -57,6 +57,20 @@ jobs:
           if [ "${{ inputs.temp }}" = "true" ]; then BK="tempsave-$SRC"
           elif [ "$SRC" = "crawl.db.zst" ]; then BK=crawl-backup.db.zst; else BK="backup-$SRC"; fi
           check() { case "$1" in *.zst) zstd -t -q "$1" ;; *.json) python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1" ;; esac; }
+          # The database and its copies are stored in parts behind a list (scripts/ci_db.sh: GitHub refuses a release
+          # file of 2 GiB, and the compressed database passed 1.7 GiB on Nov. 18, 2026): they go through that script,
+          # which puts them together, checks them, and stores the copy the same way. Other files are copied as before.
+          if [ "$SRC" = "crawl.db.zst" ]; then
+            mkdir -p bk
+            case "${{ inputs.action }}" in
+              save)    bash scripts/ci_db.sh fetch "bk/$SRC" "$SRC" && bash scripts/ci_db.sh store "bk/$SRC" "$BK"
+                       echo "saved $(du -h "bk/$SRC" | cut -f1) of $SRC as $BK" ;;
+              remove)  bash scripts/ci_db.sh drop "$BK" ;;
+              restore) bash scripts/ci_db.sh fetch "bk/$BK" "$BK" && bash scripts/ci_db.sh store "bk/$BK" "$SRC"
+                       echo "$SRC restored from $BK" ;;
+            esac
+            exit 0
+          fi
           case "${{ inputs.action }}" in
             save)
               ID=$(id_of "$SRC"); [ -n "$ID" ] || { echo "::error::no $SRC to copy"; exit 1; }

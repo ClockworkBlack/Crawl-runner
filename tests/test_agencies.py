@@ -135,3 +135,53 @@ def test_every_listed_body_exports_its_kind(tmp_path):
     agencies.export_state_meetings(Store(tmp_path / "data"), root, out, today="2026-11-13")
     kinds = {a["id"]: a["kind"] for a in json.loads(out.read_text())["agencies"]}
     assert kinds["regents"] == "board" and kinds["gefa"] == "authority"
+
+
+GTEA = """<html><head><title>Board – Georgia Transportation Efficiency Authority</title></head><body>
+<div class="elementor"><h2>Board Meetings</h2>
+<h2>Upcoming Board Meeting Remote Access Info</h2><h3>Agendas</h3>
+<div class="e-text"><p><strong>10:30 AM –</strong> GTEA Committee Meetings</p><ul>
+<li><a href="https://gtea.ga.gov/wp-content/uploads/2026/11/Administration-Committee-Meeting-Draft-Agenda.pdf">Administrative Committee Agenda (PDF)</a></li>
+<li><a href="https://gtea.ga.gov/wp-content/uploads/2026/11/Progams-and-Projects-Committee-Meeting-Draft-Agenda.pdf">Programs and Projects Committee Agenda (PDF)</a></li></ul>
+<p><strong>11:15 AM –</strong> GTEA Board Meeting</p><ul>
+<li><a href="https://gtea.ga.gov/wp-content/uploads/2026/11/GTEA-Board-of-Directors-Meeting-Draft-Agenda.pdf">Agenda (PDF)</a></li></ul></div>
+<h3>Location</h3><div class="e-info"><div>Date</div><div>Tuesday, November 18, 2026</div><div>Time</div><div>10:30 a.m. – 12:00 p.m.</div></div>
+<h2>FY27 GTEA Board and Committee Meeting Schedule</h2>
+<div class="e-text"><p>The Board and Committees will hold regular meetings on the following dates</p>
+<p>November 18, 2026</p><p>February 16, 2027 *</p><p>April 21, 2027 *</p><p>June 16, 2027 *</p>
+<p>*Meeting dates may be adjusted, pending ARC’s TIP Amendment schedule</p></div>
+<h2>Agendas from Past GTEA Board Meetings</h2>
+<div class="e-acc"><div class="e-title">October 14th, 2026</div>
+ <div class="e-body"><div>GTEA Board of Directors</div>
+  <div><a href="https://gtea.ga.gov/wp-content/uploads/2026/10/GTEA-Board-of-Directors-Meeting-Agenda.pdf">View Agenda</a></div>
+  <div><a href="https://gtea.ga.gov/wp-content/uploads/2026/10/Signed-GTEA-Board-Meeting-Minutes.pdf">View Minutes</a></div>
+  <div><a href="https://gtea.ga.gov/wp-content/uploads/2026/10/GTEA-Board-Meeting-Presentation.pdf">View Presentation</a></div>
+  <div>Programs and Projects Committee</div>
+  <div><a href="https://gtea.ga.gov/wp-content/uploads/2026/10/Progams-and-Projects-Committee-Meeting-Agenda.pdf">View Agenda</a></div></div>
+ <div class="e-title">August 19th, 2026</div>
+ <div class="e-body"><div>GTEA Board of Directors</div>
+  <div><a href="http://atltransit.ga.gov/wp-content/uploads/2026/08/GTEA-Board-of-Directors-Meeting-Draft-Agenda.pdf">View Agenda</a></div>
+  <div><a href="http://atltransit.ga.gov/wp-content/uploads/2026/08/8.19.26-GTEA-Board-Meeting-Presentation.pdf">View Presentation</a></div></div>
+ <div class="e-title">June 16th, 2026</div>
+ <div class="e-body"><div>GTEA Board of Directors</div>
+  <div><a href="http://atltransit.ga.gov/wp-content/uploads/2026/06/GTEA-Board-of-Directors-Meeting-Agenda.pdf">View Agenda</a></div></div></div>
+</div></body></html>"""
+
+
+def test_a_page_built_with_dates_as_plain_lines_and_a_schedule_of_dates_alone():
+    """The GTEA's board page (the ATL and GRTA since May 2026): the ATL's old page answered 404, and the site showed
+    no meeting of the authority at all. Dates are lines of their own, not headings; the coming meetings are dates
+    with no files; the current agendas come before their date."""
+    ms = {m["date"]: m for m in agencies.meetings_on(GTEA, "https://gtea.ga.gov/board/")}
+    assert set(ms) == {"2026-11-18", "2027-02-16", "2027-04-21", "2027-06-16", "2026-10-14", "2026-08-19", "2026-06-16"}
+    assert ms["2026-10-14"]["agenda"].endswith("GTEA-Board-of-Directors-Meeting-Agenda.pdf")
+    assert ms["2026-10-14"]["minutes"].endswith("Signed-GTEA-Board-Meeting-Minutes.pdf")
+    assert any(d["u"].endswith("Progams-and-Projects-Committee-Meeting-Agenda.pdf") for d in ms["2026-10-14"]["docs"])
+    assert ms["2026-08-19"]["agenda"].endswith("2026/08/GTEA-Board-of-Directors-Meeting-Draft-Agenda.pdf")
+    assert ms["2026-11-18"]["agenda"].endswith("Administration-Committee-Meeting-Draft-Agenda.pdf")     # dated by the line after
+    assert not ms["2027-02-16"]["agenda"] and not ms["2027-02-16"]["docs"]                             # a date on the schedule
+
+
+def test_a_date_standing_alone_away_from_any_schedule_is_not_a_meeting():
+    html = "<html><body><h2>News</h2><p>March 3, 2026</p><p>The board thanked its volunteers.</p></body></html>"
+    assert agencies.meetings_on(html, "https://x.georgia.gov/news") == []

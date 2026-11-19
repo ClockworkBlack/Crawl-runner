@@ -401,6 +401,19 @@ def pipeline_checks(root: Path, store) -> str:
     refused = [h for h in recent if h.get("refused")]
     L.append(f"- Georgia legislature's site refused the crawler in **{len(refused)}** of the last 7 days' {len(recent)} runs"
              + (f" (last {refused[-1]['at']})" if refused else ""))
+    from .websearch import health_line
+
+    L.append(health_line(root / "state")[0])
+    # school boards' Simbli pages from the Internet Archive (gacrawl/simbli_archive.py) and their posted schedules
+    with store._lock:
+        rows = db.execute("SELECT v FROM kv WHERE k LIKE 'simbli:archive:%' AND k NOT LIKE '%:pages'").fetchall()
+        sched = db.execute("SELECT count(*), count(DISTINCT jurisdiction) FROM records WHERE kind='meeting' AND "
+                           "source_id LIKE 'sd-%:site' AND json_extract(meta,'$.scheduled')").fetchone()
+    done = [json.loads(r[0]) for r in rows]
+    L.append(f"- School boards on Simbli, from the Internet Archive's copies: **{len(done)}** districts read; "
+             f"{sum(1 for d in done if d.get('meetings'))} with meetings on file ({sum(d.get('meetings', 0) for d in done):,} "
+             f"meetings, {sum(d.get('policies', 0) for d in done):,} policies, {sum(d.get('pages', 0) for d in done):,} meeting pages); "
+             f"from the districts' own schedules: **{sched[0]:,}** meetings in {sched[1]} districts")
     return "\n".join(L) + "\n"
 
 

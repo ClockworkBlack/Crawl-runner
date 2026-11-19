@@ -115,6 +115,23 @@ def schedule_files(html: str, url: str) -> list[dict]:
     return out
 
 
+DATE_LINE_TAGS = ["p", "div", "span", "li", "h5", "h6", "time", "td"]
+DATE_ALONE = re.compile(rf"^(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+)?{_MON}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+20\d\d\s*\*?$", re.I)
+SCHEDULE_CUE = re.compile(r"meeting schedule|schedule of meetings|meeting dates|following dates|upcoming (?:board )?meeting|"
+                          r"regular meetings on", re.I)
+UPCOMING = re.compile(r"\bupcoming\b|\bnext (?:board )?meeting\b", re.I)
+
+
+def date_line(el, year_hint=None) -> str:
+    """The day, when an element's whole text is one date ("October 14th, 2026", "Tuesday, November 18, 2026",
+    "February 16, 2027 *"); "" otherwise. An element holding more (a sentence, a row, a block of several) is not."""
+    t = re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
+    if not t or len(t) > 45 or not DATE_ALONE.match(t):
+        return ""
+    ds = dates_in(t, year_hint)
+    return ds[0] if ds else ""
+
+
 def meetings_on(html: str, url: str, event_links: str = "") -> list[dict]:
     """[{date, what, agenda, minutes, docs: [{t, u}], where}] for every meeting the page lists, newest first.
     `event_links`: a part of the address of the site's own pages for single sessions, each named with its date in the
@@ -164,11 +181,27 @@ def meetings_on(html: str, url: str, event_links: str = "") -> list[dict]:
         return a.parent
 
     def heading_date(el) -> str:
-        """The date heading a block sits under (DBHDD: 'Thursday, February 26, 2026', then its files)."""
+        """The date heading a block sits under (DBHDD: 'Thursday, February 26, 2026', then its files); else the
+        nearest line above that is a date and nothing else, as page builders lay it out in a plain text block (the
+        GTEA: 'October 14th, 2026', then each committee's name and its files); else, under an "Upcoming meeting"
+        heading, the date written after the files (the GTEA again: the agendas, then 'Date / Tuesday, November 18')."""
         for prev in el.find_all_previous(["h2", "h3", "h4", "h5", "strong", "b", "dt", "summary"], limit=4):
             ds = dates_in(prev.get_text(" ", strip=True)[:120], year_at.get(id(prev)))
             if ds:
                 return ds[0]
+        for prev in el.find_all_previous(DATE_LINE_TAGS, limit=60):
+            d = date_line(prev, year_at.get(id(prev)))
+            if d:
+                return d
+        up = next((h for h in el.find_all_previous(["h1", "h2", "h3", "h4"], limit=3)
+                   if UPCOMING.search(h.get_text(" ", strip=True))), None)
+        if up is not None:
+            for nxt in el.find_all_next(DATE_LINE_TAGS, limit=60):
+                d = date_line(nxt, year_at.get(id(nxt)))
+                if d:
+                    return d
+                if nxt.name in ("h1", "h2", "h3") and nxt is not up:
+                    break
         return ""
 
     for a in soup.find_all("a", href=True):
@@ -221,6 +254,19 @@ def meetings_on(html: str, url: str, event_links: str = "") -> list[dict]:
             elif not m["where"]:
                 m["where"] = where[:140]
 
+    # a schedule written as dates alone, one a line, under a heading or sentence that says it is the schedule ("FY27
+    # Board and Committee Meeting Schedule ... the following dates: November 18, 2026 / February 16, 2027 *"): each is
+    # a meeting, files or not. Only under such words, so a date standing alone elsewhere is not taken for a meeting.
+    for el in soup.find_all(DATE_LINE_TAGS):
+        d = date_line(el, year_at.get(id(el)))
+        if not d or el.find("a"):
+            continue
+        cue = next((x for x in el.find_all_previous(DATE_LINE_TAGS + ["h1", "h2", "h3", "h4", "h5", "strong", "b"], limit=12)
+                    if SCHEDULE_CUE.search(x.get_text(" ", strip=True)[:200])), None)
+        if cue is not None:
+            m = meet(d)
+            if UPCOMING.search(cue.get_text(" ", strip=True)[:200]) and not m["what"]:
+                add_what(m, "Board meeting")
     # a schedule written as lines of text under a heading that names the year (State Board of Education)
     for el in soup.find_all(["p", "li"]):
         if el.find("a"):

@@ -60,6 +60,8 @@ GDELT_WINDOW_DAYS = 89      # the DOC API searches a rolling ~3-month window
 GDELT_NAMES_PER_QUERY = 6
 
 
+REFUSED_RECHECK_DAYS = 60   # a refusing (live) site's archived copy is looked at again after this many days
+
 class GdeltRateLimited(Exception):
     """GDELT asked the crawler to slow down (its answer to a query sent too soon)."""
 CAMPAIGN_HOT = re.compile(r"issue|platform|priorit|about|bio|meet|record|accomplish|endorse|support|news|press|statement|"
@@ -648,7 +650,9 @@ class Researcher:
                     web_state["done"] += 1
                     web_state["added"] += sum(v for k, v in counts.items() if k != "rumor_mill")
                 prev = progress.get(f"web:{c['id']}").get("counts") or {}
-                progress.update(f"web:{c['id']}", last_ok=utcnow(), search=res.get("search", "ok"),
+                from .webresearch import SEARCH_V
+
+                progress.update(f"web:{c['id']}", last_ok=utcnow(), search=res.get("search", "ok"), sv=SEARCH_V,
                                 counts={k: prev.get(k, 0) + counts.get(k, 0) for k in set(prev) | set(counts)})
 
             with Pool(max_workers=max(1, int(self.opts.get("web_workers", 3))), thread_name_prefix="web-lane") as ex:
@@ -842,11 +846,19 @@ class Researcher:
             else:
                 try:
                     probes = channels.probe_source(self.f, src)
-                except (Disallowed, Blocked):
+                except (Disallowed, Blocked) as exc:
+                    # a site that refuses the crawler (bot protection, a 403, robots.txt) is read from its archived
+                    # copy (the owner's rule since Nov. 19, 2026; a login or a paywall is not a refusal and stays closed)
+                    self._archived_site(c, sid, site, add, f"refuses the crawler ({type(exc).__name__})")
                     continue
                 chosen = channels.choose(probes)
                 gone = [p for p in probes if p.channel == "html" and re.search(r"HTTP (404|410)|NameResolutionError|Name or service not known|Max retries", p.note or "")]
+                refused = [p for p in probes if re.search(r"HTTP 403|bot-protection|challenge|robots\.txt disallows|access denied", p.note or "", re.I)
+                           and not re.search(r"HTTP 40[12]\b|login|sign in|paywall|subscri", p.note or "", re.I)]
                 if not chosen:
+                    if refused and not gone:
+                        self._archived_site(c, sid, site, add, "refuses the crawler")
+                        continue
                     if gone:
                         self.store.kv_set(f"dead_site:{sid}", utcnow())
                         self.log(f"  statements: {site} is gone ({gone[0].note[:60]}); noted, retried in {int(dead_days)} days")
@@ -911,7 +923,13 @@ class Researcher:
         asked again: the copy does not change. Returns the pages read."""
         wb = self.wayback
         key = f"archived_site:{sid}"
-        if wb is None or self.store.kv_get(key) or not wb.take("site"):
+        prev = json.loads(self.store.kv_get(key) or "null")
+        if prev and str(prev.get("why", "")).startswith("refuses"):
+            # a refusing site is still live: the Archive may have captured it since; looked at again after 60 days
+            at = prev.get("at") or prev.get("none") or ""
+            if at and (dt.date.today() - dt.date.fromisoformat(at[:10])).days >= REFUSED_RECHECK_DAYS:
+                prev = None
+        if wb is None or prev or not wb.take("site"):
             return 0
         from .stances import page_is_theirs, taken_over
 
@@ -959,12 +977,13 @@ class Researcher:
             if r.status == 200 and "html" in r.content_type:
                 title, md = extract.html_to_markdown(r.text, r.url)
                 out = {"url": r.url, "title": title, "text": md}
-            elif r.status in (404, 410) and self.wayback is not None:
-                # gone (not closed: a paywall or a refusal answers 401/402/403 and is never read from an archive)
+            elif r.status in (403, 404, 410) and self.wayback is not None:
+                # gone, or refusing the crawler: read from its archived copy (the owner's rule since Nov. 19, 2026).
+                # A paywall or a login (401, 402) is not public and is never read from an archive.
                 out = self.wayback.article(url)
             self.store.mark_url(url, r.status, "articles", r.content_type)
         except (Disallowed, Blocked) as exc:
-            out = None
+            out = self.wayback.article(url) if self.wayback is not None else None   # refused: its archived copy
             self._opened[url + "#why"] = {"why": type(exc).__name__}
         except OutOfTime:
             raise                # not "could not be opened": it was never tried, and must not be remembered as tried

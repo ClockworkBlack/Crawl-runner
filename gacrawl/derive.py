@@ -47,7 +47,7 @@ def run(store: Store, only: set[str] | None = None, context: dict | None = None,
     """Run derivers over changed records. `full` ignores cursors (re-derive everything)."""
     import importlib
 
-    for mod in ("elections", "minutes", "ballot", "press", "guides"):  # registering imports, in run order
+    for mod in ("elections", "minutes", "ballot", "press", "guides", "board_schedules"):  # registering imports, in run order
         try:
             importlib.import_module(f"gacrawl.{mod}")
         except ModuleNotFoundError as exc:

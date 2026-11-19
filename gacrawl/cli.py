@@ -275,6 +275,11 @@ def cmd_merge(cfg, args):
     try:
         for d in args.deltas:
             print(json.dumps(merge_delta(store, Path(d))))
+        # once: PDFs the frontier says were read while crawl shards were dying in the PDF reader, with no record
+        if not store.kv_get("repair:unrecorded_documents"):
+            n = store.forget_unrecorded_documents("2026-11-07")
+            store.kv_set("repair:unrecorded_documents", f"{dt.date.today().isoformat()}: {n}")
+            print(json.dumps({"unrecorded_documents_to_read_again": n}))
     finally:
         store.close()
     if args.state:
@@ -1038,6 +1043,19 @@ def cmd_schools(cfg, args):
             out["budgets"] = schools.budgets(f, config.ROOT, store, deadline=deadline)
         if args.action in ("people", "all"):
             out["people"] = schools.people(config.ROOT, store)
+        if args.action == "simbli-archive":
+            # school boards' Simbli pages from the Internet Archive's existing captures (Simbli refuses the crawler)
+            import sys
+
+            sc = cfg.get("schools") or {}
+            if not sc.get("simbli_archive", True):
+                out["simbli_archive"] = "switched off (schools.simbli_archive in config/settings.yaml)"
+            else:
+                from .simbli_archive import run as simbli_run
+
+                out["simbli_archive"] = simbli_run(f, store, config.ROOT, deadline=deadline,
+                                                   max_districts=int(sc.get("simbli_districts_per_run", 20)),
+                                                   log=lambda *a: print(*a, file=sys.stderr, flush=True))
         print(json.dumps(out, indent=1))
     finally:
         store.close()
@@ -1404,6 +1422,27 @@ def cmd_profiles(cfg, args):
         store.close()
 
 
+def cmd_archive(cfg, args):
+    """Sources that refuse the crawler, read from the Internet Archive's existing copies (gacrawl/archive_sources.py)."""
+    import sys
+
+    from .archive_sources import run as archive_run
+
+    a = cfg.get("archive") or {}
+    if not a.get("refused_sources", True):
+        print(json.dumps({"archive": "switched off (archive.refused_sources in config/settings.yaml)"}))
+        return
+    store = config.make_store(cfg)
+    try:
+        deadline = time.monotonic() + float(args.max_minutes or 20) * 60
+        out = archive_run(_fetcher(cfg, deadline), store, config.ROOT, cfg["state_dir"], deadline=deadline,
+                          max_sources=int(args.sources or a.get("refused_sources_per_run", 10)),
+                          log=lambda *x: print(*x, file=sys.stderr, flush=True))
+        print(json.dumps(out, indent=1))
+    finally:
+        store.close()
+
+
 def cmd_police(cfg, args):
     """Police departments, sheriffs and media tip lines from official pages (Electo's Policing tab)."""
     from .police import discover_media, discover_police, read_roster
@@ -1581,7 +1620,9 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--votes-only", action="store_true", help="update: roll calls only (the nightly legis-votes job)")
     lg.add_argument("--out", help="export-kv: the hand-off file"); lg.add_argument("--since", help="export-kv: marks set since")
     lg.add_argument("--delta", help="apply: the delta database"); lg.add_argument("--kv", help="apply: the marks file")
-    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover"])
+    ar = sub.add_parser("archive"); ar.add_argument("action", nargs="?", default="refused", choices=["refused"])
+    ar.add_argument("--max-minutes", type=float); ar.add_argument("--sources", type=int, help="refused sources read this run")
+    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover", "simbli-archive"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")
     pb = sub.add_parser("probe"); pb.add_argument("urls", nargs="+"); pb.add_argument("--out", default="probe")
@@ -1625,7 +1666,7 @@ def main(argv=None):
      "ocr": cmd_ocr, "capture": cmd_capture, "screens": cmd_screens, "ordinances": cmd_ordinances, "posts": cmd_posts, "electo": cmd_electo, "candidates": cmd_candidates,
      "rumor": cmd_rumor, "export": cmd_export, "records": cmd_records, "elections": cmd_elections, "agencies": cmd_agencies,
      "derive": cmd_derive, "purge": cmd_purge, "transcripts": cmd_transcripts, "finance": cmd_finance, "sponsors": cmd_sponsors,
-     "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
+     "profiles": cmd_profiles, "legis": cmd_legis, "schools": cmd_schools, "archive": cmd_archive, "codeacts": cmd_codeacts, "backfill": cmd_backfill, "probe": cmd_probe, "summary": cmd_summary, "police": cmd_police,
      "coverage": cmd_coverage, "news": cmd_news, "discover-ai": cmd_discover_ai, "donors-ai": cmd_donors_ai, "rumors-ai": cmd_rumors_ai, "rumors-text": cmd_rumors_text, "video-ai": cmd_video_ai, "minutes-ai": cmd_minutes_ai, "channel-ai": cmd_channel_ai, "federal-bills": cmd_federal_bills, "model-handoff": cmd_model_handoff, "ethics": cmd_ethics}[args.cmd](cfg, args)
 
 

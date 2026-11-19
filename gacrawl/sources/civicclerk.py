@@ -63,6 +63,23 @@ def _doc_type(kind: str) -> str:
     return k[:40]
 
 
+
+FAILED_RETRY_DAYS = 7
+
+
+def _failed_lately(store, url: str) -> bool:
+    """A file that could not be downloaded (too large, a server error, a dropped connection) within FAILED_RETRY_DAYS.
+    Nothing noted these, so every pass asked for the same files again, up to the size limit each time, and a time
+    slice went on files that were never going to arrive."""
+    row = store.url_seen(url)
+    if not row or row["status"] == 200:
+        return False
+    try:
+        age = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(row["fetched_at"])
+    except (TypeError, ValueError):
+        return False
+    return age.total_seconds() < FAILED_RETRY_DAYS * 86400
+
 class CivicClerk:
     def __init__(self, fetcher: Fetcher, client: str):
         self.f = fetcher
@@ -146,9 +163,17 @@ class CivicClerk:
         end = (today + dt.timedelta(days=400)).isoformat()      # scheduled meetings too
         for a, b in _year_windows(start, end):
             flt = f"startDateTime ge {a}T00:00:00Z and startDateTime lt {b}T00:00:00Z"
+            day = ""
             for e in self._rows("/Events", flt, "startDateTime", limit):
+                # a mark inside the year, at each new day (the events come in date order): a year that does not fit
+                # in one time slice used to begin again at January 1 on every pass. Macon-Bibb's portal never got
+                # through its first year: about 410 passes from Nov. 7 to 18, 2026, "0 new / 92 seen" each time.
+                d = str(_first(e, "startDateTime", "eventDate", "date") or "")[:10]
+                if day and d > day and a <= day:
+                    yield Checkpoint("events", day)
+                day = d if len(d) == 10 else day
                 yield from self._one(e, store)
-            yield Checkpoint("events", b)
+            yield Checkpoint("events", min(b, today.isoformat()))   # never past today (see Legistar.meetings)
         yield Checkpoint("full", FULL_PASS)     # later runs are deltas (kept when the scheduler keeps cursors)
 
     def _one(self, e: dict, store=None) -> Iterator[Record]:
@@ -203,13 +228,21 @@ class CivicClerk:
         url = urljoin(self.base + "/", str(url))   # the API gives some links relative ("stream/<CLIENT>/<id>.pdf")
         if store is not None and store.fresh(url, DOC_TTL_DAYS):
             return None                            # opened before: its record is in the store
+        if store is not None and _failed_lately(store, url):
+            return None                            # could not be had a few days ago: not asked for on every pass
         try:
             r = self.f.get(url)
         except OutOfTime:
             raise
-        except (Disallowed, Blocked, TooLarge):
+        except (Disallowed, Blocked):
+            return None
+        except TooLarge:
+            if store is not None:
+                store.mark_url(url, 413, self.client, "too large")
             return None
         except Exception:  # noqa: BLE001 — one file the server can't hand over doesn't end the meeting list
+            if store is not None:
+                store.mark_url(url, 599, self.client, "failed")
             return None
         if store is not None:
             store.mark_url(url, r.status, self.client, r.content_type)

@@ -172,15 +172,21 @@ def test_a_live_site_of_theirs_is_not_replaced():
     assert r2._taken_over(CAND, site) == ""                           # a script-built page with no text: left alone
 
 
-def test_gone_articles_come_from_the_archive_closed_ones_never():
-    gone, paywalled = "https://www.ajc.com/politics/gone-story/", "https://www.ajc.com/politics/paid-story/"
-    fa = FakeArchive({"www.ajc.com/politics/gone-story/": [("20251001000000", "<html><title>Story</title><body><p>Jane Smith "
-                                                           "spoke at the meeting about the county budget and roads.</p></body></html>")],
+def test_gone_and_refusing_articles_come_from_the_archive_paywalled_ones_never():
+    """The owner's rule since Nov. 19, 2026: a page that refuses the crawler (403, bot protection) is read from its
+    archived copy like one that is gone; a paywall or a login (401, 402) is not public and never is."""
+    gone, refused, paywalled = ("https://www.ajc.com/politics/gone-story/", "https://www.ajc.com/politics/refused-story/",
+                                "https://www.ajc.com/politics/paid-story/")
+    story = ("<html><title>Story</title><body><p>Jane Smith spoke at the meeting about the county budget and roads.</p></body></html>")
+    fa = FakeArchive({"www.ajc.com/politics/gone-story/": [("20251001000000", story)],
+                      "www.ajc.com/politics/refused-story/": [("20251002000000", story)],
                       "www.ajc.com/politics/paid-story/": [("20251001000000", THEIRS)]},
-                     live={gone: res(gone, 404), paywalled: res(paywalled, 403)})
+                     live={gone: res(gone, 404), refused: res(refused, 403), paywalled: res(paywalled, 402)})
     r = researcher(fa)
     page = r._open_article(gone)
     assert page["url"] == gone and page["archived"] == "2025-10-01" and "county budget" in page["text"]
     assert page["archived_url"].startswith("https://web.archive.org/web/20251001000000/")
+    page = r._open_article(refused)
+    assert page["archived"] == "2025-10-02" and "county budget" in page["text"]
     assert r._open_article(paywalled) is None
     assert not any("paid-story" in u for u in fa.calls if "archive.org" in u)
