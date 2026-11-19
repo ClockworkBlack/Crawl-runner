@@ -35,7 +35,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 from . import extract
 from .blocked import Blocked
-from .fetch import Disallowed, Fetcher
+from .fetch import Disallowed, Fetcher, OutOfTime
 from .registry import find_portals
 
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
@@ -238,7 +238,9 @@ def inspect_site(fetcher: Fetcher, website: str) -> dict:
             if pr.status == 200 and "AgendaCenter" in pr.text:
                 out["portals"]["agenda_center"] = probe
                 out["feeds"] += [f for f in extract.find_feed_links(pr.text, pr.url) if f not in out["feeds"]][:5]
-        except (Disallowed, Blocked):
+        except OutOfTime:
+            raise
+        except Exception:  # noqa: BLE001 — a refused, slow or failing AgendaCenter is not the site's answer
             pass
     # meeting portals (Legistar, Granicus, CivicClerk, BoardDocs, iQM2...) are usually linked from an
     # "Agendas & Minutes" / "City Council" / "Board of Education" page rather than the home page
@@ -266,7 +268,9 @@ def inspect_site(fetcher: Fetcher, website: str) -> dict:
         rc = find_records_contact(fetcher, html, r.url)
         if rc:
             out["records"] = rc
-    except (Disallowed, Blocked):
+    except OutOfTime:
+        raise
+    except Exception:  # noqa: BLE001 — the records contact is extra; a slow page does not undo the site
         pass
     return out
 
@@ -614,9 +618,20 @@ def seed(fetcher: Fetcher, jurisdictions: list[dict], state_path: Path, workers:
             discovered[j["id"]] = rec
         return j["id"], rec
 
+    def safe(j: dict):
+        # one place's failure (a timeout the code above did not expect) must not end the whole seed: its last
+        # record stands and it is asked again next run
+        try:
+            return one(j)
+        except OutOfTime:
+            return j["id"], None
+        except Exception as exc:  # noqa: BLE001
+            log(f"seed: {j['id']}: {type(exc).__name__}: {str(exc)[:160]} (kept its last record; asked again next run)")
+            return j["id"], None
+
     done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for jid, rec in pool.map(one, todo):
+        for jid, rec in pool.map(safe, todo):
             if rec is None:
                 continue  # time budget used up; picked up next run
             done += 1
@@ -788,9 +803,18 @@ def seed_school_districts(fetcher: Fetcher, districts: list[dict], state_path: P
             discovered[d["id"]] = rec
         return d["id"], rec
 
+    def safe(d: dict):
+        try:
+            return one(d)
+        except OutOfTime:
+            return d["id"], None
+        except Exception as exc:  # noqa: BLE001 — one district's failure does not end the seed
+            log(f"seed: {d['id']}: {type(exc).__name__}: {str(exc)[:160]} (kept its last record; asked again next run)")
+            return d["id"], None
+
     done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for did, rec in pool.map(one, todo):
+        for did, rec in pool.map(safe, todo):
             if rec is None:
                 continue
             done += 1

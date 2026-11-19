@@ -247,3 +247,46 @@ def test_gap_report_lists_each_kind_with_an_override_stanza():
     assert "## No site listed anywhere the seed looks" in md and "Wrightsville" in md and "Third Monday" in md
     assert md.count("  wrightsville:\n    website: ") == 1, "a ready stanza for config/overrides.yaml"
     assert "fine" not in md.split("## Refuses")[1]
+
+
+# ----------------------------------------------------------------------------- one slow site does not end the seed
+def test_a_failing_agenda_center_probe_keeps_the_site(monkeypatch, fetcher):
+    """Nov 19, 2026: www.mcintoshcountyga.com's /AgendaCenter timed out (requests.ConnectionError) and the exception
+    escaped inspect_site and ended the whole seed step, and with it the crawl."""
+    home = "https://civic.example/"
+    real = fetcher.get
+
+    class R:
+        def __init__(self, url, text):
+            self.status, self.content_type, self.url, self.text = 200, "text/html", url, text
+
+    def get(url, *a, **k):
+        if url == home:
+            return R(url, "<html><title>Civic</title><body>civicplus <a href='/x'>x</a></body></html>")
+        if "AgendaCenter" in url:
+            raise requests.ConnectionError("Read timed out. (read timeout=30.0)")
+        return real(url, *a, **k)
+
+    monkeypatch.setattr(fetcher, "get", get)
+    monkeypatch.setattr(seed, "find_records_contact", lambda *a, **k: (_ for _ in ()).throw(requests.ReadTimeout("slow")))
+    out = seed.inspect_site(fetcher, home)
+    assert out["website"] == home and "agenda_center" not in out["portals"] and "site_error" not in out
+
+
+def test_one_place_that_raises_does_not_end_the_seed(monkeypatch, tmp_path):
+    seen = []
+
+    def resolve(fetcher, cands, lazy=None, **k):
+        if any("boom" in u for u, _ in cands):
+            raise requests.ConnectionError("Max retries exceeded")
+        return {"website": cands[0][0], "portals": {}, "feeds": []}
+
+    monkeypatch.setattr(seed, "resolve_site", resolve)
+    monkeypatch.setattr(seed, "wikidata_websites", lambda f: {}, raising=False)
+    js = [{"id": "co-a", "name": "A County", "kind": "county", "website": "https://a.example/", "website_source": "override"},
+          {"id": "co-boom", "name": "Boom County", "kind": "county", "website": "https://boom.example/", "website_source": "override"},
+          {"id": "co-c", "name": "C County", "kind": "county", "website": "https://c.example/", "website_source": "override"}]
+    monkeypatch.setattr(seed, "hand_website", lambda j: True)
+    got = seed.seed(None, js, tmp_path / "discovered.json", workers=2, log=seen.append, refresh=True)
+    assert set(got) >= {"co-a", "co-c"} and "co-boom" not in got
+    assert any("co-boom" in m and "asked again next run" in m for m in seen)

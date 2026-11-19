@@ -237,4 +237,4 @@ jobs:
               echo "the last crawl run failed after $mins minutes, $since minutes ago: not started again before an hour has passed"; exit 0
             fi
           fi
-          gh workflow run crawl.yml --ref main -f job=backfill && echo "::notice title=Crawl::no crawl run was going or waiting; started the next link of the chain"
+          gh workflow run crawl.yml -R "$GITHUB_REPOSITORY" --ref main -f job=backfill && echo "::notice title=Crawl::no crawl run was going or waiting; started the next link of the chain"
