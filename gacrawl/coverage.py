@@ -56,6 +56,8 @@ FEATURES: list[tuple[str, str, str, str]] = [
     ("Schools", "superintendents", "Superintendents", "need"),
     ("Schools", "principals", "Principals", "need"),
     ("Schools", "budget_docs", "School budget documents", "need"),
+    ("Schools", "district_calendar_feeds", "School districts with a calendar feed found on their own sites", "info"),
+    ("Schools", "district_upcoming_meetings", "School districts with upcoming board meetings on file", "info"),
     ("Policing", "departments", "Police and sheriff's departments read from their own pages", "need"),
     ("Policing", "chiefs", "Departments with a chief or sheriff named", "need"),
     ("Policing", "roster_agencies", "Agencies on the FBI's roster (every Georgia law enforcement agency)", "need"),
@@ -126,6 +128,14 @@ def measure(root: Path, store) -> dict[str, int]:
     c["board_members"] = roles["Member"] + roles["Chair"] + roles["Vice Chair"]
     c["superintendents"], c["principals"] = roles["Superintendent"], roles["Principal"]
     c["budget_docs"] = k("budget_doc")
+    try:
+        from .district_calendars import summary as _calendars
+
+        c["district_calendar_feeds"] = _calendars(root).get("with_feeds", 0)
+    except Exception:  # noqa: BLE001
+        c["district_calendar_feeds"] = 0
+    c["district_upcoming_meetings"] = _one(db, "SELECT count(DISTINCT jurisdiction) FROM records WHERE kind='meeting' AND "
+                                               "jurisdiction LIKE 'sd-%' AND published >= ?", (dt.date.today().isoformat(),))
     police = load_json(root / "state" / "police.json")
     found = [x for d in police.values() if isinstance(d, dict) and d.get("found")
              for x in [d] + [y for y in (d.get("also") or []) if isinstance(y, dict) and y.get("found")]]
@@ -414,6 +424,18 @@ def pipeline_checks(root: Path, store) -> str:
              f"{sum(1 for d in done if d.get('meetings'))} with meetings on file ({sum(d.get('meetings', 0) for d in done):,} "
              f"meetings, {sum(d.get('policies', 0) for d in done):,} policies, {sum(d.get('pages', 0) for d in done):,} meeting pages); "
              f"from the districts' own schedules: **{sched[0]:,}** meetings in {sched[1]} districts")
+    # the districts' own calendars (gacrawl/district_calendars.py): feeds found, and the board meetings read from them
+    from .district_calendars import summary as _calendars
+
+    cs = _calendars(root)
+    with store._lock:
+        cal = db.execute("SELECT count(*), count(DISTINCT jurisdiction), coalesce(sum(published >= ?), 0), "
+                         "count(DISTINCT CASE WHEN published >= ? THEN jurisdiction END) FROM records WHERE kind='meeting' AND "
+                         "source_id LIKE 'sd-%:calendar'", (dt.date.today().isoformat(),) * 2).fetchone()
+    plat = ", ".join(f"{k} {v}" for k, v in sorted(cs["by_platform"].items(), key=lambda kv: -kv[1])) or "none yet"
+    L.append(f"- School districts' own calendars: **{cs['looked']}** of 180 districts looked at; a calendar feed found for "
+             f"**{cs['with_feeds']}** ({plat}; {cs['refused']} feeds refused the crawler); board meetings read from them: "
+             f"**{cal[0]:,}** in {cal[1]} districts, **{cal[2]:,}** still to come in **{cal[3]}** districts")
     return "\n".join(L) + "\n"
 
 

@@ -40,7 +40,13 @@ case "$cmd" in
     for f in "$@"; do
       [ -f "$f" ] || { echo "$f: not there, not passed on"; continue; }
       n="ai-$key-$RUN-$part--$(safe "$(basename "$f")")"
-      cp "$f" "$d/$n"
+      if [ -s "$f" ]; then
+        cp "$f" "$d/$n"
+      else
+        # GitHub refuses an empty release file (HTTP 400 Bad Content-Length: every ai-predict check shard's empty
+        # log.jsonl, Nov 19, 2026): a one-line marker under <name>.empty instead, made an empty file again by `get`
+        n="$n.empty"; echo "empty" > "$d/$n"
+      fi
       ok=false
       for i in 1 2 3; do gh release upload "$TAG" "$d/$n" -R "$DATA_REPO" --clobber && { ok=true; break; }; sleep $((i * 10)); done
       [ "$ok" = true ] || { echo "::error::$n could not be uploaded"; rm -rf "$d"; exit 1; }
@@ -56,7 +62,11 @@ case "$cmd" in
       case "$name" in "$pre"*--*) ;; *) continue ;; esac
       rest="${name#"$pre"}"; part="${rest%%--*}"; file="${rest#*--}"
       mkdir -p "$dir/$part"
-      gh api -H 'Accept: application/octet-stream' "repos/$DATA_REPO/releases/assets/$id" > "$dir/$part/$file"
+      if [[ "$file" == *.empty ]]; then
+        : > "$dir/$part/${file%.empty}"          # the shard's file was empty (see put)
+      else
+        gh api -H 'Accept: application/octet-stream' "repos/$DATA_REPO/releases/assets/$id" > "$dir/$part/$file"
+      fi
       echo "$id $name" >> "$dir/.assets"; n=$((n + 1))
     done < <(assets "$rid")
     echo "$n shard file(s) of this run fetched into $dir"

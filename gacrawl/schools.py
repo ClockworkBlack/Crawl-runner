@@ -1404,6 +1404,34 @@ def board_metrics(votes: list[dict], meetings: list[dict]) -> dict:
     return {"by_year": dict(sorted(by_year.items())), "members": dict(sorted(members.items(), key=lambda kv: -kv[1]["votes"])[:40])}
 
 
+# a board's meeting known from several places: its meeting system's own record (BoardDocs, Simbli's pages as the
+# Archive holds them) first, then the district's calendar (gacrawl/district_calendars.py), then a schedule posted as
+# text (gacrawl/board_schedules.py)
+MEETING_RANK = {"district calendar": 1, "district website": 2}
+
+
+def dedupe_meetings(ms: list[dict]) -> list[dict]:
+    """A district's meetings, one entry each: on a day a better source has the board's meetings, the scheduled ones
+    from a lesser source are left out, and the same title on the same day is listed once (two calendars of one
+    district, a schedule page and a calendar). `via` (the record's provider) is used here and not exported."""
+    rank = lambda m: MEETING_RANK.get(m.get("via") or "", 0)  # noqa: E731
+    best: dict[str, int] = {}
+    for m in ms:
+        day = str(m.get("d") or "")[:10]
+        best[day] = min(best.get(day, 9), rank(m))
+    out, seen = [], set()
+    for m in ms:
+        day = str(m.get("d") or "")[:10]
+        if rank(m) > best[day]:
+            continue
+        k = (day, re.sub(r"[^a-z0-9]+", "", (m.get("title") or "").lower()))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({x: v for x, v in m.items() if x != "via"})
+    return out
+
+
 def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
     """dist/electo/schools.json (index), schools/<district>.json (detail), school_bounds.json (outlines)."""
     reg = load_registry(root)
@@ -1465,7 +1493,9 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
             policies[did].append({"code": m.get("code", ""), "title": (r.get("title") or "")[:160], "u": r["url"],
                                   "adopted": m.get("adopted") or r.get("published") or "", "text": (r.get("text") or "")[:400]})
         elif r["kind"] == "meeting":
-            meetings[did].append({"d": r.get("published") or "", "title": (r.get("title") or "")[:120], "u": r["url"]})
+            m = _meta(r)
+            meetings[did].append({"d": r.get("published") or "", "title": (r.get("title") or "")[:120], "u": r["url"],
+                                  **({"time": m["time"]} if m.get("time") else {}), "via": m.get("provider") or ""})
         elif r["kind"] == "video":
             # meeting recordings from the district's own channel (official, or confirmed by the owner)
             oc = _meta(r).get("official_channel") or {}
@@ -1494,6 +1524,8 @@ def export_schools(root: Path, store: Store, out: Path, log=print) -> dict:
                                                    **({"how": d["how"]} if d.get("how") else {})})
         else:
             funding.append(d)
+    for did in list(meetings):
+        meetings[did] = dedupe_meetings(meetings[did])
     people_by_d: dict[str, list] = defaultdict(list)
     for p in ppl:
         people_by_d[p["district_id"]].append(p)

@@ -101,6 +101,8 @@ def main(a):
                 del m[f.name]
                 save(m)
             die("gh: HTTP 500")
+        if f.stat().st_size == 0:          # GitHub: "HTTP 400: Bad Content-Length" for an empty file
+            die("gh: HTTP 400: Bad Content-Length")
         limit = int((D / "max_bytes").read_text()) if (D / "max_bytes").exists() else 0
         if f.name in m:
             if not clobber:

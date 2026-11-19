@@ -89,3 +89,18 @@ def test_no_data_release_is_an_error_not_a_new_release(env):
     r = env.run("put", "write", "0", "shard.json")
     assert r.returncode != 0 and "no crawl-data release" in r.stdout + r.stderr
     assert not any((env.gh / "releases").iterdir())                          # none was created
+
+
+def test_an_empty_shard_file_goes_as_a_marker_and_comes_back_empty(env):
+    # Nov 19, 2026: every ai-predict check shard failed uploading its empty log.jsonl (GitHub refuses empty files)
+    (env.work / "part.json").write_text('{"n": 0}')
+    (env.work / "log.jsonl").write_text("")
+    r = env.run("put", "predict", "predict-check-1", "part.json", "log.jsonl")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert sorted(env.assets()) == ["ai-predict-4242-predict-check-1--log.jsonl.empty", "ai-predict-4242-predict-check-1--part.json"]
+    r = env.run("get", "predict", "got")
+    assert r.returncode == 0, r.stdout + r.stderr
+    got = env.work / "got" / "predict-check-1"
+    assert (got / "log.jsonl").exists() and (got / "log.jsonl").read_text() == "" and not (got / "log.jsonl.empty").exists()
+    assert json.loads((got / "part.json").read_text()) == {"n": 0}
+    assert env.run("drop", "got").returncode == 0 and env.assets() == {}

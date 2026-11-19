@@ -4,7 +4,8 @@ Georgia's Open Meetings Act has every board post the time, place and dates of it
 website, if any", at least a week ahead (O.C.G.A. § 50-14-1(d)(1)). The crawl reads every district's website
 (`sd-<id>:site`, pages and documents), so the upcoming meetings are already in the database as text; nothing read them
 out. School boards' own meeting systems (Simbli) refuse the crawler, and their Archive copies stop in 2024
-(gacrawl/simbli_archive.py), so this is where the coming meetings come from.
+(gacrawl/simbli_archive.py), so this is where the coming meetings come from, with the districts' own calendars
+(gacrawl/district_calendars.py, `gacrawl schools calendars`).
 
 A schedule is read only from a part of a page that says it is one ("2025-2026 Board Meeting Schedule", "Regular
 meetings are held ...", "Calendar of Board Meetings"), and only its lines that begin with a date; holidays, testing days

@@ -25,6 +25,10 @@ jurisdictions:
       "City of South Fulton" (@CityofSouthFulton, UCeBB7zv0OQ7utCdcDzx4MAw) streams City Council meetings
       (City Council Meeting 10/27/2026)
   # school districts the seed found no site for (2026-11-06; each site opened and checked)
+  sd-henry:
+    website: https://www.henry.k12.ga.us/
+    website_alt: ''   # the directory's alternate (www.advanc-ed.org) is not the district's: never switched to
+    notes: the seed took www.advanc-ed.org (an accreditation site) for it; the district's site answers the crawler with a bot-protection challenge (Nov 17, 2026), so its pages come from the Internet Archive's copies
   sd-barrow:
     website: https://barrow.k12.ga.us/
     notes: board agendas and minutes on the district's eBoard page (barrow.k12.ga.us/334204_2)

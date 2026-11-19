@@ -50,6 +50,9 @@
   gacrawl schools seed|stats|sites|people|all [--max-minutes M] [--refresh]
                                          every Georgia school, college and district outline (NCES EDGE); GOSA and CCRPI
                                          statistics; school websites; board members, superintendents and principals
+  gacrawl schools calendars [--max-minutes M]
+                                         school boards' meetings from the districts' own public calendars (weekly look
+                                         for feeds, every run's read; state/district_calendars.json)
   gacrawl coverage                       what the data holds per Electo feature against the last run (zero or
                                          shrinking features flagged): data/coverage.md, state/coverage.json
   gacrawl seed --districts               school districts only: each answering site must be the district's own
@@ -1106,6 +1109,21 @@ def cmd_schools(cfg, args):
                 out["simbli_archive"] = simbli_run(f, store, config.ROOT, deadline=deadline,
                                                    max_districts=int(sc.get("simbli_districts_per_run", 20)),
                                                    log=lambda *a: print(*a, file=sys.stderr, flush=True))
+        if args.action == "calendars":
+            # school boards' meetings from each district's own public calendar (Finalsite pages, Apptegy and other
+            # iCalendar feeds, Edlio's upcoming events): looked for weekly, read every run (gacrawl/district_calendars.py)
+            import sys
+
+            sc = cfg.get("schools") or {}
+            if not sc.get("district_calendars", True):
+                out["calendars"] = "switched off (schools.district_calendars in config/settings.yaml)"
+            else:
+                from .district_calendars import run as calendars_run
+
+                arch = bool((cfg.get("archive") or {}).get("refused_sources", True)) and bool(sc.get("calendar_archive", True))
+                out["calendars"] = calendars_run(f, store, config.ROOT, deadline=deadline, workers=int(sc.get("calendar_workers", 6)),
+                                                 archive=arch, log=lambda *a: print(*a, file=sys.stderr, flush=True),
+                                                 subscribe=bool(sc.get("calendar_subscriptions", False)))
         print(json.dumps(out, indent=1))
     finally:
         store.close()
@@ -1681,7 +1699,8 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--delta", help="apply: the delta database"); lg.add_argument("--kv", help="apply: the marks file")
     ar = sub.add_parser("archive"); ar.add_argument("action", nargs="?", default="refused", choices=["refused"])
     ar.add_argument("--max-minutes", type=float); ar.add_argument("--sources", type=int, help="refused sources read this run")
-    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover", "simbli-archive"])
+    sh = sub.add_parser("schools"); sh.add_argument("action", nargs="?", default="all", choices=["seed", "stats", "sites", "budgets", "people", "all", "qbe-discover", "simbli-archive",
+                                                                                   "calendars"])
     sh.add_argument("--max-minutes", type=float); sh.add_argument("--refresh", action="store_true", help="stats: re-read files already read")
     sm = sub.add_parser("summary"); sm.add_argument("--since"); sm.add_argument("--title"); sm.add_argument("--out")
     pb = sub.add_parser("probe"); pb.add_argument("urls", nargs="+"); pb.add_argument("--out", default="probe")

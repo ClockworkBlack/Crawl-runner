@@ -1,0 +1,354 @@
+_about: |
+  School districts' public calendar feeds, checked by hand (gacrawl/district_calendars.py, `gacrawl schools calendars`).
+  Discovery reads these first and adds what it finds on the district's own pages (state/district_calendars.json).
+  Each feed: url, kind (finalsite_page: a Finalsite calendar page read as served, month by month with ?cal_date=;
+  ics: an iCalendar file; edlio_page: an Edlio home page's Upcoming Events; apptegy_json, jsonld_page, rss), platform,
+  checked (the day it was opened and seen to carry the calendar), seen (what it showed then), board (true: the board's
+  own calendar, where any meeting, session, hearing or committee is the board's). `site` replaces the registry's
+  website where that one is wrong, missing or redirects elsewhere. `note`: what a district's site offers when it has no
+  feed this reader can use (sampled Nov. 19, 2026). Never a /fs/ address (Finalsite's robots.txt) or an Edlio /apps/
+  address (behind a browser check).
+districts:
+  # ---------------------------------------------------------------- Finalsite: board meetings seen on the page
+  sd-gwinnett:
+    site: https://www.gcpsk12.org/
+    feeds:
+    - url: https://www.gcpsk12.org/about-us/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: School Board Work Session (Nov 17, 7:30 PM), School Board Business Meeting (Nov 19, 7:00 PM); ?cal_date=2027-01-01 shows January
+  sd-fulton:
+    feeds:
+    - url: https://www.fultonschools.org/calendar01
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: FCS Board Work Session (Nov 10, Dec 8), FCS Board Meeting (Nov 19, Dec 17)
+  sd-clayton:
+    feeds:
+    - url: https://www.clayton.k12.ga.us/about/calendars
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board Meeting, Board Work Session (November 2026)
+  sd-forsyth:
+    feeds:
+    - url: https://www.forsyth.k12.ga.us/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board of Education Work Session (Nov 10), Board of Education Meeting (Nov 17)
+  sd-cherokee:
+    feeds:
+    - url: https://www.cherokeek12.net/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: School Board Meeting - Work Session 5:30 pm, Business Meeting 7 pm (Nov 19)
+  sd-city-atlanta:
+    feeds:
+    - url: https://www.atlantapublicschools.us/boe/boe-calendar
+      kind: finalsite_page
+      platform: finalsite
+      board: true
+      checked: 2026-11-19
+      seen: Monthly Board Meeting (Nov 2), Budget Commission, Audit Committee and Policy Committee Meetings (Nov 18)
+  sd-chatham:
+    feeds:
+    - url: https://www.sccpss.com/board/calendar
+      kind: finalsite_page
+      platform: finalsite
+      board: true
+      checked: 2026-11-19
+      seen: 'Board of Public Education Meeting: Informal Session and Regular Session (Dec 9), Audit Committee (Dec 10)'
+  sd-bibb:
+    feeds:
+    - url: https://www.bcsdk12.net/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: BOE Committee Meeting (Nov 19, 4:00 PM), BOE Board Meeting (Nov 19, 6:30 PM)
+  sd-muscogee:
+    feeds:
+    - url: https://www.muscogee.k12.ga.us/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board Work Session (Nov 9), Board Meeting (Nov 16)
+  sd-fayette:
+    site: https://www.fcboe.org/
+    feeds:
+    - url: https://www.fcboe.org/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: FCBOE Business Meeting (Nov 16, 7:00 PM)
+  sd-paulding:
+    site: https://www.paulding.k12.ga.us/
+    feeds:
+    - url: https://www.paulding.k12.ga.us/home-page/calendar-e4
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board Meeting (Nov 10)
+  sd-effingham:
+    feeds:
+    - url: https://www.effinghamschools.com/ecsd-calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: School Board Meeting (Nov 4, Nov 16)
+  sd-baldwin:
+    feeds:
+    - url: https://www.baldwincountyschoolsga.org/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board of Education Board Meeting (Nov 10)
+  sd-rockdale:
+    site: https://www.rockdaleschools.org/
+    feeds:
+    - url: https://www.rockdaleschools.org/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Rockdale County Board of Education Meeting Regular Session (the home page's events)
+  sd-oconee:
+    feeds:
+    - url: https://www.oconeeschools.org/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: BOE Regular Session
+  sd-whitfield:
+    feeds:
+    - url: https://www.wcsga.net/calendar1
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Called Work Session, Board of Education Meeting (November 2026)
+  sd-city-marietta:
+    site: https://www.marietta-city.org/
+    feeds:
+    - url: https://www.marietta-city.org/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: Board of Education - Combined Work Session-Regular Monthly Meeting (the home page's events)
+  # ---------------------------------------------------------------- Finalsite: the district's calendar, no board meeting this month
+  sd-appling:
+    feeds:
+    - url: https://www.appling.k12.ga.us/community/acs-calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the district calendar (no board meeting listed in November 2026)
+  sd-richmond:
+    feeds:
+    - url: https://www.rcboe.org/news-events/academic-calendar/consolidated-caelendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the consolidated calendar (departments' meetings; no board meeting in the part read)
+  sd-bulloch:
+    feeds:
+    - url: https://www.bulloch.k12.ga.us/family-services/calendars-and-menus
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the district calendar (testing days in November 2026)
+  sd-ben-hill:
+    feeds:
+    - url: https://www.ben-hill.k12.ga.us/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the home page's events (games, lunches)
+  sd-emanuel:
+    feeds:
+    - url: https://www.emanuel.k12.ga.us/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the home page's events (schools' events)
+  sd-walton:
+    feeds:
+    - url: https://www.walton.k12.ga.us/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the home page's events (holidays, testing)
+  sd-city-decatur:
+    feeds:
+    - url: https://www.csdecatur.net/calendar
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the district calendar (holidays in November 2026)
+  sd-city-gainesville:
+    feeds:
+    - url: https://www.gcssk12.net/
+      kind: finalsite_page
+      platform: finalsite
+      checked: 2026-11-19
+      seen: the home page's events (holidays)
+  # ---------------------------------------------------------------- Apptegy: the /events page's "Click to Download Calendar"
+  sd-crawford:
+    site: https://www.crawfordschools.org/
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/25003/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.crawfordschools.org/events
+      checked: 2026-11-19
+      seen: Board Meeting (Dec 8, 6:30 PM; monthly, second Tuesday)
+  sd-bryan:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/489/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.bryan.k12.ga.us/events
+      checked: 2026-11-19
+      seen: Board Meeting (Nov 19, Dec 10, 6:15 PM)
+  sd-pickens:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/20776/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.pickens.k12.ga.us/events
+      checked: 2026-11-19
+      seen: PCS School Board Meeting
+  sd-clarke:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/21432/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.clarke.k12.ga.us/events
+      checked: 2026-11-19
+      seen: BOE Work Session and Meeting (Dec 10, 5:00 PM)
+  sd-lowndes:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/19409/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.lowndes.k12.ga.us/events
+      checked: 2026-11-19
+      seen: BOE Work Session, BOE Board Meeting (monthly through May 2027)
+  sd-bartow:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/6562/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.bartow.k12.ga.us/events
+      checked: 2026-11-19
+      seen: the school year only (no board meetings in it)
+  sd-berrien:
+    site: https://www.berrienschools.org/
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/24725/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.berrienschools.org/events
+      checked: 2026-11-19
+      seen: empty on Nov 19, 2026
+  sd-douglas:
+    site: https://www.dcssga.org/
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23180/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.dcssga.org/events
+      checked: 2026-11-19
+      seen: the school year only (no board meetings in it)
+  sd-carroll:
+    site: https://www.carrollcountyschools.com/
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/17214/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.carrollcountyschools.com/events
+      checked: 2026-11-19
+      seen: schools' concerts and events (no board meeting in the part read)
+  sd-city-dalton:
+    feeds:
+    - url: https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23260/cms/events/generate_ical?filter_ids&section_ids
+      kind: ics
+      platform: apptegy
+      found_on: https://www.daltonpublicschools.com/events
+      checked: 2026-11-19
+      seen: community meetings (no board meeting in the part read)
+  # ---------------------------------------------------------------- Edlio: the home page's Upcoming Events
+  sd-bacon:
+    site: https://www.bcraiders.com/
+    feeds:
+    - url: https://www.bcraiders.com/
+      kind: edlio_page
+      platform: edlio
+      checked: 2026-11-19
+      seen: Upcoming Events (games and school events that week)
+  sd-banks:
+    site: https://www.banks.k12.ga.us/
+    feeds:
+    - url: https://www.banks.k12.ga.us/
+      kind: edlio_page
+      platform: edlio
+      checked: 2026-11-19
+      seen: Upcoming Events (holidays and games that week)
+  sd-columbia:
+    site: https://www.ccboe.net/
+    feeds:
+    - url: https://www.ccboe.net/
+      kind: edlio_page
+      platform: edlio
+      checked: 2026-11-19
+      seen: Upcoming Events (holidays that week)
+  # ---------------------------------------------------------------- other feeds
+  sd-hall:
+    feeds:
+    - url: https://www.hallco.org/web/wp-content/uploads/2026/03/HCSD_FY2026-2027_calendar.ics
+      kind: ics
+      platform: wordpress
+      found_on: https://www.hallco.org/web/schoolcalendar/
+      checked: 2026-11-19
+      seen: the 2026-27 school year (holidays and breaks; no board meetings)
+  sd-cook:
+    feeds:
+    - url: https://calendar.google.com/calendar/ical/cook.k12.ga.us_go6molpsl1oe4cakfj12lohif8%40group.calendar.google.com/public/basic.ics
+      kind: ics
+      platform: google
+      found_on: https://www.cook.k12.ga.us/
+      checked: 2026-11-19
+      seen: the home page's Calendar link (a Google Calendar embed); calendar.google.com's robots.txt refuses the crawler
+  # ---------------------------------------------------------------- sampled, no feed this reader can use
+  sd-cobb:
+    note: SchoolBundle (cobbk12.org/calendar); one .ics per event (cicmsapi.azurewebsites.net/cobb/_ci/calendar/ics/<id>),
+      category feeds built by the page's script; the Board Meeting Schedule page is read by board_schedules
+  sd-spalding:
+    note: SchoolBundle (cicmsapi.azurewebsites.net/gscs); one .ics per event only
+  sd-dekalb:
+    note: Finalsite; the board's Meeting Calendar element (/board/meeting-calendar) is filled by script from /fs/elements,
+      which robots.txt disallows
+  sd-henry:
+    site: https://www.henry.k12.ga.us/
+    note: Finalsite (the registry's website, advanc-ed.org, is not the district's); no calendar element on the board
+      meetings or calendars pages
+  sd-troup:
+    note: Finalsite; no calendar element on /calendar
+  sd-barrow:
+    note: ParentSquare SmartSites; the Board Meeting Calendar is drawn by script (event_view links to an Outlook feed)
+  sd-catoosa:
+    note: ParentSquare SmartSites; calendar drawn by script
+  sd-glynn:
+    note: ParentSquare SmartSites (page_calendar?calID=142954); calendar drawn by script
+  sd-jackson:
+    note: ParentSquare SmartSites; calendar drawn by script
+  sd-houston:
+    site: https://www.hcbe.net/
+    note: its own CMS; /calendar is drawn by FullCalendar from script
+  sd-coweta:
+    note: no calendar link or feed on the home page (cowetaschools.net/en-US)
+  sd-newton:
+    note: no calendar feed on the home page; /calendars not checked
+  sd-liberty:
+    note: robots.txt disallows the home page (liberty.k12.ga.us)

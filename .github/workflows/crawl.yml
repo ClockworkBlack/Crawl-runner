@@ -496,6 +496,20 @@ jobs:
           # captures: Simbli refuses the crawler (gacrawl/simbli_archive.py; 20 districts a run, 4 s between requests)
           part 15 gacrawl schools simbli-archive
           gacrawl schools people || true    # local: from pages already in the database; feeds the research and export
+      - name: School board meetings from the districts' own calendars (gacrawl/district_calendars.py)
+        # Simbli refuses the crawler and the Archive's copies of it stop in 2024: the districts' own public calendars
+        # (Finalsite calendar pages, Apptegy's and other iCalendar feeds, Edlio's upcoming events) carry the coming
+        # board meetings. Each district's feeds are looked for once a week, by the date of its last look
+        # (state/district_calendars.json), and read every run: a request or a few each, at each host's own pace
+        # (robots.txt, Crawl-delay); a refusal is recorded and left for the next week's look.
+        continue-on-error: true      # a feed that fails waits for the next run; it must not stop the derive or the export
+        timeout-minutes: 16
+        run: |
+          M=${{ vars.DISTRICT_CALENDAR_MINUTES || '10' }}; [ "$IS_MAIN" != "true" ] && M=2
+          if [ "${{ needs.prepare.outputs.free }}" = "True" ]; then M=$(( M/4 > 2 ? M/4 : 2 )); fi   # free mode
+          M=$(bash scripts/budget.sh "$M"); [ "$M" -le 0 ] && { echo "no time left for the district calendars; the next run reads them"; exit 0; }
+          timeout -s INT -k 1m "$((M + 4))m" gacrawl schools calendars --max-minutes "$M" > /tmp/dcal.json || bash "$GITHUB_WORKSPACE/scripts/stopped.sh" $? "the district calendars stopped after $((M + 4)) minutes"
+          python3 -c "import json;d=json.load(open('/tmp/dcal.json')).get('calendars') or {};print(d if isinstance(d,str) else {k:d.get(k) for k in ('districts','looked','feeds_read','meetings','upcoming','removed','refused','archived_reads','errors','with_feeds','with_board_meetings','with_upcoming','by_platform','stopped')})" || true
       - name: Police incidents in the news (GDELT finds, trusted outlets and official pages confirm)
         # Early too, for the same reason as the schools: after the research block it found no time left in every run.
         continue-on-error: true
@@ -987,7 +1001,7 @@ jobs:
           bash scripts/ci_runner.sh push-state "crawl: $(date -u +%Y-%m-%dT%H:%MZ)" \
             state/ordinance_codes.json state/cadence.json state/progress.json state/channels.json state/blocked.json state/discovered.json \
             state/candidate_progress.json state/screens_seen.json state/finance_portal.json state/backfill.json \
-            state/schools.json state/school_bounds.json state/school_people.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
+            state/schools.json state/school_bounds.json state/school_people.json state/district_calendars.json state/police_news.json state/wp_outlets.json state/news_feeds.json state/ai_seeds.json state/websearch.json state/veto_statements.json \
             state/coverage.json state/channel_ai.json data/coverage.md data/seed_review.md data/channel_review.md data/train \
             imports/screens data/openrecords data/manual_tasks.md data/seed_gaps.md data/verified data/rumor_mill
       # From here on, Electo and the site follow this run's stored bundle, not every earlier step: a failed state commit

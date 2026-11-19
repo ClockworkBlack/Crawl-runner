@@ -169,6 +169,18 @@ schools:
   # Only existing captures, at the Archive's pace; never Simbli itself, never Save Page Now (gacrawl/simbli_archive.py).
   simbli_archive: true
   simbli_districts_per_run: 20
+  # Board meetings from each district's own public calendar (gacrawl/district_calendars.py, `gacrawl schools calendars`):
+  # Finalsite calendar pages as served, Apptegy's and other iCalendar feeds, Edlio's upcoming events. Feeds looked for
+  # once a week per district, read every run; a feed robots.txt refuses (Google Calendar's) is read only from the
+  # Internet Archive's existing copies (calendar_archive, with archive.refused_sources).
+  district_calendars: true
+  calendar_workers: 6
+  calendar_archive: true
+  # The public Google Calendars a district publishes on its own site, subscribed to as a calendar application does
+  # (gacrawl/calendar_subscriber.py: only the public iCal address the district linked, an honest User-Agent, at most
+  # every 12 hours with If-None-Match, one request at a time, a day's pause on any refusal). The owner's decision,
+  # Nov 19, 2026; false: those calendars come only from the Internet Archive's copies.
+  calendar_subscriptions: true
 
 archive:
   # The owner's rule since Nov. 19, 2026: a public page that refuses the crawler (a 403, a bot-protection challenge, a
