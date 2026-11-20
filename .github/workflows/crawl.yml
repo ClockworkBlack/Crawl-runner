@@ -1181,6 +1181,7 @@ jobs:
         run: |
           set -e
           BUNDLE="$PWD/dist/electo"
+          AUDIT="$PWD/scripts/import_audit.sh"
           [ -f "$BUNDLE/manifest.json" ] || { echo "::error::no bundle in dist/electo; nothing imported into Electo"; exit 1; }
           python3 -c "import matplotlib" 2>/dev/null || pip install -q matplotlib || echo "matplotlib did not install; places not rebuilt"
           export CRAWL_BUNDLE="$BUNDLE"
@@ -1241,6 +1242,11 @@ jobs:
             [ "$civics_ok" = 1 ] || put_back ga/pipeline_civics
             # the name registry last (record-only council voters get their pages)
             run_step "ga/names.py" 1 python3 -I ga/names.py || return 2
+            # the database audit again, now that the registry holds this import's people (scripts/import_audit.sh): the
+            # importer's own, at its end, read the registry of the import before, and the file it left for the commit
+            # called everyone new in this import unknown (Nov 20, 2026: 4 errors in the file, 1 of them real). It never
+            # stops the import: grand-cross fails on what it finds
+            bash "$AUDIT" || true
             # the News tab has its own job (news.yml, every 3 hours, fresher than this run's bundle): what the importer
             # wrote there is dropped, so the site data below publishes that job's stories
             git checkout -q -- ga/news.json 2>/dev/null || true

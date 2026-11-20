@@ -16,6 +16,9 @@ about 24 a minute), no retry after a 429 (http.host_retries: 0), and the first 4
 disallow switches the archive off for the rest of the run (an address that keeps asking for over a minute after a 429
 is blocked for an hour). The capture index (CDX) is a documented public API (http.api_endpoints); the archived pages
 are pages, read only where web.archive.org's robots.txt allows.
+
+A copy that is its site's firewall challenge (the Archive's crawler was turned away that day) is passed over, and is
+never the Archive refusing this crawler (blocked.ARCHIVE_COPY): an older copy is tried.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ import threading
 from urllib.parse import urlsplit
 
 from . import extract
-from .blocked import Blocked
+from .blocked import Blocked, challenge_copy
 from .fetch import Disallowed, OutOfTime
 
 CDX = "https://web.archive.org/cdx/search/cdx"
@@ -119,6 +122,8 @@ class Wayback:
         """(title, markdown) of a page as captured, or None."""
         r = self._get(RAW.format(ts=ts, url=url))
         if r is None or r.status != 200 or "html" not in r.content_type:
+            return None
+        if challenge_copy(r.text):      # the copy is the site's firewall challenge of that day, not the page
             return None
         title, md = extract.html_to_markdown(r.text, url)
         return (title or "", md) if md else None

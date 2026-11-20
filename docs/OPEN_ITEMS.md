@@ -80,3 +80,12 @@
   does not solve challenges or change how it names itself, so: ask LegiScan's API support to allow API calls from
   GitHub-hosted runners for this key (User-Agent `GACivicCrawler/0.3 (+https://github.com/ClockworkBlack/Crawl-runner)`).
   Until then roll calls come from legis.ga.gov only, with no LegiScan cross-check.
+
+## 6. Strict format and tagging (saved Nov 20, 2026)
+- The plan, feed by feed, and what is done: [DATA_FORMAT_PLAN.md](DATA_FORMAT_PLAN.md).
+- Done: reported election results (format 2: level and place on every contest, who reports what, the ledger
+  `ga/crawl/left_out.json`), the audit after the name registry, LogView's cause lines and `ISSUES.md`.
+- Next: councils, boards and roll calls; then city and county meetings; policing and schools; news and rumors;
+  donors and links; one table of formats; the judicial circuits' counties.
+- Found on the way: Clayton County's 2023 report (three council contests that name no city); "Bradley Smith"
+  (likely two people in one record; for the owner to confirm).

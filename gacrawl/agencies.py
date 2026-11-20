@@ -41,6 +41,11 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 import yaml
 
+from .blocked import Blocked
+
+# a refusal that is a closed door (a login, a paywall), not a public page that turns crawlers away: never read from a copy
+CLOSED_REFUSAL = re.compile(r"HTTP 40[12]\b|login|log in|sign in|paywall|subscri", re.I)
+
 FMT = 2                         # meta.fmt of a record written by these readers
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
           "december"]
@@ -1454,9 +1459,11 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
 
     ag = dict(ag)                                  # the readers' notes for one another (_schedule, _known) stay per run
     aid = ag["id"]
-    stored = {}
+    stored, live_on_file = {}, False
     for r in store.read(f"ga-agency:{aid}", "meeting"):
         mt = r.get("meta") or {}
+        if not mt.get("withdrawn") and not mt.get("captured"):
+            live_on_file = True                    # a reading of the body's own site, in this format or the one before
         if mt.get("fmt") == FMT:
             sm = from_meta(mt)
             stored[(sm["date"], slug(sm["body"]), sm["mk"])] = (sm, mt)
@@ -1464,7 +1471,7 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
     follow = [f.lower() for f in ag.get("follow") or []]
     depth = {e["u"]: 0 for e in queue}
     seen, found, read_ok, keep_stored = set(), {}, [], set()
-    info = {"pages": 0, "captured": "", "failed": 0}
+    info = {"pages": 0, "captured": "", "failed": 0, "live": 0, "archived": 0}
     cap_pages = int(ag.get("max_pages") or 14)
     today = dt.date.today()
     while queue and len(seen) < cap_pages:
@@ -1477,12 +1484,40 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
             continue
         seen.add(u)
         arch = bool(e.get("archive") or ag.get("source") == "archive")
-        shown, captured = u, ""
+        shown, captured, html, refused = u, "", None, ""
+        if not arch:
+            try:
+                r = fetcher.get(u, use_cache=False)
+            except Blocked as exc:
+                # The site refuses the crawler (a 403, a firewall's challenge; its host is then left alone for days).
+                # A body with no reading of its own site on file is read from the Internet Archive's newest existing copy
+                # instead, as a body set down `source: archive` is (the owner's rule of Nov. 19, 2026), and looked for
+                # again every recheck_days while its site refuses; never a page behind a login. A body that has
+                # readings of its own site on file (of this format or the one before) keeps them as they are until its
+                # site answers again: an older copy is not read over a newer reading.
+                if live_on_file or CLOSED_REFUSAL.search(str(exc)):
+                    errors.append(f"{aid} {u}: {type(exc).__name__}"[:160])
+                    info["failed"] += 1
+                    continue
+                arch, refused = True, str(exc)[:80]
+            except Exception as exc:  # noqa: BLE001 — a page that refuses is left for the next run
+                errors.append(f"{aid} {u}: {type(exc).__name__}"[:160])
+                info["failed"] += 1
+                continue
+            else:
+                ctype = r.content_type or "html"
+                if r.status != 200 or not re.search(r"html|xml|rss", ctype):
+                    errors.append(f"{aid} {u}: HTTP {r.status}"[:160])
+                    info["failed"] += 1
+                    continue
+                html, final, shown = r.text, r.url or u, r.url or u
+                info["live"] += 1
         if arch:
             stamp = json.loads(store.kv_get(f"agency_archive:{aid}:{u}") or "{}")
             every = int(e.get("recheck_days") or ag.get("recheck_days") or 7)
             if stamp.get("at") and (e.get("once") or (today - dt.date.fromisoformat(stamp["at"])).days < every):
                 info["captured"] = max(info["captured"], stamp.get("as_of") or "")
+                info["archived"] += 1
                 keep_stored.add("*")               # not read again this run: what is stored stays as it is
                 continue
             if wb is None:
@@ -1495,7 +1530,8 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
                 html, ts = None, ""
                 errors.append(f"{aid} {u}: archive {type(exc).__name__}"[:160])
             if not html:
-                errors.append(f"{aid} {u}: no readable Internet Archive copy" + (f" ({wb.off})" if wb.off else ""))
+                errors.append(f"{aid} {u}: " + (f"refused ({refused}), and " if refused else "") + "no readable Internet Archive copy"
+                              + (f" ({wb.off})" if wb.off else ""))
                 info["failed"] += 1
                 keep_stored.add("*")
                 continue
@@ -1503,20 +1539,8 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
 
             shown, captured, final = SHOW.format(ts=ts, url=u), day(ts), u
             info["captured"] = max(info["captured"], captured)
+            info["archived"] += 1
             store.kv_set(f"agency_archive:{aid}:{u}", json.dumps({"at": today.isoformat(), "as_of": captured}))
-        else:
-            try:
-                r = fetcher.get(u, use_cache=False)
-            except Exception as exc:  # noqa: BLE001 — a page that refuses is left for the next run
-                errors.append(f"{aid} {u}: {type(exc).__name__}"[:160])
-                info["failed"] += 1
-                continue
-            ctype = r.content_type or "html"
-            if r.status != 200 or not re.search(r"html|xml|rss", ctype):
-                errors.append(f"{aid} {u}: HTTP {r.status}"[:160])
-                info["failed"] += 1
-                continue
-            html, final, shown = r.text, r.url or u, r.url or u
         info["pages"] += 1
         read_ok.append(shown)
         name = e.get("reader") or ag.get("reader") or "general"
@@ -1627,7 +1651,11 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
     out = {"agencies": 0, "pages": 0, "meetings": 0, "new": 0, "by": {}, "errors": [], "notes": []}
     todo = [ag for ag in load(root) if not only or ag["id"] in only]
     todo.sort(key=lambda ag: store.kv_get(f"agency_read:{ag['id']}") or "")
-    wb = None
+    # one for the whole run: after the Archive's first 429, 5xx or refusal it is off for every body that follows (a new
+    # one per body asked it again for each)
+    from .wayback import Wayback
+
+    wb = Wayback(fetcher, log=log)
     today = dt.date.today().isoformat()
     for ag in todo:
         if deadline is not None and time.monotonic() > deadline:
@@ -1646,6 +1674,10 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
         if info["captured"]:
             out["by"][ag["id"]]["archive_as_of"] = info["captured"]
         out["meetings"] += len(ms)
+        if not dry_run and (info["live"] or info["archived"]):
+            # how the body's pages were read this time: from its own site, or (its site refuses, or it is set down so)
+            # all from the Archive's copies. A run that read nothing leaves the last answer. The export's `source`.
+            store.kv_set(f"agency_via:{ag['id']}", "live" if info["live"] else "archive")
         if dry_run:
             out["by"][ag["id"]]["sample"] = sorted(ms, key=lambda m: m["date"], reverse=True)[:3]
             continue
@@ -1873,8 +1905,14 @@ def export_state_meetings(store, root: Path, path: Path, today: str | None = Non
             seen_rows.add(k)
             rows.append(row)
         rows.sort(key=lambda x: (x["d"], x.get("t", ""), x.get("b", "")), reverse=True)
-        arch = ag.get("source") == "archive"
-        as_of = max((str((r.get("meta") or {}).get("captured") or "") for r in recs), default="") if arch else ""
+        # read from the Archive's copies: set down so in the config, or its own site refused the last time it was read
+        # and the copies were read instead (read_body). The second only with a copy's day to show.
+        conf_arch = ag.get("source") == "archive"
+        via_arch = conf_arch or store.kv_get(f"agency_via:{ag['id']}") == "archive"
+        as_of = max((str((r.get("meta") or {}).get("captured") or "") for r in recs), default="") if via_arch else ""
+        if via_arch and not as_of:
+            as_of = max((json.loads(store.kv_get(f"agency_archive:{ag['id']}:{u}") or "{}").get("as_of") or "" for u in page_urls(ag)), default="")
+        arch = conf_arch or bool(via_arch and as_of)
         links = [{"l": squash(str(x.get("t") or x.get("l") or "")) or "More", "u": _u(x["u"])} for x in (ag.get("links") or []) if isinstance(x, dict) and x.get("u")]
         body = {"id": ag["id"], "kind": ag.get("kind") or "board", "name": ag["name"], "agency": ag.get("agency") or ag["name"],
                 "pages": list(dict.fromkeys(_u(u) for u in page_urls(ag)))}

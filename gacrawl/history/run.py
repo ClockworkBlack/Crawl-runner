@@ -12,6 +12,7 @@ from pathlib import Path
 from .. import config
 from .model import contest_id
 from .sources import SOURCES, Skip
+from ..blocked import challenge_copy
 
 # raise a source's number when its reader changes: its items are read again (and those it could not read, tried again)
 READER = {"manual": 1, "medsl": 2, "legislators": 4, "fec": 5, "openelections": 4, "sos_zip": 5, "sos_pdf": 6, "clerk": 3, "reported": 2}   # sos_pdf 5: party columns side by side (2008-2010) read apart
@@ -96,7 +97,7 @@ class Net:
             if r.status == 429 or r.status >= 500:
                 self.archive_off = f"HTTP {r.status} from the archive"
                 break
-            if r.status == 200 and r.content:
+            if r.status == 200 and r.content and not challenge_copy(r.content):   # not a copy of the site's challenge page
                 self.via[url] = t
                 return r.content
         raise IOError(f"not served by its site, and no usable capture in the Internet Archive: {url}"

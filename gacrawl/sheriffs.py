@@ -107,6 +107,7 @@ def _live(fetcher, log) -> tuple[str, str]:
 
 def _archived(fetcher, log) -> tuple[str, str, str]:
     """(html, capture day, the copy's address) of the newest capture within ARCHIVE_DAYS, or ("", "", "")."""
+    from .blocked import challenge_copy
     from .wayback import RAW, SHOW, Wayback, day
 
     wb = Wayback(fetcher, log=log)
@@ -115,7 +116,7 @@ def _archived(fetcher, log) -> tuple[str, str, str]:
         if cap["timestamp"][:8] < since:
             break
         r = wb._get(RAW.format(ts=cap["timestamp"], url=cap["original"]))
-        if r is not None and r.status == 200 and r.text:
+        if r is not None and r.status == 200 and r.text and not challenge_copy(r.text):   # not a copy of the site's challenge page
             return r.text, day(cap["timestamp"]), SHOW.format(ts=cap["timestamp"], url=cap["original"])
         if wb.off:
             break

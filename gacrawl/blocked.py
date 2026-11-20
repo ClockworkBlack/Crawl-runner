@@ -32,6 +32,53 @@ CHALLENGE_MARKERS = (
 )
 CLOUDFLARE_CODE = re.compile(r"error code: 10\d\d\b")     # Cloudflare's bare refusals ("error code: 1020": access denied by a rule)
 
+# A copy of a page kept by the Internet Archive (gacrawl/wayback.py RAW and SHOW). What it holds is the page as that
+# day's visitor got it, and for a site behind a firewall that is often the firewall's challenge page. That is the
+# copied site refusing the Archive's crawler on that day, not the Archive refusing this one. Judged as the Archive's
+# own, one such copy (Simbli's policy list as saved on May 27, 2024, an Imperva shell) put web.archive.org on the block
+# list for a week on Nov. 19, 2026: every reader of archived copies (refused sources, school boards, the state
+# authorities read from the Archive, lapsed campaign sites) found the Archive off from then on, and the Georgia World
+# Congress Center Authority reached the site with no meetings. The Archive's own refusals are a 429 or a 5xx
+# (gacrawl/wayback.py switches off for the run on those) or a plain 403.
+ARCHIVE_COPY = re.compile(r"^https?://web\.archive\.org/web/\d{4,14}(?:[a-z]{2}_)?/\S", re.I)
+ARCHIVE_HOSTS = ("web.archive.org",)
+# a page that is only a firewall's challenge or refusal, by what it says near its top (a copy is read for these whatever
+# status it came with): the copy is passed over and an older one tried
+CHALLENGE_PAGE = re.compile(r"request unsuccessful\. incapsula|incapsula incident|pardon our interruption|"
+                            r"attention required! \| cloudflare|just a moment\.\.\.|checking your browser before|"
+                            r"verify you are human|are you a robot|px-captcha|sorry, you have been blocked|"
+                            r"the requested url was rejected|request rejected", re.I)
+# Imperva's script is on every page of a site behind it, the real ones too: it marks a challenge only on a page that
+# says next to nothing else
+IMPERVA_SCRIPT = re.compile(r"_incapsula_resource", re.I)
+_NOT_TEXT = re.compile(r"<script\b.*?</script>|<style\b.*?</style>|<[^>]+>", re.S | re.I)
+REPLAY_HEADERS = ("memento-datetime",)          # the Archive's own mark on a copy it replays (and x-archive-orig-*)
+
+
+def is_archive_copy(url: str) -> bool:
+    return bool(ARCHIVE_COPY.match(url or ""))
+
+
+def replayed(headers) -> bool:
+    """Do an answer's headers say it is a copy the Archive replays (Memento-Datetime, X-Archive-Orig-...)? Its own
+    refusals and error pages carry neither."""
+    return any(str(k).lower() in REPLAY_HEADERS or str(k).lower().startswith("x-archive-orig-") for k in (headers or {}))
+
+
+def challenge_copy(text) -> bool:
+    """Is this copy of a page its site's firewall challenge, not the page? Short pages only: a real page can quote
+    these words, a challenge shell is little else. (Text, or a file's bytes: a PDF or a zip is never one.)"""
+    if isinstance(text, (bytes, bytearray)):
+        if len(text) >= 20000:
+            return False
+        text = bytes(text).decode("utf-8", "replace")
+    t = text or ""
+    if len(t) >= 20000:
+        return False
+    if CHALLENGE_PAGE.search(t[:6000]):
+        return True
+    return bool(IMPERVA_SCRIPT.search(t[:6000])) and len(_NOT_TEXT.sub(" ", t).split()) < 40
+
 # where else the same records live, by blocked host
 ALTERNATIVES = {
     "simbli.eboardsolutions.com": [
@@ -75,23 +122,37 @@ class Blocked(Exception):
         self.host, self.reason = host, reason
 
 
-def looks_blocked(status: int, body: bytes | str) -> str | None:
-    """Reason string if this response is a bot-protection challenge, else None."""
+def looks_blocked(status: int, body: bytes | str, url: str = "", headers=None) -> str | None:
+    """Reason string if this response is a bot-protection challenge, else None. `url`: the address asked for; when it
+    is a copy kept by the Internet Archive, a challenge in its body is the copied site's, of another day and another
+    crawler (ARCHIVE_COPY above), and is no refusal by the host that served the copy. That holds for a copy served
+    as a page (200), and for one replayed with its own refusal's status (a saved 403) when the answer's `headers` say
+    it is a replay; a 403, 429 or 503 at a copy's address without that mark is the Archive's own answer."""
     text = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else body
     head = text[:6000]
-    if status in (401, 403, 429, 503) and (any(m in head for m in CHALLENGE_MARKERS) or CLOUDFLARE_CODE.search(head)):
+    copy = is_archive_copy(url) and (status == 200 or replayed(headers))
+    if not copy and status in (401, 403, 429, 503) and (any(m in head for m in CHALLENGE_MARKERS) or CLOUDFLARE_CODE.search(head)):
         return f"HTTP {status} bot-protection challenge"
-    if status == 200 and len(text) < 4000 and ("_Incapsula_Resource" in head or "Request unsuccessful. Incapsula" in head):
+    if not copy and status == 200 and len(text) < 4000 and ("_Incapsula_Resource" in head or "Request unsuccessful. Incapsula" in head):
         return "HTTP 200 bot-protection challenge (Imperva)"   # a short challenge shell served as a normal page
     if status == 403 and len(head) < 2000 and re.search(r"access (denied|blocked)|forbidden", head, re.I):
         return "HTTP 403 access denied"
     return None
 
 
-def not_a_refusal(reason: str) -> bool:
-    """A block filed for a plain 401/403 on robots.txt alone ("robots.txt: HTTP 403 access denied"). That is a server
-    that does not serve the file, not one that refuses the crawler (RFC 9309: no robots.txt, the site is open); such
-    entries were written until Nov. 20, 2026 and are not honoured any more. A challenge page on robots.txt is one."""
+def not_a_refusal(reason: str, host: str = "", urls=()) -> bool:
+    """A block filed under a rule since withdrawn, not honoured any more:
+      - for a plain 401/403 on robots.txt alone ("robots.txt: HTTP 403 access denied"). That is a server that does not
+        serve the file, not one that refuses the crawler (RFC 9309: no robots.txt, the site is open); such entries
+        were written until Nov. 20, 2026. A challenge page on robots.txt is a refusal;
+      - for a challenge page served as a page (200) on the Internet Archive's host, met only at copies' addresses
+        (`urls`: the addresses the entry was filed for): each was a copy of a page that was its own site's challenge
+        (ARCHIVE_COPY above), filed as the Archive's until Nov. 20, 2026. A copy served as a page can no longer file
+        one. An entry for the Archive's own answer is honoured: a 403 or 429 (at a copy's address too), or anything at
+        the index, the front door or robots.txt."""
+    if (host.lower() in ARCHIVE_HOSTS and reason.startswith("HTTP 200 bot-protection challenge") and urls
+            and all(is_archive_copy(u) for u in urls)):
+        return True
     return reason.startswith("robots.txt:") and "challenge" not in reason
 
 
@@ -114,7 +175,7 @@ class BlockList:
         ttl = dt.timedelta(days=float(rec["ttl_days"])) if rec.get("ttl_days") else self.ttl
         if dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(rec["last_seen"]) > ttl:
             return None  # expired: try again
-        if not_a_refusal(rec.get("reason") or ""):
+        if not_a_refusal(rec.get("reason") or "", h, rec.get("urls") or ()):
             return None  # filed under a rule since withdrawn: asked again now
         return rec
 

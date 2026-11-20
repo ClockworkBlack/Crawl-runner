@@ -45,3 +45,16 @@ def test_nothing_the_public_copy_would_refuse():
         if pattern.search(raw.decode("utf-8", errors="replace")):
             bad.append(f)
     assert not bad, f"the public runner's code copy would refuse these files (private text): {bad}"
+
+
+def test_notes_are_not_copied():
+    """docs/ is notes, not code: no job reads it, so it is left out of the copy, and removed from a copy that holds it."""
+    y = (ROOT / ".github" / "workflows" / "sync-code.yml").read_text()
+    assert "--exclude docs/" in y and re.search(r"rm -rf [^#]*\bpub/docs\b", y, re.S)
+    files = _copied_files()
+    assert not [f for f in files if f == "docs" or f.startswith("docs/")]
+    assert (ROOT / "docs").is_dir()                                       # kept here
+    # and nothing a job runs reads the folder
+    for f in files:
+        if f.endswith((".yml", ".sh")) and (ROOT / f).is_file():
+            assert not re.search(r"(?<![\w/.-])docs/[A-Z_]+\.md", (ROOT / f).read_text(errors="replace")), f

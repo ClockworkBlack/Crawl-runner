@@ -455,7 +455,7 @@ class Fetcher:
             self.limiter.record(full, r.status_code, answered, retry_after, kind=self.latency_kind(full, headers, is_doc, kind))
             hdrs = {k.lower(): v for k, v in r.headers.items()}
 
-            reason = looks_blocked(r.status_code, body)
+            reason = looks_blocked(r.status_code, body, full, hdrs)
             api = self.latency_kind(full, headers, is_doc, kind) not in ("page", "doc")
             if not reason and r.status_code in (401, 403):
                 # any 401 or 403 is a refusal of that page, whatever its body says ("error code: 1020", a long branded
