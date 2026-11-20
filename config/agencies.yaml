@@ -294,6 +294,20 @@ agencies:
     source: archive
     reader: gwcca_about
     recheck_days: 7
+    # One name per committee. The Authority labels a committee's files several ways (seen on its whole page, Nov. 20,
+    # 2026: "Executive Finance Committee", "Executive_Finance Committee", "Joint Finance Executive Committee" and
+    # "Joint GWCCA Executive & Finance Committee" for one sitting); a label that matches `rx` (case ignored) is filed
+    # under `name`, the first match wins. A committee not listed keeps its label's own name. A label with no
+    # "Committee" in it is a committee's only as its agenda, minutes or meeting ("COP Meeting Agenda", "Campus Master
+    # Plan Preliminary Agenda"): a deck about the park or the plan shown to the board is the board's.
+    committees:
+      - {name: "Executive Finance Committee", rx: '\bexecutive\W+(?:and\W+)?finance\b|\bfinance\W+(?:and\W+)?executive\b'}
+      - {name: "Food & Beverage Review Committee", rx: '\b(?:f\s*&\s*b|fb|food\W+(?:and\W+)?beverage)\s+review\b'}
+      - {name: "Centennial Olympic Park Committee", rx: '\bpark committee\b|^(?:cop|centennial olympic park)\W+(?:committee\b|(?:meeting\W+)?(?:prelim\w*\W+)?(?:agenda|minutes)\b|meeting\b)'}
+      - {name: "Campus Master Plan Committee", rx: '^campus master plan\W+(?:committee\b|(?:meeting\W+)?(?:prelim\w*\W+)?(?:agenda|minutes)\b|meeting\b)'}
+      # the Finance Committee sitting as the OPEB Board of Trustees: one sitting (its agenda under one label, its
+      # minutes under the other, on each of the three days of 2016), named for both
+      - {name: "Finance Committee", rx: '^finance committee\b|^opeb board of trustees\b'}
     pages:
       - https://www.gwcca.org/about
 

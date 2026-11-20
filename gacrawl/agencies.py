@@ -47,6 +47,22 @@ from .blocked import Blocked
 CLOSED_REFUSAL = re.compile(r"HTTP 40[12]\b|login|log in|sign in|paywall|subscri", re.I)
 
 FMT = 2                         # meta.fmt of a record written by these readers
+# A reader corrected so that it files a page's meetings another way (a committee under another name, a sitting no longer
+# split in two) gets a higher number here; a reader not listed is 1. A record written by a reader above 1 keeps its
+# number (meta.reader_rev). A page read from the Internet Archive's copies is read again when its reader's number is
+# higher than at its last reading, whatever its recheck_days, and a meeting an earlier reader filed from a copy of that
+# page is withdrawn when today's reader does not file it and files every one of its files elsewhere (run, below):
+# nothing the page holds stops being shown, only the earlier reader's way of filing it.
+#   gwcca_about 2 (Nov. 20, 2026): one name per committee (config `committees`), one sitting per committee and day;
+#     the labels "09-16 & 17-21 ...", "12-10-24-GWCCA ...", "... MEETING - 04-30-26", a deck kept at Adobe
+READER_REV = {"gwcca_about": 2}
+_COPY = re.compile(r"^https?://web\.archive\.org/web/(\d{4,14})(?:[a-z]{2}_)?/(.+)$", re.I)
+
+
+def copy_of(page: str) -> tuple[str, str]:
+    """(the page's own address, the copy's timestamp) of an address at the Internet Archive; ("", "") of any other."""
+    m = _COPY.match(page or "")
+    return (m.group(2), m.group(1)) if m else ("", "")
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
           "december"]
 _MON = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
@@ -661,12 +677,27 @@ def _is_board(title: str) -> bool:
 
 
 def _committee(title: str) -> str:
-    """The committee a title names ("Administrative Committee Agenda" -> "Administrative Committee"); "" for the board."""
+    """The committee a title names ("Administrative Committee Agenda" -> "Administrative Committee"); "" for the board.
+    The words that say what the file is are no part of the name, however they are spelled ("Prelimanary Agenda",
+    "Committee Mtg. Minutes")."""
     t = squash(re.sub(r"\((?:PDF|BOD)[^)]*\)", " ", title, flags=re.I))
-    t = squash(re.sub(r"\b(?:draft|preliminary|signed|approved|view|meeting|agenda|minutes|presentation|materials|summary)\b", " ", t, flags=re.I)).strip(" -–:,")
+    t = re.sub(r"\bmtg\b\.?", " ", t, flags=re.I)
+    t = squash(re.sub(r"\b(?:draft|prelim\w*|signed|approved|view|meeting|agenda|minutes|presentation|materials|summary)\b", " ", t, flags=re.I)).strip(" -–:,")
     if not t or _is_board(title):
         return ""
     return t if re.search(r"committee", t, re.I) else f"{t} Committee"
+
+
+def committee_name(ag: dict, label: str) -> str:
+    """The one name a committee is filed under when its body labels it several ways on its files ("Executive_Finance
+    Committee", "Joint Finance Executive Committee", "FB Review Committee"): the body's `committees` in
+    config/agencies.yaml, a list of {name, rx}. The first pattern the label holds (case ignored, an underscore read as
+    a space) names it; "" when none does, and for a body with no list."""
+    text = squash(str(label or "").replace("_", " "))
+    for c in ag.get("committees") or ():
+        if re.search(str(c["rx"]), text, re.I):
+            return squash(str(c["name"]))
+    return ""
 
 
 def govhub_event(html: str, url: str, ag: dict, page: dict) -> list[dict]:
@@ -1213,11 +1244,55 @@ def month_named(html: str, url: str, ag: dict, page: dict) -> list[dict]:
     return [m for m in book.out() if (m["date"], slug(m["body"]), m["mk"]) not in preset or any(m[s] for s in SLOTS) or m["docs"]]
 
 
+GW_CALL = re.compile(r"\bconf(?:erence)?\.?\s+call\b", re.I)                          # how they met, not who
+GW_SPECIAL = re.compile(r"\bspecial(?:\s+called)?(?=\s+(?:conf|meeting|mtg))", re.I)       # "... Special Meeting ...", "... Special Conference Call ..."
+GW_LIST = re.compile(r"\bcommittee assignments\b", re.I)                                  # a list kept among the files
+GW_OPEB = re.compile(r"\bOPEB Board of Trustees\b", re.I)                                 # the Finance Committee sitting as it
+# "04-14-26 ...", "12-10-24-GWCCA ..." (a hyphen after the day only before a word: "09-16-17-27 ..." is two days)
+GW_DAY = re.compile(r"\s*(\d{1,2}-\d{1,2}-(?:20)?\d\d)(?:\s*-\s*(?=\D)|\s+)(?=\S)(.+)$")
+# "09-16 & 17-21 ...", "09-16-17-21 ...": two days, filed on the first
+GW_DAYS = re.compile(r"\s*(\d{1,2})-(\d{1,2})(?:\s*&\s*|-)\d{1,2}-((?:20)?\d\d)\s+(.+)$")
+# "CALL FOR SPECIAL BOG MEETING - 04-30-26": the day last, on a call or a notice of a meeting only (a roster "as of" a
+# day, a schedule "- 11-05-26" are no meeting's files)
+GW_DAY_LAST = re.compile(r"\s*((?=.*\b(?:call\s+for|notice)\b).*\bmeeting\b.*?)\s*[-–]\s*(\d{1,2}-\d{1,2}-(?:20)?\d\d)\s*$", re.I)
+GW_NOTICE = re.compile(r"^(?:call\s+for|notice\s+of)\s+|\s+notice$", re.I)                 # "Call for ...", "Notice of ...", "... Notice": what the file is
+GW_FILE = re.compile(r"^https://acrobat\.adobe\.com/id/\S+$", re.I)                      # a deck kept at Adobe
+
+
+def gwcca_label(label: str) -> tuple[str, str] | None:
+    """(the day, what the file is) of a file's label on the Authority's page; None when it carries no day."""
+    if len(label) > 300:                           # no label: a paragraph that is a link
+        return None
+    for rx in (GW_DAY, GW_DAYS, GW_DAY_LAST):
+        lm = rx.match(label)
+        if not lm:
+            continue
+        day, what = ((lm.group(1), lm.group(2)) if rx is GW_DAY else (f"{lm.group(1)}-{lm.group(2)}-{lm.group(3)}", lm.group(4)) if rx is GW_DAYS
+                     else (lm.group(2), lm.group(1)))
+        ds = dates_in(day)
+        if ds:
+            # "GWCCA" before the words, and a second day written out before them ("& 9-15-22 GWCCA Board ...")
+            what = re.sub(r"^&\s*\d{1,2}-\d{1,2}-(?:20)?\d\d\s+", "", what.strip())
+            return ds[0], squash(re.sub(r"^GWCCA\s+", "", what).replace("_", " "))
+    return None
+
+
 def gwcca_about(html: str, url: str, ag: dict, page: dict) -> list[dict]:
     """The Georgia World Congress Center Authority's About page (read from the Internet Archive's copy: the live site
     turns automated readers away): "2026 Meeting Schedule" as a month and a day ("JAN" / "27"), and "Meeting Minutes
-    and Materials", each file named by its day and who met ("04-14-26 Executive/Finance Committee Minutes")."""
-    book, year, mon, in_sched = Book(), None, 0, False
+    and Materials", each file named by its day and who met ("04-14-26 Executive_Finance Committee Meeting Minutes").
+
+    A committee is one sitting a day under one name, whatever its files' labels say (seen on the whole page, Nov. 20,
+    2026: one sitting's agenda under "Joint Finance Executive Committee" and its minutes under "Executive_Finance
+    Committee"; an agenda marked "Conference Call" or "Special Meeting" and the minutes not). The name is the body's
+    `committees` entry the label matches (config/agencies.yaml), else the label's own without the words that say how
+    they met. A conference call is the sitting's place, a special meeting its name.
+
+    A label carries its day first ("04-14-26 ...", "12-10-24-GWCCA ..."), as two days ("09-16 & 17-21 ...", filed on
+    the first) or last ("CALL FOR SPECIAL BOG MEETING - 04-30-26"); a file is a document by its address, or a deck
+    kept at Adobe. A file whose label carries no day ("2024 BOG Planning Retreat Preliminary Agenda") is not filed:
+    a meeting has a day. A file passed over on purpose is noted for the run (ag["_passed"])."""
+    book, year, mon, in_sched, special, opeb = Book(), None, 0, False, set(), set()
     for ln in page_lines(html, url):
         t = ln["t"]
         sm = re.search(r"(20\d\d) meeting schedule", t, re.I)
@@ -1239,19 +1314,37 @@ def gwcca_about(html: str, url: str, ag: dict, page: dict) -> list[dict]:
             if ln["h"] and not re.search(r"schedule", t, re.I) and len(t) > 12:
                 in_sched = False
         for label, href in ln["links"]:
-            lm = re.match(r"\s*(\d{1,2}-\d{1,2}-(?:20)?\d\d)\s+(.+)$", label)
-            if not lm or not DOC_RX.search(href):
+            href = re.sub(r"(?:%22|[\"'])+$", "", href)      # an address written with one quotation mark too many
+            got = gwcca_label(label)
+            if not got or not (DOC_RX.search(href) or GW_FILE.match(href)):
                 continue
-            ds = dates_in(lm.group(1))
-            if not ds:
+            day, what = got
+            if GW_LIST.search(what):               # "Committee Assignments by Committee": no sitting's file
+                ag.setdefault("_passed", []).append(href)
                 continue
-            what = squash(re.sub(r"^GWCCA\s+", "", lm.group(2)))
-            body = "" if not re.search(r"committee", what, re.I) else _committee(what)
-            mk = "special" if re.search(r"special called", what, re.I) else ("retreat" if re.search(r"retreat", what, re.I) else "")
-            body = squash(re.sub(r"\bspecial called\b|\bplanning retreat\b", "", body, flags=re.I))
-            m = book.meet(ds[0], body, mk)
-            m["name"] = m["name"] or (body or {"special": "Board of Governors Special Called Meeting", "retreat": "Board of Governors Planning Retreat"}.get(mk, "Board of Governors Meeting"))
+            named = committee_name(ag, what)
+            if named or re.search(r"committee", what, re.I):
+                # the label's own name: not how they met, nor whose committee it is ("Board Executive Committee",
+                # "Special Meeting of the Executive Committee")
+                body = named or squash(re.sub(r"^(?:of\s+)?(?:the\s+)?(?:board(?:\s+of\s+governors)?\s+)?", "",
+                                              _committee(GW_CALL.sub(" ", GW_SPECIAL.sub(" ", GW_NOTICE.sub(" ", what)))), flags=re.I))
+                m = book.meet(day, body)
+                m["name"] = m["name"] or body
+                if GW_SPECIAL.search(what):
+                    special.add((day, slug(body)))
+                if GW_OPEB.search(what):
+                    opeb.add((day, slug(body)))
+            else:
+                mk = "special" if re.search(r"special called", what, re.I) else ("retreat" if re.search(r"retreat", what, re.I) else "")
+                m = book.meet(day, "", mk)
+                m["name"] = m["name"] or {"special": "Board of Governors Special Called Meeting", "retreat": "Board of Governors Planning Retreat"}.get(mk, "Board of Governors Meeting")
+            if GW_CALL.search(what):
+                m["where"] = m["where"] or "Conference call"
             book.file(m, _kind(what, href), what, href)
+    for m in book.m.values():                      # by what any of the sitting's labels said, in whatever order they stand
+        k = (m["date"], slug(m["body"]))
+        if m["body"] and (k in special or k in opeb):
+            m["name"] = m["body"] + (" - OPEB Board of Trustees" if k in opeb else "") + (" Special Meeting" if k in special else "")
     return book.out()
 
 
@@ -1453,8 +1546,9 @@ def _correct(found: dict, ag: dict) -> None:
                 found[nk] = merge(found[nk], m) if nk in found else m
 
 
-def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb=None, log=print) -> tuple[dict, dict]:
-    """One body's pages read: ({(day, committee, sitting): meeting}, {pages read, archive day, ok})."""
+def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb=None, log=print, dry_run: bool = False) -> tuple[dict, dict]:
+    """One body's pages read: ({(day, committee, sitting): meeting}, {pages read, archive day, ok}). `dry_run`: a copy
+    that is not taken is not marked asked for today (the run that stores is to ask for it)."""
     from .store import utcnow  # noqa: F401  (the store stamps records itself)
 
     ag = dict(ag)                                  # the readers' notes for one another (_schedule, _known) stay per run
@@ -1471,7 +1565,7 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
     follow = [f.lower() for f in ag.get("follow") or []]
     depth = {e["u"]: 0 for e in queue}
     seen, found, read_ok, keep_stored = set(), {}, [], set()
-    info = {"pages": 0, "captured": "", "failed": 0, "live": 0, "archived": 0}
+    info = {"pages": 0, "captured": "", "failed": 0, "live": 0, "archived": 0, "copies": {}}
     cap_pages = int(ag.get("max_pages") or 14)
     today = dt.date.today()
     while queue and len(seen) < cap_pages:
@@ -1515,11 +1609,29 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
         if arch:
             stamp = json.loads(store.kv_get(f"agency_archive:{aid}:{u}") or "{}")
             every = int(e.get("recheck_days") or ag.get("recheck_days") or 7)
-            if stamp.get("at") and (e.get("once") or (today - dt.date.fromisoformat(stamp["at"])).days < every):
+            rev = READER_REV.get(e.get("reader") or ag.get("reader") or "general", 1)
+            # a copy read by an earlier reader than today's (READER_REV) is read again now, whatever its days
+            if (stamp.get("at") and int(stamp.get("rev") or 1) >= rev and (e.get("once") or (today - dt.date.fromisoformat(stamp["at"])).days < every)) \
+                    or stamp.get("tried") == today.isoformat():
+                # (tried: asked for earlier today and not taken, see not_taken below: once a day, not on every run)
                 info["captured"] = max(info["captured"], stamp.get("as_of") or "")
                 info["archived"] += 1
                 keep_stored.add("*")               # not read again this run: what is stored stays as it is
                 continue
+
+            def not_taken(why: str, stamp=stamp, u=u, every=every) -> None:
+                """A copy that came and is not read over what is on file: the stamp is as it was, marked asked for
+                today (asked for again tomorrow), and the run is told; an error once it has gone on for `every` days."""
+                since = stamp.get("since") or today.isoformat()
+                if not dry_run:
+                    store.kv_set(f"agency_archive:{aid}:{u}", json.dumps(stamp | {"tried": today.isoformat(), "since": since}))
+                if (today - dt.date.fromisoformat(since)).days >= every:
+                    errors.append(f"{aid} {u}: {why} (since {since})"[:300])
+                else:
+                    ag.setdefault("_notes", []).append(why)
+                info["captured"] = max(info["captured"], stamp.get("as_of") or "")
+                info["archived"] += 1
+                keep_stored.add("*")
             if wb is None:
                 from .wayback import Wayback
 
@@ -1537,10 +1649,22 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
                 continue
             from .wayback import SHOW, day
 
+            # the latest copy of this page that a meeting on file was read from (by the records, not by the stamp)
+            on_file = max((copy_of(sm["page"])[1] for sm, mt in stored.values()
+                           if mt.get("captured") and not mt.get("withdrawn") and copy_of(sm["page"])[0] == u), default="")
+            # ... and for a page whose meetings are filed under addresses of their own (each notice under its post):
+            # the day of the last copy the reader found meetings on (the stamp moves to no other, below)
+            last = day(on_file) if on_file else str(stamp.get("as_of") or "")
+            if (on_file and ts < on_file) or (not on_file and last and day(ts) < last):
+                # an earlier copy than that one (the later one did not answer this time): not read over it. Its
+                # meetings would take the place of the later copy's, without the files posted since.
+                not_taken(f"the Archive gave its copy of {day(ts)} of {u}, earlier than the one on file ({last}): not read over it")
+                continue
             shown, captured, final = SHOW.format(ts=ts, url=u), day(ts), u
             info["captured"] = max(info["captured"], captured)
             info["archived"] += 1
-            store.kv_set(f"agency_archive:{aid}:{u}", json.dumps({"at": today.isoformat(), "as_of": captured}))
+            # ... with the number it had: run gives it its reader's once what an earlier reader filed has been judged
+            store.kv_set(f"agency_archive:{aid}:{u}", json.dumps({"at": today.isoformat(), "as_of": captured} | ({"rev": stamp["rev"]} if stamp.get("rev") else {})))
         info["pages"] += 1
         read_ok.append(shown)
         name = e.get("reader") or ag.get("reader") or "general"
@@ -1553,7 +1677,21 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
         except Exception as exc:  # noqa: BLE001 — one page's layout changed: said, and the rest goes on
             errors.append(f"{aid} {u}: reader {name}: {type(exc).__name__}: {exc}"[:200])
             info["failed"] += 1
+            if arch:                               # the copy's stamp as it was: asked for again tomorrow, not after its days
+                store.kv_set(f"agency_archive:{aid}:{u}", json.dumps(stamp | ({} if dry_run else {"tried": today.isoformat(), "since": stamp.get("since") or today.isoformat()})))
             continue
+        if arch and not got and last:
+            # a later copy on which the reader finds no meeting at all (a page that is not the body's page any more,
+            # however real it looks): it says nothing of what is on file, least of all that a coming meeting is gone.
+            # The stamp is as it was: its day stays that of the last copy the reader found meetings on.
+            if dry_run:
+                store.kv_set(f"agency_archive:{aid}:{u}", json.dumps(stamp))
+            not_taken(f"the Archive's copy of {captured} of {u} lists no meeting: what is on file from its copy of {last} stays")
+            continue
+        if arch and not got:
+            # no meeting found and none known: the stamp names no copy's day (a copy without meetings is never "the
+            # one on file" that an earlier copy is measured against), and the page is looked for again after its days
+            store.kv_set(f"agency_archive:{aid}:{u}", json.dumps({"at": today.isoformat()} | ({"rev": stamp["rev"]} if stamp.get("rev") else {})))
         if not fn:
             # a year's dates kept in a file: this year's and next year's are opened and read (two files at most)
             for sf in [x for x in schedule_files(html, final) if x["year"] in (today.year, today.year + 1)][:2]:
@@ -1575,10 +1713,15 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
                     sm = new_meeting(d)
                     sm["docs"] = [{"t": sf["t"], "u": sf["u"]}]
                     got.append(sm)
+        if arch and fn and got:
+            # this page, read just now from a copy by the reader of this number (a copy as late as any on file)
+            info["copies"][u] = {"rev": READER_REV.get(name, 1), "ts": ts, "at": today.isoformat(), "as_of": captured}
         for m in got:
             m["page"] = m["page"] or m["event"] or shown
             if arch:
                 m["captured"] = captured
+                if READER_REV.get(name, 1) > 1:
+                    m["reader_rev"] = READER_REV[name]
             k = (m["date"], slug(m["body"]), m["mk"])
             if k in found and e.get("_event"):     # the meeting's own page says more than the list that led to it
                 old = found[k]
@@ -1638,7 +1781,8 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
             found[k]["event_read"] = found[k].get("event_read") or bool(mt.get("event_read"))
             if mt.get("captured"):
                 found[k].setdefault("captured", mt["captured"])
-    info.update(read_ok=read_ok, stored=stored, notes=ag.get("_notes") or [], complete=not info["failed"] and "*" not in keep_stored)
+    info.update(read_ok=read_ok, stored=stored, notes=ag.get("_notes") or [], passed=set(ag.get("_passed") or []),
+                complete=not info["failed"] and "*" not in keep_stored)
     return found, info
 
 
@@ -1661,7 +1805,7 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
         if deadline is not None and time.monotonic() > deadline:
             out["errors"].append(f"out of time before {ag['id']}: read first on the next run")
             continue
-        found, info = read_body(fetcher, store, ag, deadline, out["errors"], wb=wb, log=log)
+        found, info = read_body(fetcher, store, ag, deadline, out["errors"], wb=wb, log=log, dry_run=dry_run)
         out["pages"] += info["pages"]
         out["notes"] += [f"{ag['id']}: {n}" for n in info["notes"]]
         ms = list(found.values())
@@ -1689,6 +1833,8 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
                     "status": m["status"], "location": m["where"], "found_on": page, "pub": m["pub"], "opened": True}
             if m.get("captured"):
                 meta.update(captured=m["captured"], via="wayback", archived=True)
+                if m.get("reader_rev"):
+                    meta["reader_rev"] = m["reader_rev"]
             if m.get("event_read"):
                 meta["event_read"] = True
             tail = "-".join(x for x in (m["date"], slug(m["body"]), m["mk"]) if x)
@@ -1696,16 +1842,38 @@ def run(fetcher, store, root, deadline: float | None = None, only: list[str] | N
                          text=" · ".join(x for x in (ag["name"], m["body"], m["date"], m["name"], m["where"]) if x), published=m["date"],
                          channel="archive" if m.get("captured") else "html", jurisdiction="ga", evidence="primary", key=key_of(ag["id"], m), meta=meta)
             out["new"] += store.add(rec)
-        # a coming meeting the store holds that its page, read in full just now, no longer lists: the body took it
-        # off its schedule (a date that moved). It is kept, marked withdrawn, and left out of the export.
+        # Two kinds of meeting the store holds and this run did not find are kept, marked withdrawn, and left out of the
+        # export:
+        #   gone: a coming meeting that its page, read in full just now (every page of the body was), no longer lists:
+        #     the body took it off its schedule (a date that moved). For a page read from the Archive's copies: a copy
+        #     on which the reader found meetings, as late as any on file (read_body reads no other).
+        #   refiled: a meeting of any day that an earlier reader filed from a copy of a page read again just now by a
+        #     corrected one (READER_REV), when today's reader does not file it and files every one of its files under
+        #     another meeting of the same day (or passed them over on purpose): a committee under another spelling, a
+        #     sitting split in two. Whatever copy was read and however much of it came, no file stops being shown
+        #     on its day by this. A meeting with no file is never judged so, nor one read from the body's own site: a
+        #     page drops its old meetings itself.
+        day_files: dict[str, set] = {}
+        for m in found.values():
+            day_files.setdefault(m["date"], set()).update({m[s] for s in SLOTS if m[s]} | {x["u"] for x in m["docs"]})
+        for k, (sm, mt) in info["stored"].items():
+            if k in found or mt.get("withdrawn"):
+                continue
+            copy = info["copies"].get(copy_of(sm["page"])[0]) if mt.get("captured") else None
+            gone = info["complete"] and sm["date"] >= today and (sm["page"] in info["read_ok"] or bool(copy))
+            files = {sm[s] for s in SLOTS if sm[s]} | {x["u"] for x in sm["docs"]}
+            refiled = bool(copy) and int(mt.get("reader_rev") or 1) < copy["rev"] and bool(files) and files <= (day_files.get(sm["date"], set()) | info["passed"])
+            if gone or refiled:
+                rec = Record(f"ga-agency:{ag['id']}", "meeting", f"{sm['page']}#meeting-{sm['date']}", title=f"{ag['name']} {sm['date']}",
+                             text=f"{ag['name']} · {sm['date']} · no longer listed", published=sm["date"], channel="html", jurisdiction="ga",
+                             evidence="primary", key=key_of(ag["id"], sm), meta={**mt, "withdrawn": today})
+                store.add(rec)
+                out["notes"].append(f"{ag['id']}: {sm['date']} is no longer on {sm['page']}: withdrawn" if gone else
+                                    f"{ag['id']}: {sm['date']} {sm['body'] or 'the board'}: filed by an earlier reader of {sm['page']}, not by today's: withdrawn")
+        for u, c in info["copies"].items():        # judged: the copy's stamp takes its reader's number (read_body left it as it was)
+            if c["rev"] > 1:
+                store.kv_set(f"agency_archive:{ag['id']}:{u}", json.dumps({"at": c["at"], "as_of": c["as_of"], "rev": c["rev"]}))
         if info["complete"]:
-            for k, (sm, mt) in info["stored"].items():
-                if k not in found and sm["date"] >= today and not mt.get("withdrawn") and sm["page"] in info["read_ok"]:
-                    rec = Record(f"ga-agency:{ag['id']}", "meeting", f"{sm['page']}#meeting-{sm['date']}", title=f"{ag['name']} {sm['date']}",
-                                 text=f"{ag['name']} · {sm['date']} · no longer listed", published=sm["date"], channel="html", jurisdiction="ga",
-                                 evidence="primary", key=key_of(ag["id"], sm), meta={**mt, "withdrawn": today})
-                    store.add(rec)
-                    out["notes"].append(f"{ag['id']}: {sm['date']} is no longer on {sm['page']}: withdrawn")
             store.kv_set(f"agency_read:{ag['id']}", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
         opened = open_minutes(fetcher, store, ag, {key_of(ag["id"], m): m for m in ms}, deadline, minutes_cap, log=log) if minutes_cap else 0
         out["minutes_opened"] = out.get("minutes_opened", 0) + opened
@@ -1882,6 +2050,10 @@ def export_state_meetings(store, root: Path, path: Path, today: str | None = Non
     ags, left, why = [], 0, {}
     for ag in load(root):
         recs = [r for r in store.read(f"ga-agency:{ag['id']}", "meeting") if not (r.get("meta") or {}).get("withdrawn")]
+        # the board's own meeting of a day before a sitting of its own that day (a retreat, a work session), whichever
+        # the store gives first: the sitting is the one told apart by its name below. (Nov. 20, 2026, the World Congress
+        # Center Authority, Sept. 17, 2020: the retreat came first, and the board's meeting was left out as a second row.)
+        recs.sort(key=lambda r: bool((r.get("meta") or {}).get("sitting")))
         new_days = {str((r.get("meta") or {}).get("EventDate") or "")[:10] for r in recs if (r.get("meta") or {}).get("fmt") == FMT}
         rows, seen_rows = [], set()
         for r in recs:

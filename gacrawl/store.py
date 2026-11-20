@@ -42,7 +42,9 @@ def utcnow() -> str:
 ID_FIELDS = ("EventItemId", "VoteId", "MatterId", "EventId", "OfficeRecordId", "event_item_id", "file_id", "event_id",
              "guid", "wp_id", "record_id", "tweet_id", "video_id", "uri", "account_id", "person_id")
 # meta fields that say something about a record without being its content: left out of its hash (Record.content_hash)
-SOFT_META = ("http_last_modified", "date_from")
+# (reader_rev: the number of the reader that filed a state body's meeting, gacrawl/agencies.py READER_REV: a corrected
+# reader that files a meeting just as before has not changed it)
+SOFT_META = ("http_last_modified", "date_from", "reader_rev")
 # kinds where many distinct records legitimately share a URL and carry no id: keyed by content
 CONTENT_KEYED = {"connection", "ocr"}
 
