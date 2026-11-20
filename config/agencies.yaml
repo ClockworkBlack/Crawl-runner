@@ -1,18 +1,35 @@
-# Georgia state boards and commissions whose public meetings Electo lists (Committee Meetings tab -> Agencies).
-# Read by gacrawl/agencies.py (gacrawl agencies), nightly. Each page was opened during research on Nov. 12, 2026:
-# the body's own page of meeting dates, agendas or minutes. Nothing here is a built URL.
-#   id      short id (stays the same: Electo remembers which agencies a reader picked)
-#   name    the body that meets            agency  the department it governs (shown beside it)
-#   pages   the body's own pages that list its meetings: dates with agenda / minutes links
-#   follow  (optional) links on those pages to follow one level, by the words in the link's address or text
+# Georgia state boards, state authorities and regional transit authorities whose public meetings Electo lists
+# (Committee Meetings tab). Read by gacrawl/agencies.py (gacrawl agencies), nightly; exported as state_meetings.json in
+# the one strict format the bundle's schema.md documents. Every page here was opened during research (boards Nov. 12,
+# authorities Nov. 13 and Nov. 19-20, 2026): the body's own page of meeting dates, agendas or minutes. Nothing is a
+# built URL.
+#
+# TO ADD A BODY: add an entry here. That is all, unless its page is laid out in a way the general reader cannot read;
+# then add one small reader function to gacrawl/agencies.py, register it in READERS there, name it here (`reader:`),
+# and add a saved piece of the page and a test to tests/test_agencies_sites.py.
+#
+#   id       short id (stays the same: Electo remembers which bodies a reader picked)
+#   kind     board (default) | authority (a state authority) | transit (a regional transit authority created by
+#            Georgia law, governed by its own board; a city's or county's transit DEPARTMENT is not listed: see the end)
+#   name     the body that meets            agency  the department it governs, or what it is (shown beside it)
+#   pages    the body's own pages that list its meetings. An entry is an address, or {u: address, reader: name,
+#            section: pattern, skip_section: pattern, archive: true, once: true}
+#   reader   (optional) the READERS entry that reads these pages; the general reader otherwise
+#   follow   (optional) links on those pages to follow one level, by the words in the link's address or text
+#   event_pages  true: each meeting's own georgia.gov event page (/events/<day>/...) is opened for its place, hour,
+#            agenda and files (once; a past meeting's page is not reopened)
+#   event_links  a part of the address of the site's pages for single sessions (the PSC's calendar)
+#   match    on a site several bodies share: the words (a pattern) an event or file must carry to be this body's
+#   defaults {name, time, where}: what the body's page or every agenda states for all its meetings, used where a
+#            meeting's own entry does not say (the reason is written beside each)
+#   corrections  a page's own mistake put right: [{d, b, set: {...}, drop: [agenda], move: day, why}]
+#   source   archive: the live site refuses automated readers, so the pages are read ONLY from the Internet Archive's
+#            existing copies (newest first; never Save Page Now); the export says so and gives the copy's day
+#   legacy   drop: records stored before the Nov. 2026 readers were wrong for this body (the Nov. 19 audit) and are
+#            not exported; only what the current reader stores is
+#   max_pages  how many pages one run may open for the body (14 unless given)
+#   links    pages the body sends readers to for what it does not post itself (listed with its pages)
 # Not listed: the State Election Board (seb.georgia.gov forbids crawlers in robots.txt).
-#   kind    (optional) "authority" for a state authority (Committee Meetings -> Georgia Authorities); a board otherwise
-# Authorities added Nov. 13, 2026, each page opened that day: GEFA's past events (each meeting's own event page, one
-# level), the ATL board page, the Jekyll Island Authority board page, the Student Finance Commission's board meetings
-# (the same board meets as the Georgia Student Finance Authority and the Georgia Education Savings Authority) and
-# GSFIC's page of Georgia Higher Education Facilities Authority meeting summaries. MARTA's board documents page and the
-# Stone Mountain Memorial Association's minutes page were opened and added the same day. The Georgia Ports Authority and
-# the Georgia World Congress Center Authority post agenda PDFs but no page that lists their meetings, so they are not read.
 agencies:
   - id: regents
     name: Board of Regents
@@ -53,9 +70,14 @@ agencies:
   - id: natural-resources
     name: Board of Natural Resources
     agency: Georgia Department of Natural Resources
+    # the minutes page also holds each committee's minutes (each its own row) and the North Georgia Mountains
+    # Authority's (its own entry, ngma, below)
     pages:
       - http://gadnr.org/board
-      - http://gadnr.org/minutes
+      - {u: "http://gadnr.org/minutes", reader: dated_lines, skip_section: "North Georgia Mountain"}
+    defaults:
+      name: "Board Meeting"
+    legacy: drop
   - id: community-affairs
     name: Board of Community Affairs
     agency: Georgia Department of Community Affairs
@@ -89,54 +111,230 @@ agencies:
       - https://gdc.georgia.gov/organization/about-gdc/board-corrections/board-meeting-minutes
     follow: ["board-meeting-minutes/"]
 
+
+  # ---------------------------------------------------------------------------------------- state authorities
+  # GEFA lists coming meetings on /events and past ones on /past-events (10 pages back to 2017); each meeting's own
+  # event page carries its place, hour, the agenda written out, and the loan list. GEFA posts no minutes.
   - id: gefa
     kind: authority
     name: Georgia Environmental Finance Authority
     agency: Georgia Environmental Finance Authority
     pages:
+      - https://gefa.georgia.gov/events
       - https://gefa.georgia.gov/past-events
-    follow: ["/events/20"]
-  # The ATL and GRTA became the Georgia Transportation Efficiency Authority (HB 297, signed May 12, 2026). The ATL's
-  # board page answered 404 from Nov. 13 (0 meetings on the site); its site says it is no longer updated and points to
-  # gtea.ga.gov, whose board page lists the coming dates and each past meeting's agendas, minutes and presentations
-  # (opened Nov. 18, 2026). The id stays atl-transit: readers who picked this authority keep it picked.
+    follow: ["past-events?page="]
+    event_pages: true
+    max_pages: 70
+    legacy: drop
+  # The ATL and GRTA became the Georgia Transportation Efficiency Authority (HB 297, signed May 12, 2026). Its board
+  # page lists the coming meeting, the year's dates and each past meeting's files by board and committee; its notices
+  # (the site's one category of posts) announce work sessions that are not on the board page. The ATL board's own page
+  # answers 404 since Nov. 13, 2026: its meetings through Feb. 2026 are read once from the Internet Archive's copy.
+  # The id stays atl-transit: readers who picked this authority keep it picked. Every agenda gives the place below
+  # (the page's own "Virtual" is the remote access, not the place).
   - id: atl-transit
     kind: authority
     name: Georgia Transportation Efficiency Authority (GTEA; formerly the ATL and GRTA)
     agency: Georgia Transportation Efficiency Authority
     pages:
-      - https://gtea.ga.gov/board/
+      - {u: "https://gtea.ga.gov/board/", reader: gtea_board}
+      - {u: "https://gtea.ga.gov/category/uncategorized/", reader: notice_posts}
+      - {u: "https://atltransit.ga.gov/the-atl-board/", reader: title_table, archive: true, once: true}
+    defaults:
+      where: "245 Peachtree Center Ave NE, Suite 2300, Atlanta (and Microsoft Teams)"
+    links:
+      - {t: "GRTA board agendas before the merger (State Road and Tollway Authority's site)", u: "https://srta.ga.gov/srta-board-of-directors-and-leadership/"}
+    legacy: drop
   - id: jekyll-island
     kind: authority
     name: Jekyll Island Authority
     agency: Jekyll Island – State Park Authority
+    reader: jekyll_board
     pages:
       - https://www.jekyllisland.com/authority/board-directors/
+    legacy: drop
+  # One board meets as the Student Finance Commission, the Student Finance Authority and the Education Savings
+  # Authority, on one day: committees first, then each board. The main page holds the coming year; each year's page
+  # (/2026-board-meetings ... /2014-board-meetings) holds that year's agenda, Brief/Actions and minutes. The page says
+  # "All meetings start at 9:00 AM and run consecutively".
   - id: student-finance
     kind: authority
     name: Georgia Student Finance Authority
     agency: Georgia Student Finance Commission (the same board also meets as the Georgia Education Savings Authority)
     pages:
       - https://gsfc.georgia.gov/node/1006
+    follow: ["-board-meetings"]
+    max_pages: 16
+    defaults:
+      name: "Board meetings (committees, then the GSFC, GSFA and GESA boards)"
+      time: "09:00"
+    corrections:
+      - {d: "2025-02-12", drop: [agenda], set: {name: "Georgia Education Savings Authority special called meeting"},
+         why: "only the Education Savings Authority met; the page's agenda link opens the Feb. 2, 2024 agenda"}
+      - {d: "2025-03-13", set: {name: "Special called meeting of the three boards", time: "09:45"}, why: "the page says 9:45 AM"}
+    legacy: drop
+  # GHEFA is staffed by GSFIC and posts on GSFIC's site: its meeting summaries on one page, and each meeting as an
+  # event (with its notice) among GSFIC's own events, so only events that name GHEFA are taken.
   - id: ghefa
     kind: authority
     name: Georgia Higher Education Facilities Authority
     agency: Georgia State Financing and Investment Commission
     pages:
-      - https://gsfic.georgia.gov/agendas
-
-  - id: marta
-    kind: authority
-    name: Metropolitan Atlanta Rapid Transit Authority (MARTA)
-    agency: Metropolitan Atlanta Rapid Transit Authority
-    pages:
-      - https://www.itsmarta.com/board-documents.aspx
+      - https://gsfic.georgia.gov/board-meeting-minutes-0
+      - https://gsfic.georgia.gov/events
+      - https://gsfic.georgia.gov/past-events
+    match: "ghefa|higher[- ]education[- ]facilities"
+    event_pages: true
+    defaults:
+      name: "GHEFA Board Meeting"
+    links:
+      - {t: "Upcoming board meeting agenda (GHEFA's meeting system)", u: "https://simbli.eboardsolutions.com/SB_Meetings/SB_MeetingListing.aspx?S=1001"}
+    legacy: drop
+  # The minutes page lists board and committee minutes by year; the authority's notices (its Public Notices page and
+  # its feed, which also carries special called meetings) give each coming meeting's agenda, place and hour.
   - id: stone-mountain
     kind: authority
     name: Stone Mountain Memorial Association
     agency: Stone Mountain Memorial Association (state authority over Stone Mountain Park)
     pages:
-      - https://stonemountainpark.org/about-us/board-of-directors/meeting-minutes/
+      - {u: "https://stonemountainpark.org/about-us/board-of-directors/meeting-minutes/", reader: smma_minutes}
+      - {u: "https://stonemountainpark.org/feed/", reader: notice_posts}
+      - {u: "https://stonemountainpark.org/public-notices/", reader: notice_posts}
+    legacy: drop
+  # Added Nov. 20, 2026 (each page opened Nov. 19-20; robots.txt allows each; gaports.com and srta.ga.gov ask for 10
+  # seconds between requests, which the fetcher keeps).
+  - id: ports
+    kind: authority
+    name: Georgia Ports Authority
+    agency: Georgia Ports Authority
+    pages:
+      - https://gaports.com/organization/meeting-notice-agenda/
+  - id: lottery
+    kind: authority
+    name: Georgia Lottery Corporation
+    agency: Georgia Lottery Corporation
+    pages:
+      - https://www.galottery.com/en-us/about-us.html
+    defaults:
+      name: "Board Meeting"
+  - id: srta
+    kind: authority
+    name: State Road and Tollway Authority
+    agency: State Road and Tollway Authority
+    pages:
+      - https://srta.ga.gov/srta-board-of-directors-and-leadership/
+    defaults:
+      name: "Board Meeting"
+  # the board "will hold its regular quarterly meetings at 10 a.m. in the sixth-floor boardroom" (the page's words)
+  - id: gta
+    kind: authority
+    name: Georgia Technology Authority
+    agency: Georgia Technology Authority
+    pages:
+      - https://gta.georgia.gov/about-us/who-we-are/board-directors
+      - https://gta.georgia.gov/about-us/who-we-are/board-directors/board-meeting-presentations
+    event_pages: true
+    defaults:
+      name: "Board Meeting"
+      time: "10:00"
+      where: "47 Trinity Avenue SW, sixth-floor boardroom, Atlanta"
+  - id: savannah-convention
+    kind: authority
+    name: Savannah-Georgia Convention Center Authority
+    agency: Savannah Convention Center (state authority; formerly the Georgia International and Maritime Trade Center Authority)
+    reader: month_named
+    pages:
+      - https://www.savconventioncenter.com/venue-info/governance/
+  - id: llida
+    kind: authority
+    name: Lake Lanier Islands Development Authority
+    agency: Lake Lanier Islands Development Authority
+    pages:
+      - https://llida.georgia.gov/news-and-notices
+      - https://llida.georgia.gov/board-directors/meeting-minutes
+    event_pages: true
+    defaults:
+      name: "Board Meeting"
+  - id: gba
+    kind: authority
+    name: Georgia Building Authority
+    agency: Georgia Building Authority
+    pages:
+      - https://gba.georgia.gov/about-us/governing-board/meeting-minutes
+    defaults:
+      name: "Board Meeting"
+  # the page lists the Commission's dates and, beside them, its Foundation's (a private nonprofit): only the Commission's
+  - id: gpb
+    kind: authority
+    name: Georgia Public Telecommunications Commission
+    agency: Georgia Public Broadcasting
+    reader: dated_lines
+    pages:
+      - {u: "https://www.gpb.org/about/board", section: "Telecommunications Commission"}
+    defaults:
+      name: "Commission Meeting"
+  # the DNR's minutes page has a section for this authority (Unicoi, Amicalola and Brasstown lodges); its minutes were
+  # filed under the Board of Natural Resources until Nov. 2026
+  - id: ngma
+    kind: authority
+    name: North Georgia Mountains Authority
+    agency: Georgia Department of Natural Resources (state authority over the North Georgia mountain lodges)
+    reader: dated_lines
+    pages:
+      - {u: "http://gadnr.org/minutes", section: "North Georgia Mountain"}
+    defaults:
+      name: "Board Meeting"
+  # www.gwcca.org answers 403 to automated readers (a browser check). By the owner's rule of Nov. 19, 2026 its About
+  # page (the year's meeting schedule; minutes and materials by date) is read from the Internet Archive's existing
+  # copies only, the newest first, looked for again every 7 days.
+  - id: gwcca
+    kind: authority
+    name: Georgia World Congress Center Authority
+    agency: Georgia World Congress Center Authority
+    source: archive
+    reader: gwcca_about
+    recheck_days: 7
+    pages:
+      - https://www.gwcca.org/about
+
+  # ---------------------------------------------------------------------------------------- regional transit
+  # Authorities created by Georgia law with their own boards, whose sites allow reading (robots.txt checked Nov. 19-20,
+  # 2026). MARTA: the MARTA Act of 1965 (Ga. L. 1965, p. 2243); owned by Atlanta and Fulton, DeKalb and Clayton
+  # counties, not a state authority. Its schedule page is read first (dates and hours for the board, the work sessions
+  # and each committee), then this year's and last year's documents; each committee is a body of its own.
+  - id: marta
+    kind: transit
+    name: Metropolitan Atlanta Rapid Transit Authority (MARTA)
+    agency: Regional transit authority (Atlanta; Fulton, DeKalb and Clayton counties)
+    pages:
+      - {u: "https://www.itsmarta.com/meeting-schedule.aspx", reader: marta_schedule}
+      - {u: "https://www.itsmarta.com/board-documents.aspx", reader: marta_documents}
+      - {u: "https://www.itsmarta.com/board-documents-2025.aspx", reader: marta_documents}
+    legacy: drop
+  # Chatham Area Transit Authority: the act approved March 28, 1986 (Ga. L. 1986, p. 5082). It announces each board meeting in a news post (day, hour,
+  # place); it posts no page of agendas or minutes.
+  - id: chatham-transit
+    kind: transit
+    name: Chatham Area Transit Authority (CAT)
+    agency: Regional transit authority (Savannah and Chatham County)
+    reader: notice_posts
+    pages:
+      - https://catchacat.org/category/news/
+  # Macon-Bibb County Transit Authority: the Macon-Bibb County Transit Authority Act of 1980 (approved March 26, 1980). Each board meeting is a post (day, hour, place, the
+  # agenda written out); its minutes page names minutes by month, filed with that month's meeting where it is known.
+  - id: macon-transit
+    kind: transit
+    name: Macon-Bibb County Transit Authority
+    agency: Regional transit authority (Macon-Bibb County)
+    pages:
+      - {u: "https://mbcta.net/category/board-meetings/", reader: notice_posts}
+      - {u: "https://mbcta.net/board-meeting-minutes/", reader: month_named}
+
+# Transit systems NOT listed, because a city or county department runs them (no board of their own that meets): Augusta
+# Transit (Augusta-Richmond County), METRA (Columbus Consolidated Government), Athens-Clarke County Transit, CobbLinc
+# (Cobb County DOT), Ride Gwinnett (Gwinnett County DOT), Albany Transit System, Rome Transit Department, Hall Area
+# Transit / WeGo (Hall County), Henry County Transit, Connect Douglas, Cherokee Area Transportation System, Liberty
+# Transit. Xpress commuter buses are the GTEA's (above).
 
 # Bodies whose meetings are not read, and why (shown on the site beside the list of boards)
 not_read:

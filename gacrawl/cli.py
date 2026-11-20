@@ -581,7 +581,8 @@ def cmd_rumor(cfg, args):
 
 
 def cmd_agencies(cfg, args):
-    """State boards' and commissions' meetings (config/agencies.yaml -> meeting records; gacrawl/agencies.py)."""
+    """State boards', state authorities' and regional transit authorities' meetings (config/agencies.yaml -> meeting
+    records; gacrawl/agencies.py). --file writes state_meetings.json alone, in the strict format, validated."""
     import sys
 
     from .agencies import run
@@ -593,7 +594,7 @@ def cmd_agencies(cfg, args):
             # the bundle's state_meetings.json alone, from what is stored (no requests)
             from .agencies import export_state_meetings
 
-            print(json.dumps(export_state_meetings(store, config.ROOT, Path(args.file))))
+            print(json.dumps(export_state_meetings(store, config.ROOT, Path(args.file), log=lambda *a: print(*a, file=sys.stderr))))
             return
         out = run(_fetcher(cfg, deadline), store, config.ROOT, deadline, only=[x for x in (args.only or "").split(",") if x] or None,
                   dry_run=args.dry_run, log=lambda *a: print(*a, file=sys.stderr, flush=True))

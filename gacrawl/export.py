@@ -32,8 +32,8 @@ dist/electo/
   federal_bills/                U.S. House and Senate bills since 2015 by Congress (gacrawl/federal_bills.py), with outlooks
   rumor_mill.json               unverified items, kept apart, each with status + corroboration trail
   rumor_mill_video.json         Rumor Mill - Video: meeting videos from channels not confirmed as official accounts
-  state_meetings.json           state boards' and commissions' meetings (their own pages) and the General
-                                Assembly's committee meetings (the legislature's schedule)
+  state_meetings.json           state boards', state authorities' and regional transit authorities' meetings (their
+                                own pages; one strict format, schema.md) and the General Assembly's committee meetings
   meeting_summaries.json        what each meeting took up and decided: the open model's checked reading of its
                                 minutes or its recording's captions
   blocked.json                  hosts that refused the crawler and the suggested manual route
@@ -59,8 +59,10 @@ from .scheduler import Progress
 from .store import Store
 from .verified_posts import Registry
 
-SCHEMA_VERSION = "2.2"   # 2.2 (Nov 14, 2026): published is always ISO 8601; text has HTML entities decoded
-SLIM = {"rid", "key", "first_seen", "thash"}
+SCHEMA_VERSION = "2.3"   # 2.2 (Nov 14, 2026): published is always ISO 8601; text has HTML entities decoded
+                         # 2.3 (Nov 20, 2026): every record carries first_seen and updated; modified where the source
+                         # states one (a file's HTTP Last-Modified, a post's own modified time)
+SLIM = {"rid", "key", "thash"}
 
 # Kinds one candidate can hold a million lines of: read from the database in pages each time they are used, never held
 # whole. Nov 13, 2026: the FEC re-read brought Jon Ossoff's campaign to 1.19 million lines; read into a list the way
@@ -128,14 +130,18 @@ SCHEMA_MD = """# Electo import bundle — field reference (schema {version})
 | kind | ordinance, matter, meeting, agenda_item, vote, official, page, document, feed_item, ocr, statement, article, mention, social_mention, post, connection, lead |
 | url | the page or API resource that was opened (or a link that resource itself gave); never built from a pattern |
 | title, text, markdown | content (`markdown` only when it differs from `text`); articles keep excerpts only. Plain text: HTML entities decoded and text mis-decoded as Windows-1252 repaired (gacrawl/textfix.py); `&lt;` and `&gt;` are left as written |
-| published | date from the source when it gave one, always ISO 8601: `YYYY-MM-DD`, or the date and time with the source's offset (`2026-10-27T15:05:21-05:00`); a feed's e-mail-header form is converted (since schema 2.2) |
+| published | date from the source when it gave one, always ISO 8601: `YYYY-MM-DD`, or the date and time with the source's offset (`2026-10-27T15:05:21-05:00`); a feed's e-mail-header form is converted (since schema 2.2). It is what the source states (a date in the page's markup, a feed's or API's own date field, a meeting's or filing's date), never worked out by the crawler, and null when the source states none. `meta.date_from` says where a web page's date was read (`meta`, `time`, `jsonld`, `feed`, `listing`, or `text` = the first date among its opening words); `meta.date_set_aside` holds a date of the page's words that was not believed |
 | channel | how it was fetched: api, wp_json, feed, sitemap, html, browser, pdf, ocr, import, store |
 | evidence | primary (official record / candidate's own channel), reported (listed news outlet), lead (not opened; never cite). Unverified items are only in rumor_mill.json |
-| fetched_at, changed_at | when this content was fetched / last changed |
+| modified | when the source says it last changed the file or post, ISO 8601 UTC: a file's HTTP `Last-Modified` (`meta.http_last_modified`) or a WordPress post's `modified_gmt` (`meta.modified`). Only present when stated. For a document with no `published` this is the nearest thing to a date the source gives; it is the upload time, not the date of the meeting the document records |
+| first_seen | when the crawler first stored this record, ISO 8601 UTC (`2026-11-06T03:00:20+00:00`). Never rewritten: it survives every later change and every merge (the earliest wins) |
+| updated | when the stored record last changed, ISO 8601 UTC: new content, or something new known about it (a date, a place, a field added by a newer reader). Equal to `first_seen` for a record that has not changed |
+| fetched_at | when the content now stored was fetched, ISO 8601 UTC |
+| changed_at | the same value as `updated` under its old name; kept for readers of schema 2.2, to be dropped |
 | meta | kind-specific: Legistar ids, vote lists, topics, OCR confidence, outlet, contribution details, opened_url |
 
 ## Research packet (packets/<key>.json)
-key (Electo person key), name, jurisdictions, note, counts, sources[{{t,u,d,kind,evidence,opened_at,excerpt,in_profile}}],
+key (Electo person key), name, jurisdictions, note, counts, sources[{{t,u,d (published, YYYY-MM-DD),kind,evidence,opened_at,excerpt,in_profile,first_seen,updated}}],
 votes[{{d,item,vote,result,matter,topics,src}}], vote_topics{{topic:{{yes,no,other,examples}}}}, mentions, articles,
 statements, endorsements, finance, posts, social_mentions, leads (not opened), rumors (unverified; kept apart).
 `src` lists are 0-based indexes into `sources`, the same convention as Electo profiles.
@@ -225,14 +231,30 @@ def _memory() -> str:
 
 
 _HEAD = ("id", "hash", "source_id", "jurisdiction", "kind", "url", "title", "text", "markdown", "published", "channel", "evidence")
-_TAIL = ("fetched_at", "changed_at", "version")
+_TAIL = ("fetched_at", "first_seen", "changed_at", "version")
+# the source's own "last changed" stamp, where a reader kept one (channels.http_modified, the posts API's modified_gmt)
+_MODIFIED_SQL = "coalesce(json_extract(meta, '$.http_last_modified'), json_extract(meta, '$.modified')) AS modified"
+
+
+def stamps(row) -> dict:
+    """A record's system stamps for the bundle, under the names the schema documents: first_seen, updated (and
+    changed_at, its old name), fetched_at, version; modified when the source states one."""
+    get = (lambda k: row[k] if k in row.keys() else None) if not isinstance(row, dict) else row.get
+    out = {"fetched_at": get("fetched_at"), "first_seen": get("first_seen"), "updated": get("changed_at"),
+           "changed_at": get("changed_at"), "version": get("version")}
+    mod = get("modified")
+    if mod is None and isinstance(row, dict):
+        mod = (row.get("meta") or {}).get("http_last_modified") or (row.get("meta") or {}).get("modified")
+    if mod:
+        out["modified"] = mod
+    return out
 
 
 def _write_jurisdiction(path: Path, j: dict, store: Store, counts: dict) -> list[dict]:
     """Stream a jurisdiction's records to its file kind by kind, copying each record's stored meta JSON through as
     is (no decode and re-encode); returns the vote records' vote lists for the council alignment table."""
     votes: list[dict] = []
-    cols = ",".join(_HEAD + ("meta",) + _TAIL)
+    cols = ",".join(_HEAD + ("meta",) + _TAIL) + ", " + _MODIFIED_SQL
     with open(path, "w", encoding="utf-8") as fh:
         fh.write('{"jurisdiction": %s, "name": %s, "exported_at": %s, "records": {' %
                  (json.dumps(j["id"]), json.dumps(j["name"], ensure_ascii=False), json.dumps(_now())))
@@ -252,7 +274,7 @@ def _write_jurisdiction(path: Path, j: dict, store: Store, counts: dict) -> list
                 if head["markdown"] == head["text"]:
                     head.pop("markdown")
                 fh.write(json.dumps(head, ensure_ascii=False)[:-1] + ', "meta": ' + (r["meta"] or "{}") + ", " +
-                         json.dumps({k: r[k] for k in _TAIL})[1:])
+                         json.dumps(stamps(r))[1:])
                 if kind == "vote":
                     votes.append({"meta": {"votes": json.loads(r["meta"] or "{}").get("votes", [])}})
             if not first:
@@ -263,6 +285,8 @@ def _write_jurisdiction(path: Path, j: dict, store: Store, counts: dict) -> list
 
 def _slim(r: dict) -> dict:
     out = {k: v for k, v in r.items() if k not in SLIM}
+    if "changed_at" in out or "first_seen" in out:
+        out.update({k: v for k, v in stamps(r).items() if k in ("updated", "modified")})
     if out.get("markdown") == out.get("text"):
         out.pop("markdown", None)
     out.pop("snippet", None)
@@ -488,13 +512,15 @@ def export(root: Path, out: Path, log=print, store: Store | None = None, cfg: di
     n_orr = export_open_records(root, out / "open_records.json")
     from .agencies import export_state_meetings
 
-    state_meetings_counts = export_state_meetings(store, root, out / "state_meetings.json")
+    state_meetings_counts = export_state_meetings(store, root, out / "state_meetings.json", log=log)   # validated: see schema.md
     log(f"state meetings: {state_meetings_counts}")
     from .meeting_summaries import export_summaries
 
     summaries_counts = export_summaries(store, out / "meeting_summaries.json")
     log(f"meeting summaries: {summaries_counts}")
-    (out / "schema.md").write_text(SCHEMA_MD.format(version=SCHEMA_VERSION), encoding="utf-8")
+    from .agencies import STATE_MEETINGS_SCHEMA
+
+    (out / "schema.md").write_text(SCHEMA_MD.format(version=SCHEMA_VERSION) + STATE_MEETINGS_SCHEMA, encoding="utf-8")
 
     manifest = {
         "schema_version": SCHEMA_VERSION, "gacrawl_version": __version__, "generated_at": _now(),

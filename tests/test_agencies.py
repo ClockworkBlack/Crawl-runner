@@ -38,7 +38,7 @@ def test_layouts():
 
 
 def test_run_stores_one_meeting_a_day_across_pages(tmp_path, monkeypatch):
-    pages = {"https://www.usg.edu/regents/meetings/": '<a href="/regents/meetings/date/2026/">2026</a>' + REGENTS.replace("m916.pdf", "none.txt"),
+    pages = {"https://www.usg.edu/regents/meetings/": '<a href="/regents/meetings/date/2026/">2026</a>' + REGENTS.replace('<a href="/media/m916.pdf">minutes</a>', ""),
              "https://www.usg.edu/regents/meetings/date/2026/": REGENTS}
 
     class F:
@@ -62,15 +62,15 @@ def test_a_schedule_written_as_lines_takes_its_year_from_the_heading():
             '<h3>January</h3><p>Tuesday, January 14: Committee Meetings</p><h3>May</h3><p>No Meeting</p>'
             '<p>The board meets at 2070 Twin Towers East.</p></body></html>')
     ms = agencies.meetings_on(html, "https://gadoe.org/state-board/board-schedule/")
-    assert [(m["date"], m["what"]) for m in ms] == [("2026-01-14", "Committee Meetings")]
+    assert [(m["date"], m["name"]) for m in ms] == [("2026-01-14", "Committee Meetings")]
 
 
 def test_a_calendar_that_names_each_session_in_a_link():
     html = ('<table><tr><td>3 <a href="/agendas-calendars/commission-calendar/administrative-session-11-3-2026/">'
             'Administrative Session 11-3-2026</a></td><td><a href="/about/">About 1-2-2026</a></td></tr></table>')
     ms = agencies.meetings_on(html, "https://psc.ga.gov/agendas-calendars/commission-calendar/", "/agendas-calendars/commission-calendar/")
-    assert len(ms) == 1 and ms[0]["date"] == "2026-11-03" and ms[0]["what"] == "Administrative Session"
-    assert ms[0]["docs"][0]["u"].endswith("/administrative-session-11-3-2026/")
+    assert len(ms) == 1 and ms[0]["date"] == "2026-11-03" and ms[0]["name"] == "Administrative Session"
+    assert ms[0]["page"].endswith("/administrative-session-11-3-2026/")
 
 
 def test_a_years_meeting_dates_file_is_found_and_a_second_date_is_not_a_place():
@@ -79,7 +79,7 @@ def test_a_years_meeting_dates_file_is_found_and_a_second_date_is_not_a_place():
     assert [(f["year"], f["u"]) for f in files] == [(2026, "https://dps.georgia.gov/document/document/2026-bps-meeting-dates/download")]
     ms = agencies.meetings_on("<table><tr><td>December 9, 2026</td><td>12/10/2026</td></tr><tr><td>November 18, 2026</td>"
                               "<td>Committee Meeting</td></tr></table>", "https://www.dot.ga.gov/GDOT/Pages/BoardMeetings.aspx")
-    assert {m["date"]: (m["what"], m["where"]) for m in ms} == {"2026-12-09": ("", ""), "2026-11-18": ("Committee Meeting", "")}
+    assert {m["date"]: (m["name"], m["where"]) for m in ms} == {"2026-12-09": ("", ""), "2026-11-18": ("Committee Meeting", "")}
 
 
 def test_a_page_drawn_in_the_browser_is_read_from_its_data_script():
@@ -91,7 +91,7 @@ def test_a_page_drawn_in_the_browser_is_read_from_its_data_script():
             '<script id="__NEXT_DATA__" type="application/json">' + json.dumps({"props": {"pageProps": {"page": {"content": body}}}}) +
             '</script></body></html>')
     ms = agencies.meetings_on(html, "https://gadoe.org/state-board/board-schedule/")
-    assert [(m["date"], m["what"]) for m in ms] == [("2026-01-15", "Committee of the Whole and Regular Meeting"), ("2026-01-14", "Committee Meetings")]
+    assert [(m["date"], m["name"]) for m in ms] == [("2026-01-15", "Committee of the Whole and Regular Meeting"), ("2026-01-14", "Committee Meetings")]
 
 
 def test_a_boards_minutes_files_are_opened_once_newest_first(tmp_path, monkeypatch):
@@ -130,11 +130,14 @@ def test_every_listed_body_exports_its_kind(tmp_path):
     root = Path(__file__).resolve().parents[1]
     listed = agencies.load(root)
     assert any(a.get("kind") == "authority" for a in listed)
-    assert all((a.get("kind") or "board") in ("board", "authority") for a in listed)
+    assert all((a.get("kind") or "board") in agencies.KINDS for a in listed)
     out = tmp_path / "state_meetings.json"
     agencies.export_state_meetings(Store(tmp_path / "data"), root, out, today="2026-11-13")
-    kinds = {a["id"]: a["kind"] for a in json.loads(out.read_text())["agencies"]}
-    assert kinds["regents"] == "board" and kinds["gefa"] == "authority"
+    bodies = json.loads(out.read_text())["bodies"]
+    kinds = {a["id"]: a["kind"] for a in bodies}
+    assert kinds["regents"] == "board" and kinds["gefa"] == "authority" and kinds["marta"] == "transit" and kinds["atl-transit"] == "authority"
+    assert {a["id"] for a in bodies} == {a["id"] for a in listed}             # every listed body is written, read or not
+    assert all(a["source"] in ("live", "archive") for a in bodies) and next(a for a in bodies if a["id"] == "gwcca")["source"] == "archive"
 
 
 GTEA = """<html><head><title>Board – Georgia Transportation Efficiency Authority</title></head><body>
@@ -180,6 +183,7 @@ def test_a_page_built_with_dates_as_plain_lines_and_a_schedule_of_dates_alone():
     assert ms["2026-08-19"]["agenda"].endswith("2026/08/GTEA-Board-of-Directors-Meeting-Draft-Agenda.pdf")
     assert ms["2026-11-18"]["agenda"].endswith("Administration-Committee-Meeting-Draft-Agenda.pdf")     # dated by the line after
     assert not ms["2027-02-16"]["agenda"] and not ms["2027-02-16"]["docs"]                             # a date on the schedule
+    assert ms["2027-02-16"]["status"] == "tentative" and ms["2026-11-18"]["status"] == ""             # the page's asterisk: may change
 
 
 def test_a_date_standing_alone_away_from_any_schedule_is_not_a_meeting():
