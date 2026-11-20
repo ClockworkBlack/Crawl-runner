@@ -1,0 +1,118 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/topics.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "topics, stances",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/topics.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "topics": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "Alcohol": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Animals": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Budget and taxes": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Business licensing": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Cannabis and hemp": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Development and incentives": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Elections and ethics": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Environment": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Government operations": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Health and social services": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Housing": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Noise and nuisance": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Parks and recreation": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Public safety": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Roads and transportation": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Schools and youth": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Water and utilities": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "Zoning and land use": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "Alcohol",
+    "Animals",
+    "Budget and taxes",
+    "Business licensing",
+    "Cannabis and hemp",
+    "Development and incentives",
+    "Elections and ethics",
+    "Environment",
+    "Government operations",
+    "Health and social services",
+    "Housing",
+    "Noise and nuisance",
+    "Parks and recreation",
+    "Public safety",
+    "Roads and transportation",
+    "Schools and youth",
+    "Water and utilities",
+    "Zoning and land use"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "topics"
+ ],
+ "additionalProperties": false
+}

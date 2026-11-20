@@ -1,0 +1,23 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "guide",
+ "description": "records row; meta from channels.py page/document readers (opened, date_from, doc_type, modified, http_last_modified)",
+ "x-area": "db_record_kind",
+ "x-writer": "channels.py for config/guides.yaml sources",
+ "x-readers": "export",
+ "x-version": "",
+ "x-documented-in": "NOT in the documented kind list",
+ "x-observed": "",
+ "x-issues": [
+  "I01 (undocumented): Record kinds: store.Record's comment and schema.md list 17 kinds; the code writes 29 more by name (appointment, ballot_question, bill, bill_reason, bill_video, budget_doc, code_act, contribution, election, election_result, endorsement, federal_bill, guide, guide_answer, legislator, meeting_summary, news_item, organization, police_incident, policy, press_release, qualifying, rating, school, school_stat, screenshot, sponsorship, transcript, video); 13 of them are in the Nov 20 bundle's records_by_kind"
+ ],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "source_id"
+ ]
+}

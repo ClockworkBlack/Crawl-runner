@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "ga_money_applied",
+ "description": "ISO datetime",
+ "x-area": "kv",
+ "x-writer": "ethics",
+ "x-readers": "ethics, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

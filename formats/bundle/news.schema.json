@@ -1,0 +1,121 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/news.json",
+ "description": "{updated, window, note, read?, items[]}",
+ "x-area": "export_bundle",
+ "x-writer": "newsdigest.export_news",
+ "x-readers": "Electo news import (Electo ga/news.json is its merged copy)",
+ "x-version": "",
+ "x-documented-in": "export_news docstring only; not in export.py docstring list nor schema.md",
+ "x-observed": "not observed from Crawl; Electo's ga/news.json adds ai, ex, also[].auto",
+ "x-issues": [
+  "I19 (undocumented): 8 bundle files the export writes are missing from export.py's bundle docstring: bill_reasons, media, news, open_records, police, police_incidents, records_contacts, vote_model (5 of them have schema.md sections; news, police_incidents and open_records' updated_at do not)"
+ ],
+ "type": "object",
+ "properties": {
+  "updated": {
+   "type": "string"
+  },
+  "window": {
+   "type": "string",
+   "description": "'<oldest> to <newest>'"
+  },
+  "note": {
+   "type": "string"
+  },
+  "read": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "outlets that answered"
+  },
+  "items": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "t": {
+      "type": "string",
+      "description": "headline"
+     },
+     "u": {
+      "type": "string"
+     },
+     "s": {
+      "type": "string",
+      "description": "outlet name"
+     },
+     "d": {
+      "type": "string",
+      "format": "date",
+      "description": "never more than a day past first_seen"
+     },
+     "sum": {
+      "type": "string",
+      "description": "excerpt"
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "also": {
+      "type": "array",
+      "description": "always [] from Crawl; filled by Electo"
+     },
+     "auto": {
+      "type": "integer",
+      "x-values": [
+       1
+      ]
+     },
+     "co": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "counties; [] for federal"
+     },
+     "lv": {
+      "type": "string",
+      "description": "only for federal stories",
+      "x-values": [
+       "federal"
+      ]
+     },
+     "fed": {
+      "type": "integer",
+      "x-values": [
+       1
+      ]
+     },
+     "sw": {
+      "type": "integer",
+      "description": "statewide",
+      "x-values": [
+       1
+      ]
+     }
+    },
+    "required": [
+     "t",
+     "u",
+     "s",
+     "d",
+     "sum",
+     "tags",
+     "also",
+     "auto",
+     "co"
+    ]
+   }
+  }
+ },
+ "required": [
+  "updated",
+  "window",
+  "note"
+ ]
+}

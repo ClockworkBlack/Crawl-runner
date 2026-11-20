@@ -1,0 +1,86 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/school_districts.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "generated (scripts/build_school_districts.py)",
+ "x-readers": "schools, registry",
+ "x-version": "",
+ "x-documented-in": "_about key",
+ "x-observed": "config/school_districts.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_about": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "districts": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 180 of 1",
+    "properties": {
+     "aliases": {
+      "type": "array",
+      "description": "seen 180 of 180",
+      "items": {
+       "type": "string",
+       "description": "seen 720 of 180"
+      }
+     },
+     "city": {
+      "type": "string",
+      "description": "seen 21 of 180"
+     },
+     "city_id": {
+      "type": "string",
+      "description": "seen 21 of 180"
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 180 of 180"
+     },
+     "county_id": {
+      "type": "string",
+      "description": "seen 159 of 180"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 180 of 180"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 180 of 180",
+      "x-values": [
+       "school_district"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 180 of 180"
+     },
+     "population": {
+      "type": "integer",
+      "description": "seen 180 of 180"
+     }
+    },
+    "required": [
+     "aliases",
+     "county",
+     "id",
+     "kind",
+     "name",
+     "population"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "_about",
+  "districts"
+ ],
+ "additionalProperties": false
+}

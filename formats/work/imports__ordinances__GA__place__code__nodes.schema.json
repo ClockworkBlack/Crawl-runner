@@ -1,0 +1,413 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "imports/ordinances/GA/*/*/nodes/*.json",
+ "description": "11867 files: a place's code of ordinances as the import keeps it (one folder per place and code)",
+ "x-area": "work",
+ "x-writer": "the ordinance import (Ordinance Drop; tools beside imports/ordinances)",
+ "x-readers": "",
+ "x-observed": "inferred from 154 of 11867 files",
+ "type": "object",
+ "properties": {
+  "Docs": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "DocType": {
+      "type": "integer"
+     },
+     "IsAmended": {
+      "type": "boolean"
+     },
+     "IsUpdated": {
+      "type": "boolean"
+     },
+     "CompareStatus": {
+      "type": "integer"
+     },
+     "DocOrderId": {
+      "type": "integer"
+     },
+     "AmendedBy": {
+      "type": "array"
+     },
+     "Notes": {
+      "type": "array"
+     },
+     "Drafts": {
+      "type": "array"
+     },
+     "ChunkGroupStartingNodeId": {
+      "type": [
+       "null",
+       "string"
+      ]
+     },
+     "NodeDepth": {
+      "type": "integer"
+     },
+     "TitleHtml": {
+      "type": [
+       "null",
+       "string"
+      ]
+     },
+     "ShouldShowMiniToc": {
+      "type": "boolean"
+     },
+     "Id": {
+      "type": "string"
+     },
+     "Title": {
+      "type": "string"
+     },
+     "Content": {
+      "type": [
+       "null",
+       "string"
+      ]
+     },
+     "SortDate": {
+      "type": "null"
+     },
+     "Footnotes": {
+      "type": [
+       "null",
+       "string"
+      ]
+     }
+    }
+   }
+  },
+  "NewOrds": {
+   "type": "array"
+  },
+  "PdfUrl": {
+   "type": "null"
+  },
+  "LastOrd": {
+   "type": "null"
+  },
+  "PrevNode": {
+   "type": [
+    "null",
+    "object"
+   ],
+   "properties": {
+    "Id": {
+     "type": "string"
+    },
+    "Heading": {
+     "type": "string"
+    },
+    "NodeDepth": {
+     "type": "integer"
+    },
+    "HasChildren": {
+     "type": "boolean"
+    },
+    "ParentId": {
+     "type": "string"
+    },
+    "DocOrderId": {
+     "type": "integer"
+    },
+    "Children": {
+     "type": "array"
+    },
+    "Data": {
+     "type": "object",
+     "properties": {
+      "NodeKey": {
+       "type": "null"
+      },
+      "IsUpdated": {
+       "type": "boolean"
+      },
+      "IsAmended": {
+       "type": "boolean"
+      },
+      "HasAmendedDescendant": {
+       "type": "boolean"
+      },
+      "CompareStatus": {
+       "type": "integer"
+      },
+      "DocType": {
+       "type": "integer"
+      },
+      "DepthOverride": {
+       "type": "null"
+      },
+      "ChunkGroupStartingId": {
+       "type": "null"
+      }
+     }
+    }
+   }
+  },
+  "NextNode": {
+   "type": [
+    "null",
+    "object"
+   ],
+   "properties": {
+    "Id": {
+     "type": "string"
+    },
+    "Heading": {
+     "type": "string"
+    },
+    "NodeDepth": {
+     "type": "integer"
+    },
+    "HasChildren": {
+     "type": "boolean"
+    },
+    "ParentId": {
+     "type": "string"
+    },
+    "DocOrderId": {
+     "type": "integer"
+    },
+    "Children": {
+     "type": "array"
+    },
+    "Data": {
+     "type": "object",
+     "properties": {
+      "NodeKey": {
+       "type": "null"
+      },
+      "IsUpdated": {
+       "type": "boolean"
+      },
+      "IsAmended": {
+       "type": "boolean"
+      },
+      "HasAmendedDescendant": {
+       "type": "boolean"
+      },
+      "CompareStatus": {
+       "type": "integer"
+      },
+      "DocType": {
+       "type": "integer"
+      },
+      "DepthOverride": {
+       "type": "null"
+      },
+      "ChunkGroupStartingId": {
+       "type": "null"
+      }
+     }
+    }
+   }
+  },
+  "ShowToc": {
+   "type": "boolean"
+  }
+ },
+ "x-widened": [
+  "$.Docs[0].Footnotes: string seen beside null (coor_apxazo.json)",
+  "$.Docs[100].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[100].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[100].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[101].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[101].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[101].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[102].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[102].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[102].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[103].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[103].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[103].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[104].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[104].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[104].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[105].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[105].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[105].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[106].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[106].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[106].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[107].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[107].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[107].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[108].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[108].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[108].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[109].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[109].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[109].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[10].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[10].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[10].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[110].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[110].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[110].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[111].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[111].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[111].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[112].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[112].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[112].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[113].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[113].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[113].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[114].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[114].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[114].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[115].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[115].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[115].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[116].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[116].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[116].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[117].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[117].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[117].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[118].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[118].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[118].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[119].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[119].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[119].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[11].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[11].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[11].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[120].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[120].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[120].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[12].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[12].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[12].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[13].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[13].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[13].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[14].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[14].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[14].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[15].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[15].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[15].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[16].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[16].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[16].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[17].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[17].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[17].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[18].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[18].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[18].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[19].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[19].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[19].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[1].ChunkGroupStartingNodeId: null seen beside string (ptichrela.json)",
+  "$.Docs[1].Content: null seen beside string (ptichrela.json)",
+  "$.Docs[1].TitleHtml: null seen beside string (ptichrela.json)",
+  "$.Docs[20].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[20].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[20].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[21].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[21].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[21].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[22].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[22].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[22].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[23].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[23].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[23].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[24].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[24].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[24].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[25].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[25].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[25].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[26].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[26].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[26].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[27].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[27].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[27].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[28].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[28].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[28].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[29].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[29].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[29].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[2].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[2].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[2].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[30].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[30].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[30].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[31].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[31].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[31].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[32].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[32].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[32].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[33].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[33].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[33].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[34].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[34].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[34].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[35].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[35].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[35].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[36].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[36].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[36].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[37].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[37].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[37].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[38].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[38].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[38].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[39].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[39].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[39].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[3].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[3].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[3].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[40].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[40].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[40].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[41].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[41].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[41].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[42].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[42].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[42].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[43].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[43].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[43].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[44].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[44].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[44].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[45].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[45].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[45].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[46].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[46].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[46].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[47].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[47].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[47].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[48].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[48].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[48].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[49].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[49].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[49].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[4].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[4].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[4].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[50].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)",
+  "$.Docs[50].Content: null seen beside null/string (ptichrela.json)",
+  "$.Docs[50].TitleHtml: null seen beside null/string (ptichrela.json)",
+  "$.Docs[51].ChunkGroupStartingNodeId: null seen beside null/string (ptichrela.json)"
+ ]
+}

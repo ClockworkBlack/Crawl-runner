@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legis:votes_try:{legislation_id}",
+ "description": "int as text",
+ "x-area": "kv",
+ "x-writer": "sources/legis.py",
+ "x-readers": "sources/legis.py; legis_handoff",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

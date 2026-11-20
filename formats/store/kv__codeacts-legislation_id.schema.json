@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "codeacts:{legislation_id}",
+ "description": "JSON {v, version, at}",
+ "x-area": "kv",
+ "x-writer": "codeacts.run",
+ "x-readers": "codeacts.run",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "v": {
+   "type": "integer",
+   "description": "PARSER_VERSION"
+  },
+  "version": {},
+  "at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "v",
+  "version",
+  "at"
+ ]
+}

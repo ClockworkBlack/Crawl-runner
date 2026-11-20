@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "fec:drop:{committee_id}",
+ "description": "YYYY-MM-DD or ''",
+ "x-area": "kv",
+ "x-writer": "finance",
+ "x-readers": "finance.apply_drops",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

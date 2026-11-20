@@ -1,0 +1,96 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/guides.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "guides, registry",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/guides.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "guides": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 13 of 1",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "seen 13 of 13"
+     },
+     "include": {
+      "type": "array",
+      "description": "seen 13 of 13",
+      "items": {
+       "type": "string",
+       "description": "seen 58 of 13",
+       "x-values": [
+        "candidate",
+        "endorse",
+        "scorecard",
+        "georgia",
+        "political",
+        "legislative",
+        "elected",
+        "officials",
+        "vote411",
+        "voter-guide",
+        "voters-guide",
+        "election",
+        "guide",
+        "/ballot",
+        "race",
+        "impact",
+        "legislator",
+        "pac",
+        "survey",
+        "grades",
+        "pace",
+        "rpac",
+        "garpac"
+       ]
+      }
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 13 of 13",
+      "x-values": [
+       "endorsements",
+       "scorecard",
+       "questionnaire",
+       "party"
+      ]
+     },
+     "max_pages": {
+      "type": "integer",
+      "description": "seen 2 of 13"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 13 of 13"
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 13 of 13"
+     }
+    },
+    "required": [
+     "id",
+     "include",
+     "kind",
+     "name",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "guides"
+ ],
+ "additionalProperties": false
+}

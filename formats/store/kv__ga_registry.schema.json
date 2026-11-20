@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "ga_registry",
+ "description": "JSON {at, rows}",
+ "x-area": "kv",
+ "x-writer": "registries",
+ "x-readers": "registries; model_handoff",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "at": {
+   "type": "string"
+  },
+  "rows": {
+   "type": "array"
+  }
+ },
+ "required": [
+  "at",
+  "rows"
+ ]
+}

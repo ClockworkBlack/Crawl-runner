@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "donor_about",
+ "description": "JSON map entity id -> record {t,...}",
+ "x-area": "kv",
+ "x-writer": "donors_ai; model_handoff (KV_KEYS)",
+ "x-readers": "donors.export_donors, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

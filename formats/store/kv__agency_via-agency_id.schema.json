@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "agency_via:{agency_id}",
+ "description": "'live' | 'archive'",
+ "x-area": "kv",
+ "x-writer": "agencies.run",
+ "x-readers": "agencies.export_state_meetings",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

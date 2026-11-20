@@ -1,0 +1,69 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/overrides.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "registry, seed, police, transcripts, blocked, rumor_video, legis_video",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/overrides.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "jurisdictions": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 12 of 1; map with 12 distinct keys, e.g. ['atlanta', 'canton', 'powder-springs', 'columbus-muscogee']",
+    "properties": {
+     "notes": {
+      "type": "string",
+      "description": "seen 4 of 12"
+     },
+     "police_site": {
+      "type": "string",
+      "description": "seen 1 of 12"
+     },
+     "portals": {
+      "type": "object",
+      "description": "seen 5 of 12",
+      "properties": {
+       "ecode360": {
+        "type": "string",
+        "description": "seen 1 of 5"
+       },
+       "legistar": {
+        "type": "string",
+        "description": "seen 3 of 5"
+       },
+       "youtube": {
+        "type": "string",
+        "description": "seen 1 of 5"
+       }
+      },
+      "additionalProperties": false
+     },
+     "website": {
+      "type": "string",
+      "description": "seen 6 of 12"
+     },
+     "website_alt": {
+      "type": "string",
+      "description": "seen 1 of 12"
+     },
+     "youtube_checked": {
+      "type": "string",
+      "description": "seen 1 of 12"
+     }
+    },
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "jurisdictions"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "schema",
+ "description": "plain '2'",
+ "x-area": "kv",
+ "x-writer": "store.Store.__init__",
+ "x-readers": "",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

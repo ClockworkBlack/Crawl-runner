@@ -1,0 +1,268 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/police_incidents.json",
+ "description": "object",
+ "x-area": "export_bundle",
+ "x-writer": "policing_news.export_incidents",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; electo-crawl-policing.yml",
+ "x-version": "2.3",
+ "x-documented-in": "none (comment in export.py only)",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "I19 (undocumented): 8 bundle files the export writes are missing from export.py's bundle docstring: bill_reasons, media, news, open_records, police, police_incidents, records_contacts, vote_model (5 of them have schema.md sections; news, police_incidents and open_records' updated_at do not)"
+ ],
+ "type": "object",
+ "properties": {
+  "departments": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 68 of 1",
+    "properties": {
+     "department": {
+      "type": "string",
+      "description": "seen 68 of 68"
+     },
+     "incidents": {
+      "type": "array",
+      "description": "seen 68 of 68",
+      "items": {
+       "type": "object",
+       "description": "seen 511 of 68",
+       "properties": {
+        "cues": {
+         "type": "array",
+         "description": "seen 511 of 511",
+         "items": {
+          "type": "string",
+          "description": "seen 1982 of 511"
+         }
+        },
+        "d": {
+         "type": "string",
+         "description": "seen 511 of 511"
+        },
+        "evidence": {
+         "type": "string",
+         "description": "seen 511 of 511",
+         "x-values": [
+          "reported"
+         ]
+        },
+        "excerpt": {
+         "type": "string",
+         "description": "seen 511 of 511"
+        },
+        "names": {
+         "type": "array",
+         "description": "seen 511 of 511",
+         "items": {
+          "type": "object",
+          "description": "seen 186 of 511",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "seen 186 of 186"
+           },
+           "rank": {
+            "type": "string",
+            "description": "seen 186 of 186",
+            "x-values": [
+             "Sheriff",
+             "Police Chief",
+             "Deputy",
+             "Officer",
+             "Investigator",
+             "Sgt",
+             "Lt",
+             "Cpl",
+             "Detective",
+             "Chief",
+             "Lieutenant",
+             "Major",
+             "Corporal",
+             "Captain",
+             "Sergeant",
+             "Chief Deputy",
+             "Capt",
+             "Deputy Jailer",
+             "Assistant Chief",
+             "Ofc",
+             "Commander",
+             "Chief of Police",
+             "Trooper"
+            ]
+           }
+          },
+          "required": [
+           "name",
+           "rank"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "outlet": {
+         "type": "string",
+         "description": "seen 511 of 511"
+        },
+        "t": {
+         "type": "string",
+         "description": "seen 511 of 511"
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 511 of 511"
+        }
+       },
+       "required": [
+        "cues",
+        "d",
+        "evidence",
+        "excerpt",
+        "names",
+        "outlet",
+        "t",
+        "u"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 68 of 68"
+     },
+     "jurisdiction_name": {
+      "type": "string",
+      "description": "seen 68 of 68"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 68 of 68",
+      "x-values": [
+       "sheriff",
+       "police"
+      ]
+     },
+     "people": {
+      "type": "array",
+      "description": "seen 68 of 68",
+      "items": {
+       "type": "object",
+       "description": "seen 139 of 68",
+       "properties": {
+        "items": {
+         "type": "array",
+         "description": "seen 139 of 139",
+         "items": {
+          "type": "object",
+          "description": "seen 186 of 139",
+          "properties": {
+           "d": {
+            "type": "string",
+            "description": "seen 186 of 186"
+           },
+           "outlet": {
+            "type": "string",
+            "description": "seen 186 of 186"
+           },
+           "t": {
+            "type": "string",
+            "description": "seen 186 of 186"
+           },
+           "u": {
+            "type": "string",
+            "description": "seen 186 of 186"
+           }
+          },
+          "required": [
+           "d",
+           "outlet",
+           "t",
+           "u"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "mentions": {
+         "type": "integer",
+         "description": "seen 139 of 139",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "10",
+          "5",
+          "6"
+         ]
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 139 of 139"
+        },
+        "ranks": {
+         "type": "array",
+         "description": "seen 139 of 139",
+         "items": {
+          "type": "string",
+          "description": "seen 142 of 139",
+          "x-values": [
+           "Sheriff",
+           "Deputy",
+           "Police Chief",
+           "Officer",
+           "Investigator",
+           "Sgt",
+           "Lt",
+           "Detective",
+           "Cpl",
+           "Major",
+           "Corporal",
+           "Captain",
+           "Chief",
+           "Sergeant",
+           "Lieutenant",
+           "Chief Deputy",
+           "Capt",
+           "Assistant Chief",
+           "Ofc",
+           "Commander",
+           "Deputy Jailer",
+           "Chief of Police",
+           "Trooper"
+          ]
+         }
+        }
+       },
+       "required": [
+        "items",
+        "mentions",
+        "name",
+        "ranks"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "department",
+     "incidents",
+     "jurisdiction",
+     "jurisdiction_name",
+     "kind",
+     "people"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "departments",
+  "note"
+ ],
+ "additionalProperties": false
+}

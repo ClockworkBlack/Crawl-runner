@@ -1,0 +1,670 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/jurisdictions.json",
+ "description": "list of jurisdiction objects",
+ "x-area": "export_bundle",
+ "x-writer": "export.export() (registry.jurisdictions + progress.json status + record counts)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Jurisdiction' (lists 17 keys; kind says county|city|town|consolidated but school_district is written; docstring says 696, file has 876)",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "I07 (doc_vs_data): jurisdictions.json: schema.md kind = county|city|town|consolidated, data also has school_district (180 of 876); export.py docstring says 'all 696 jurisdictions', file has 876; 48 written keys not in schema.md's Jurisdiction section",
+  "undocumented keys vs schema.md section (48): address, aliases, channel, checked_at, city_id, consolidated_with, county_id, district_seed_version, elections, emails, error, escribe, feeds, gma, gma_parser, gma_website, home_title, iqm2, last_ok, meeting_page, mode, new, none_listed, notes, novusagenda, overrides, page, phone, police_site, portal, records, seat, seed_version, seen, simbli, site_error_kind, site_status, source, title, unified_government, url, website_alt, website_candidates, website_hint, website_rejected, wikidata, wikipedia, youtube_checked"
+ ],
+ "type": "array",
+ "items": {
+  "type": "object",
+  "description": "seen 876",
+  "properties": {
+   "address": {
+    "type": "string",
+    "description": "seen 535 of 876"
+   },
+   "aliases": {
+    "type": "array",
+    "description": "seen 180 of 876",
+    "items": {
+     "type": "string",
+     "description": "seen 720 of 876"
+    }
+   },
+   "checked_at": {
+    "type": "string",
+    "description": "seen 876 of 876"
+   },
+   "city": {
+    "type": "string",
+    "description": "seen 21 of 876"
+   },
+   "city_id": {
+    "type": "string",
+    "description": "seen 21 of 876"
+   },
+   "consolidated_with": {
+    "type": "string",
+    "description": "seen 12 of 876"
+   },
+   "council_meets": {
+    "type": "string",
+    "description": "seen 535 of 876"
+   },
+   "counties": {
+    "type": "array",
+    "description": "seen 537 of 876",
+    "items": {
+     "type": "string",
+     "description": "seen 595 of 876"
+    }
+   },
+   "county": {
+    "type": "string",
+    "description": "seen 180 of 876"
+   },
+   "county_id": {
+    "type": "string",
+    "description": "seen 159 of 876"
+   },
+   "county_seat": {
+    "type": "boolean",
+    "description": "seen 537 of 876",
+    "x-values": [
+     "False",
+     "True"
+    ]
+   },
+   "district_seed_version": {
+    "type": "integer",
+    "description": "seen 180 of 876",
+    "x-values": [
+     "1"
+    ]
+   },
+   "feeds": {
+    "type": "array",
+    "description": "seen 876 of 876",
+    "items": {
+     "type": "string",
+     "description": "seen 442 of 876"
+    }
+   },
+   "fips": {
+    "type": "string",
+    "description": "seen 696 of 876"
+   },
+   "gma_parser": {
+    "type": "integer",
+    "description": "seen 535 of 876",
+    "x-values": [
+     "2"
+    ]
+   },
+   "gma_url": {
+    "type": "string",
+    "description": "seen 535 of 876"
+   },
+   "gma_website": {
+    "type": "string",
+    "description": "seen 407 of 876"
+   },
+   "home_title": {
+    "type": "string",
+    "description": "seen 640 of 876"
+   },
+   "id": {
+    "type": "string",
+    "description": "seen 876 of 876"
+   },
+   "incorporated": {
+    "type": "integer",
+    "description": "seen 529 of 876"
+   },
+   "kind": {
+    "type": "string",
+    "description": "seen 876 of 876",
+    "x-values": [
+     "city",
+     "school_district",
+     "county",
+     "town",
+     "consolidated"
+    ]
+   },
+   "meeting_page": {
+    "type": "string",
+    "description": "seen 440 of 876"
+   },
+   "municode": {
+    "type": "string",
+    "description": "seen 108 of 876"
+   },
+   "name": {
+    "type": "string",
+    "description": "seen 876 of 876"
+   },
+   "none_listed": {
+    "type": "object",
+    "description": "seen 100 of 876",
+    "properties": {
+     "gma": {
+      "type": "boolean",
+      "description": "seen 90 of 100",
+      "x-values": [
+       "True",
+       "False"
+      ]
+     },
+     "wikidata": {
+      "type": "boolean",
+      "description": "seen 100 of 100",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "wikipedia": {
+      "type": "boolean",
+      "description": "seen 100 of 100",
+      "x-values": [
+       "True",
+       "False"
+      ]
+     }
+    },
+    "required": [
+     "wikidata",
+     "wikipedia"
+    ],
+    "additionalProperties": false
+   },
+   "notes": {
+    "type": "string",
+    "description": "seen 4 of 876"
+   },
+   "officials": {
+    "type": "array",
+    "description": "seen 535 of 876",
+    "items": {
+     "type": "object",
+     "description": "seen 3138 of 876",
+     "properties": {
+      "name": {
+       "type": "string",
+       "description": "seen 3138 of 3138"
+      },
+      "title": {
+       "type": "string",
+       "description": "seen 3138 of 3138"
+      }
+     },
+     "required": [
+      "name",
+      "title"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "overrides": {
+    "type": "array",
+    "description": "seen 876 of 876",
+    "items": {
+     "type": "string",
+     "description": "seen 13 of 876",
+     "x-values": [
+      "website",
+      "notes",
+      "police_site",
+      "youtube_checked",
+      "website_alt"
+     ]
+    }
+   },
+   "phone": {
+    "type": "string",
+    "description": "seen 535 of 876"
+   },
+   "police_site": {
+    "type": "string",
+    "description": "seen 1 of 876"
+   },
+   "population": {
+    "type": "integer",
+    "description": "seen 876 of 876"
+   },
+   "portals": {
+    "type": "object",
+    "description": "seen 876 of 876",
+    "properties": {
+     "agenda_center": {
+      "type": "string",
+      "description": "seen 83 of 876"
+     },
+     "civicclerk": {
+      "type": "string",
+      "description": "seen 22 of 876"
+     },
+     "ecode360": {
+      "type": "string",
+      "description": "seen 1 of 876"
+     },
+     "elections": {
+      "type": "string",
+      "description": "seen 178 of 876"
+     },
+     "escribe": {
+      "type": "string",
+      "description": "seen 2 of 876"
+     },
+     "facebook": {
+      "type": "string",
+      "description": "seen 392 of 876"
+     },
+     "granicus": {
+      "type": "string",
+      "description": "seen 13 of 876"
+     },
+     "iqm2": {
+      "type": "string",
+      "description": "seen 7 of 876"
+     },
+     "legistar": {
+      "type": "string",
+      "description": "seen 5 of 876"
+     },
+     "municode": {
+      "type": "string",
+      "description": "seen 163 of 876"
+     },
+     "novusagenda": {
+      "type": "string",
+      "description": "seen 3 of 876"
+     },
+     "simbli": {
+      "type": "string",
+      "description": "seen 100 of 876"
+     },
+     "youtube": {
+      "type": "string",
+      "description": "seen 153 of 876"
+     }
+    },
+    "additionalProperties": false
+   },
+   "record_counts": {
+    "type": "object",
+    "description": "seen 876 of 876",
+    "properties": {
+     "agenda_item": {
+      "type": "integer",
+      "description": "seen 122 of 876"
+     },
+     "appointment": {
+      "type": "integer",
+      "description": "seen 22 of 876",
+      "x-values": [
+       "1",
+       "2",
+       "9",
+       "6",
+       "3",
+       "4",
+       "22",
+       "7"
+      ]
+     },
+     "ballot_question": {
+      "type": "integer",
+      "description": "seen 58 of 876"
+     },
+     "budget_doc": {
+      "type": "integer",
+      "description": "seen 180 of 876",
+      "x-values": [
+       "1"
+      ]
+     },
+     "document": {
+      "type": "integer",
+      "description": "seen 245 of 876"
+     },
+     "election": {
+      "type": "integer",
+      "description": "seen 159 of 876"
+     },
+     "election_result": {
+      "type": "integer",
+      "description": "seen 33 of 876"
+     },
+     "feed_item": {
+      "type": "integer",
+      "description": "seen 12 of 876"
+     },
+     "matter": {
+      "type": "integer",
+      "description": "seen 4 of 876",
+      "x-values": [
+       "8617",
+       "13144",
+       "5286",
+       "4474"
+      ]
+     },
+     "meeting": {
+      "type": "integer",
+      "description": "seen 176 of 876"
+     },
+     "meeting_summary": {
+      "type": "integer",
+      "description": "seen 124 of 876"
+     },
+     "official": {
+      "type": "integer",
+      "description": "seen 4 of 876",
+      "x-values": [
+       "203",
+       "11",
+       "254",
+       "168"
+      ]
+     },
+     "ordinance": {
+      "type": "integer",
+      "description": "seen 2 of 876"
+     },
+     "page": {
+      "type": "integer",
+      "description": "seen 527 of 876"
+     },
+     "police_incident": {
+      "type": "integer",
+      "description": "seen 61 of 876",
+      "x-values": [
+       "3",
+       "1",
+       "2",
+       "5",
+       "4",
+       "9",
+       "15",
+       "26",
+       "13",
+       "7",
+       "22",
+       "8",
+       "6",
+       "35",
+       "24",
+       "27",
+       "38",
+       "16",
+       "18",
+       "12"
+      ]
+     },
+     "qualifying": {
+      "type": "integer",
+      "description": "seen 18 of 876",
+      "x-values": [
+       "1",
+       "2"
+      ]
+     },
+     "school": {
+      "type": "integer",
+      "description": "seen 180 of 876"
+     },
+     "screenshot": {
+      "type": "integer",
+      "description": "seen 1 of 876"
+     },
+     "video": {
+      "type": "integer",
+      "description": "seen 149 of 876"
+     },
+     "vote": {
+      "type": "integer",
+      "description": "seen 120 of 876"
+     }
+    },
+    "additionalProperties": false
+   },
+   "records": {
+    "type": "object",
+    "description": "seen 776 of 876",
+    "properties": {
+     "emails": {
+      "type": "array",
+      "description": "seen 106 of 776",
+      "items": {
+       "type": "string",
+       "description": "seen 153 of 776"
+      }
+     },
+     "page": {
+      "type": "string",
+      "description": "seen 125 of 776"
+     },
+     "portal": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 125 of 776"
+     }
+    },
+    "additionalProperties": false
+   },
+   "regional_commission": {
+    "type": "string",
+    "description": "seen 535 of 876",
+    "x-values": [
+     "Atlanta",
+     "Northeast Georgia",
+     "Northwest Georgia",
+     "Southwest Georgia",
+     "Southern Georgia",
+     "Three Rivers",
+     "Central Savannah River Area",
+     "River Valley",
+     "Georgia Mountains",
+     "Coastal",
+     "GMA District",
+     "Heart of Georgia-Altamaha",
+     "Middle Georgia"
+    ]
+   },
+   "seat": {
+    "type": "string",
+    "description": "seen 159 of 876"
+   },
+   "seed_version": {
+    "type": "integer",
+    "description": "seen 876 of 876",
+    "x-values": [
+     "3"
+    ]
+   },
+   "site_error_kind": {
+    "type": "string",
+    "description": "seen 146 of 876"
+   },
+   "site_status": {
+    "type": "integer",
+    "description": "seen 2 of 876"
+   },
+   "sources": {
+    "type": "array",
+    "description": "seen 876 of 876",
+    "items": {
+     "type": "object",
+     "description": "seen 1327 of 876",
+     "properties": {
+      "channel": {
+       "type": "string",
+       "description": "seen 1001 of 1327",
+       "x-values": [
+        "html",
+        "sitemap",
+        "feed",
+        "api",
+        "wp_json",
+        "browser"
+       ]
+      },
+      "id": {
+       "type": "string",
+       "description": "seen 1327 of 1327"
+      },
+      "last_ok": {
+       "type": "string",
+       "description": "seen 1001 of 1327"
+      },
+      "mode": {
+       "type": "string",
+       "description": "seen 1001 of 1327",
+       "x-values": [
+        "delta",
+        "full",
+        "resume"
+       ]
+      },
+      "new": {
+       "type": "integer",
+       "description": "seen 1059 of 1327"
+      },
+      "seen": {
+       "type": "integer",
+       "description": "seen 1059 of 1327"
+      },
+      "status": {
+       "type": "string",
+       "description": "seen 1327 of 1327"
+      }
+     },
+     "required": [
+      "id",
+      "status"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "tier": {
+    "type": "string",
+    "description": "seen 876 of 876",
+    "x-values": [
+     "c",
+     "b",
+     "a"
+    ]
+   },
+   "unified_government": {
+    "type": "boolean",
+    "description": "seen 2 of 876"
+   },
+   "website": {
+    "type": "string",
+    "description": "seen 776 of 876"
+   },
+   "website_alt": {
+    "type": "string",
+    "description": "seen 20 of 876"
+   },
+   "website_candidates": {
+    "type": "array",
+    "description": "seen 876 of 876",
+    "items": {
+     "type": "object",
+     "description": "seen 1062 of 876",
+     "properties": {
+      "error": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "seen 1062 of 1062"
+      },
+      "kind": {
+       "type": "string",
+       "description": "seen 422 of 1062"
+      },
+      "source": {
+       "type": "string",
+       "description": "seen 1062 of 1062",
+       "x-values": [
+        "gma",
+        "wikidata",
+        "wikipedia",
+        "wikidata (http form)",
+        "wikidata (http form) (https form)",
+        "wikidata (http form) (https form) (https form)",
+        "gma (http form)",
+        "wikipedia (http form)",
+        "gma (http form) (http form)",
+        "gma (http form) (http form) (https form)",
+        "override",
+        "wikidata (https form)",
+        "wikipedia (http form) (http form)",
+        "wikipedia (http form) (http form) (https form)",
+        "wikidata (http form) (http form)",
+        "wikidata (http form) (http form) (https form)",
+        "gma (https form)",
+        "wikidata (http form) (http form) (https form) (https form)",
+        "gma (https form) (http form)",
+        "wikipedia (http form) (https form)",
+        "wikipedia (http form) (https form) (https form)",
+        "wikipedia (https form)",
+        "wikidata (https form) (http form)"
+       ]
+      },
+      "url": {
+       "type": "string",
+       "description": "seen 1062 of 1062"
+      }
+     },
+     "required": [
+      "error",
+      "source",
+      "url"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "website_hint": {
+    "type": "string",
+    "description": "seen 40 of 876"
+   },
+   "website_rejected": {
+    "type": "string",
+    "description": "seen 10 of 876"
+   },
+   "website_source": {
+    "type": "string",
+    "description": "seen 786 of 876"
+   },
+   "wikipedia": {
+    "type": "string",
+    "description": "seen 790 of 876"
+   },
+   "youtube_checked": {
+    "type": "string",
+    "description": "seen 1 of 876"
+   }
+  },
+  "required": [
+   "checked_at",
+   "feeds",
+   "id",
+   "kind",
+   "name",
+   "overrides",
+   "population",
+   "portals",
+   "record_counts",
+   "seed_version",
+   "sources",
+   "tier",
+   "website_candidates"
+  ],
+  "additionalProperties": false
+ }
+}

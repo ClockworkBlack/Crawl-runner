@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "imports/ordinances/GA/*/*/manifest.json",
+ "description": "414 files: a place's code of ordinances as the import keeps it (one folder per place and code)",
+ "x-area": "work",
+ "x-writer": "the ordinance import (Ordinance Drop; tools beside imports/ordinances)",
+ "x-readers": "",
+ "x-observed": "inferred from 155 of 414 files",
+ "type": "object",
+ "additionalProperties": {}
+}

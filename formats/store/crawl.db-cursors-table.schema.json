@@ -1,0 +1,33 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "data/crawl.db: cursors table",
+ "description": "SQLite table, PK(source_id, stream)",
+ "x-area": "db_record_model",
+ "x-writer": "store.set_cursor",
+ "x-readers": "store.cursors / clear_cursors",
+ "x-version": "2",
+ "x-documented-in": "DDL only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string"
+  },
+  "stream": {
+   "type": "string"
+  },
+  "value": {
+   "type": "string"
+  },
+  "updated_at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "source_id",
+  "stream",
+  "value",
+  "updated_at"
+ ]
+}

@@ -1,0 +1,155 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/jurisdictions/<id>.json",
+ "description": "{jurisdiction, name, exported_at, records: {kind: [Record]}} (kinds sorted; screenshot and cand:* records left out)",
+ "x-area": "export_bundle",
+ "x-writer": "export._write_jurisdiction (streamed JSON)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py (full bundle only; not pushed)",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Record'",
+ "x-observed": "not observed (not in the pushed subset); from code",
+ "x-issues": [
+  "I02 (undocumented): channel: 10 values documented (api, wp_json, feed, sitemap, html, browser, pdf, ocr, import, store); 7 more written: archive (5 writers), derived (12 derive passes), docx, text, file, vimeo, listed (boarddocs agenda_item), plus a platform name (legis_video, candidates posts)",
+  "I03 (undocumented): evidence: documented primary|reported|unverified|lead; bill_reasons writes 'official' (veto statements) and 34 of the 91 Record() calls leave it unset ('')"
+ ],
+ "type": "object",
+ "properties": {
+  "jurisdiction": {
+   "type": "string"
+  },
+  "name": {
+   "type": "string"
+  },
+  "exported_at": {
+   "type": "string"
+  },
+  "records": {
+   "type": "object",
+   "description": "map kind -> list of Record",
+   "additionalProperties": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "string",
+       "description": "sha256(natural key)[:24]; upsert key"
+      },
+      "hash": {
+       "type": "string",
+       "description": "content hash [:24] (SOFT_META excluded)"
+      },
+      "source_id": {
+       "type": "string",
+       "description": "e.g. canton:legistar, co-fulton:site, cand:<id>, ga-agency:<id>, ga:legis, news:digest"
+      },
+      "jurisdiction": {
+       "type": "string",
+       "description": "registry id or '' ; also 'ga', 'us'"
+      },
+      "kind": {
+       "type": "string",
+       "description": "documented list (17 kinds) is a subset of the ~45 kinds written; see area db_record_kind"
+      },
+      "url": {
+       "type": "string"
+      },
+      "title": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      },
+      "markdown": {
+       "type": "string",
+       "description": "only when it differs from text"
+      },
+      "published": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "ISO 8601 date or datetime with offset (since 2.2)"
+      },
+      "channel": {
+       "type": "string",
+       "description": "documented list; code also writes archive, derived, docx, text, file, vimeo, <platform>",
+       "x-values": [
+        "api",
+        "wp_json",
+        "feed",
+        "sitemap",
+        "html",
+        "browser",
+        "pdf",
+        "ocr",
+        "import",
+        "store"
+       ]
+      },
+      "evidence": {
+       "type": "string",
+       "description": "documented; code also writes official, listed, '' (unset), unverified (kept out of bundle)",
+       "x-values": [
+        "primary",
+        "reported",
+        "lead"
+       ]
+      },
+      "meta": {
+       "type": "object",
+       "description": "kind-specific; copied through raw"
+      },
+      "fetched_at": {
+       "type": "string",
+       "description": "ISO 8601 UTC"
+      },
+      "first_seen": {
+       "type": "string"
+      },
+      "updated": {
+       "type": "string",
+       "description": "= changed_at (since 2.3)"
+      },
+      "changed_at": {
+       "type": "string",
+       "description": "deprecated alias of updated"
+      },
+      "version": {
+       "type": "integer"
+      },
+      "modified": {
+       "type": "string",
+       "description": "meta.http_last_modified or meta.modified; only when stated (since 2.3)"
+      }
+     },
+     "required": [
+      "id",
+      "hash",
+      "source_id",
+      "jurisdiction",
+      "kind",
+      "url",
+      "title",
+      "text",
+      "published",
+      "channel",
+      "evidence",
+      "meta",
+      "fetched_at",
+      "first_seen",
+      "updated",
+      "changed_at",
+      "version"
+     ]
+    }
+   }
+  }
+ },
+ "required": [
+  "jurisdiction",
+  "name",
+  "exported_at",
+  "records"
+ ]
+}

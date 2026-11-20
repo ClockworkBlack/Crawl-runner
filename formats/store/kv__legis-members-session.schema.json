@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legis:members:{session}",
+ "description": "YYYY-MM-DD done",
+ "x-area": "kv",
+ "x-writer": "sources/legis.py",
+ "x-readers": "sources/legis.py",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

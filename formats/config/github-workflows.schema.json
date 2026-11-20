@@ -1,0 +1,200 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": ".github/workflows/*.yml",
+ "description": "A GitHub Actions workflow (GitHub's own format: docs.github.com, 'Workflow syntax for GitHub Actions'), with the keys this project uses and its own conventions. YAML reads the key `on` as true: the checker sees it as the key 'True'.",
+ "x-area": "config",
+ "x-writer": "by hand",
+ "x-readers": "GitHub Actions",
+ "x-conventions": [
+  "every job has timeout-minutes; long steps have their own",
+  "a job that writes to a repository says so in permissions (contents: write), and nothing more than it needs",
+  "concurrency.group names what may not run twice at once; cancel-in-progress: false where a cancelled run would lose data",
+  "a step's own failure is told apart from its time limit: scripts/stopped.sh",
+  "records-send, records-test and mail-send stay in the private repository; every other job runs in the public runner (config/runner.json), whose logs show counts only",
+  "a job that runs only in the public runner starts with `if: github.event.repository.private == false`"
+ ],
+ "type": "object",
+ "required": [
+  "name",
+  "jobs"
+ ],
+ "properties": {
+  "name": {
+   "type": "string"
+  },
+  "run-name": {
+   "type": "string"
+  },
+  "True": {
+   "description": "on: the events that start it (push, schedule, workflow_dispatch, workflow_run, ...)"
+  },
+  "on": {},
+  "permissions": {
+   "type": [
+    "object",
+    "string"
+   ],
+   "additionalProperties": {
+    "enum": [
+     "read",
+     "write",
+     "none"
+    ]
+   }
+  },
+  "concurrency": {
+   "type": [
+    "object",
+    "string"
+   ],
+   "properties": {
+    "group": {
+     "type": "string"
+    },
+    "cancel-in-progress": {
+     "type": [
+      "boolean",
+      "string"
+     ]
+    }
+   }
+  },
+  "env": {
+   "type": "object"
+  },
+  "defaults": {
+   "type": "object"
+  },
+  "jobs": {
+   "type": "object",
+   "additionalProperties": {
+    "$ref": "#/$defs/job"
+   }
+  }
+ },
+ "additionalProperties": false,
+ "$defs": {
+  "job": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "runs-on": {
+     "type": [
+      "string",
+      "array",
+      "object"
+     ]
+    },
+    "needs": {
+     "type": [
+      "string",
+      "array"
+     ]
+    },
+    "if": {
+     "type": [
+      "string",
+      "boolean"
+     ]
+    },
+    "timeout-minutes": {
+     "type": [
+      "integer",
+      "string"
+     ]
+    },
+    "permissions": {
+     "type": [
+      "object",
+      "string"
+     ]
+    },
+    "environment": {},
+    "concurrency": {},
+    "outputs": {
+     "type": "object"
+    },
+    "env": {
+     "type": "object"
+    },
+    "defaults": {
+     "type": "object"
+    },
+    "strategy": {
+     "type": "object"
+    },
+    "continue-on-error": {
+     "type": [
+      "boolean",
+      "string"
+     ]
+    },
+    "container": {},
+    "services": {
+     "type": "object"
+    },
+    "uses": {
+     "type": "string"
+    },
+    "with": {
+     "type": "object"
+    },
+    "secrets": {},
+    "steps": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "id": {
+        "type": "string"
+       },
+       "if": {
+        "type": [
+         "string",
+         "boolean"
+        ]
+       },
+       "uses": {
+        "type": "string"
+       },
+       "run": {
+        "type": "string"
+       },
+       "with": {
+        "type": "object"
+       },
+       "env": {
+        "type": "object"
+       },
+       "shell": {
+        "type": "string"
+       },
+       "working-directory": {
+        "type": "string"
+       },
+       "continue-on-error": {
+        "type": [
+         "boolean",
+         "string"
+        ]
+       },
+       "timeout-minutes": {
+        "type": [
+         "integer",
+         "string"
+        ]
+       }
+      },
+      "additionalProperties": false
+     }
+    }
+   },
+   "additionalProperties": false
+  }
+ }
+}

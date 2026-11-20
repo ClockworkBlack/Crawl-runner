@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "fec:a2r:{committee_id}",
+ "description": "JSON {floor, last, newest, pages} or '' when done",
+ "x-area": "kv",
+ "x-writer": "finance; cli apply",
+ "x-readers": "finance, donors, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "floor": {
+   "type": "string"
+  },
+  "last": {},
+  "newest": {
+   "type": "string"
+  },
+  "pages": {
+   "type": "integer"
+  }
+ }
+}

@@ -1,0 +1,104 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "meeting",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "agencies.py:1853 run; agencies.py:1879 run; board_schedules.py:136 _derive; district_calendars.py:1258 store_events; legis_meetings.py:145 run; simbli_archive.py:235 district; sources/boarddocs.py:182 records; sources/civicclerk.py:196 _one; sources/legistar.py:149 _meeting_record",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "<expr:SOURCE>",
+    "<expr:self.client>",
+    "<expr:sid>",
+    "<expr:source_id>",
+    "<expr:src[\"source_id\"]>",
+    "ga-agency:{ag['id']}"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: archive,derived",
+   "x-values": [
+    "api",
+    "archive",
+    "derived",
+    "feed",
+    "html"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "EventAgendaFile": {},
+    "EventBodyName": {},
+    "EventDate": {},
+    "EventMinutesFile": {},
+    "EventTime": {},
+    "EventVideoPath": {},
+    "MID": {},
+    "agency": {},
+    "agency_name": {},
+    "all_day": {},
+    "archive_listing": {},
+    "archived": {},
+    "cancelled": {},
+    "captured": {},
+    "category": {},
+    "chamber": {},
+    "committee": {},
+    "committee_name": {},
+    "created_on": {},
+    "docs": {},
+    "event_id": {},
+    "event_read": {},
+    "fmt": {},
+    "found_on": {},
+    "from_feed": {},
+    "from_page": {},
+    "has_agenda": {},
+    "has_media": {},
+    "items": {},
+    "location": {},
+    "meeting_id": {},
+    "meeting_type": {},
+    "minutes_status": {},
+    "opened": {},
+    "opened_url": {},
+    "original": {},
+    "platform": {},
+    "provider": {},
+    "pub": {},
+    "reader_rev": {},
+    "recurring": {},
+    "scheduled": {},
+    "sitting": {},
+    "status": {},
+    "summary_file": {},
+    "time": {},
+    "uid": {},
+    "via": {},
+    "what": {},
+    "withdrawn": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

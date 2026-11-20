@@ -1,0 +1,117 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "imports/ordinances/GA/*/*/*.json",
+ "description": "414 files: a place's code of ordinances as the import keeps it (one folder per place and code)",
+ "x-area": "work",
+ "x-writer": "the ordinance import (Ordinance Drop; tools beside imports/ordinances)",
+ "x-readers": "",
+ "x-observed": "inferred from 154 of 414 files",
+ "type": "object",
+ "properties": {
+  "Id": {
+   "type": "string"
+  },
+  "Heading": {
+   "type": "string"
+  },
+  "NodeDepth": {
+   "type": "integer"
+  },
+  "HasChildren": {
+   "type": "boolean"
+  },
+  "ParentId": {
+   "type": "null"
+  },
+  "DocOrderId": {
+   "type": "integer"
+  },
+  "Children": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "Id": {
+      "type": "string"
+     },
+     "Heading": {
+      "type": "string"
+     },
+     "NodeDepth": {
+      "type": "integer"
+     },
+     "HasChildren": {
+      "type": "boolean"
+     },
+     "ParentId": {
+      "type": "string"
+     },
+     "DocOrderId": {
+      "type": "integer"
+     },
+     "Children": {
+      "type": "array"
+     },
+     "Data": {
+      "type": "object",
+      "properties": {
+       "NodeKey": {
+        "type": "string"
+       },
+       "IsUpdated": {
+        "type": "boolean"
+       },
+       "IsAmended": {
+        "type": "boolean"
+       },
+       "HasAmendedDescendant": {
+        "type": "boolean"
+       },
+       "CompareStatus": {
+        "type": "integer"
+       },
+       "DocType": {
+        "type": "integer"
+       },
+       "DepthOverride": {
+        "type": "null"
+       },
+       "ChunkGroupStartingId": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "Data": {
+   "type": "object",
+   "properties": {
+    "NodeKey": {
+     "type": "null"
+    },
+    "IsUpdated": {
+     "type": "boolean"
+    },
+    "IsAmended": {
+     "type": "boolean"
+    },
+    "HasAmendedDescendant": {
+     "type": "boolean"
+    },
+    "CompareStatus": {
+     "type": "integer"
+    },
+    "DocType": {
+     "type": "integer"
+    },
+    "DepthOverride": {
+     "type": "null"
+    },
+    "ChunkGroupStartingId": {
+     "type": "null"
+    }
+   }
+  }
+ }
+}

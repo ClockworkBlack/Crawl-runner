@@ -1,0 +1,30 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "archived_site:{source_id}",
+ "description": "JSON {none, why} or {ts, pages, why, at}",
+ "x-area": "kv",
+ "x-writer": "candidates._archived_site",
+ "x-readers": "candidates",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "none": {
+   "type": "string"
+  },
+  "ts": {
+   "type": "string"
+  },
+  "pages": {
+   "type": "integer"
+  },
+  "why": {
+   "type": "string"
+  },
+  "at": {
+   "type": "string"
+  }
+ }
+}

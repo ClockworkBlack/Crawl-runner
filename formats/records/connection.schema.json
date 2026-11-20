@@ -1,0 +1,58 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "connection",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "candidates.py:889 _statement; guides.py:160 _derive; guides.py:174 _derive",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "(set by caller: cand:<id>)",
+    "cand:{c['id']}"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: derived",
+   "x-values": [
+    "<expr:rec.channel>",
+    "derived"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "basis": {},
+    "candidate_id": {},
+    "direction": {},
+    "electo_key": {},
+    "office": {},
+    "opened": {},
+    "opened_url": {},
+    "party": {},
+    "rating": {},
+    "self_reported": {},
+    "type": {},
+    "year": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

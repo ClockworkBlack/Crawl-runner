@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legis_refusals",
+ "description": "JSON list[{at, refused:bool}] (last 60)",
+ "x-area": "kv",
+ "x-writer": "sources/legis.py",
+ "x-readers": "coverage.pipeline_checks",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "array",
+ "items": {
+  "type": "object",
+  "properties": {
+   "at": {
+    "type": "string"
+   },
+   "refused": {
+    "type": "boolean"
+   }
+  },
+  "required": [
+   "at",
+   "refused"
+  ]
+ }
+}

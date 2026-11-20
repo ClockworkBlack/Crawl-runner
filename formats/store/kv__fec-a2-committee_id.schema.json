@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "fec:a2:{committee_id}",
+ "description": "cursor (newest date)",
+ "x-area": "kv",
+ "x-writer": "finance; cli apply (newer wins)",
+ "x-readers": "finance",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

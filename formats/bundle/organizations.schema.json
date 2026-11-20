@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/organizations.json",
+ "description": "{note, organizations: [slim Record kind organization]}",
+ "x-area": "export_bundle",
+ "x-writer": "export.export() (slim organization records)",
+ "x-readers": "none in Electo (not pushed, Nov 14 audit)",
+ "x-version": "2.3",
+ "x-documented-in": "export.py docstring only",
+ "x-observed": "not observed",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string"
+  },
+  "organizations": {
+   "type": "array",
+   "items": {
+    "x-type": "Record",
+    "description": "meta keys: see db_record_kind organization"
+   }
+  }
+ },
+ "required": [
+  "note"
+ ]
+}

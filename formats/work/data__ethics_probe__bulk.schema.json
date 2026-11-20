@@ -1,0 +1,64 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "data/ethics_probe/bulk.json",
+ "description": "1 file(s); inferred from the files (Nov 20, 2026)",
+ "x-area": "work",
+ "x-writer": "",
+ "x-readers": "",
+ "x-observed": "inferred from 1 file(s)",
+ "type": "array",
+ "items": {
+  "type": "object",
+  "properties": {
+   "site": {
+    "type": "string"
+   },
+   "page": {
+    "type": "string"
+   },
+   "html": {
+    "type": "string"
+   },
+   "control": {
+    "type": "string"
+   },
+   "download": {
+    "type": "object",
+    "properties": {
+     "url": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "bytes": {
+      "type": "integer"
+     },
+     "head": {
+      "type": "string"
+     }
+    }
+   },
+   "requests": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "method": {
+       "type": "string"
+      },
+      "url": {
+       "type": "string"
+      },
+      "post": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "download_error": {
+    "type": "string"
+   }
+  }
+ }
+}

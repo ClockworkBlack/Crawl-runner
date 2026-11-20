@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "schools:qbe:{rid}:{folder}:{org|state}",
+ "description": "ISO datetime",
+ "x-area": "kv",
+ "x-writer": "qbe",
+ "x-readers": "qbe",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

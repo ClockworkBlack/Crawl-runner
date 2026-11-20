@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "bill_history_at:{legislation_id}",
+ "description": "YYYY-MM-DD",
+ "x-area": "kv",
+ "x-writer": "legis_video",
+ "x-readers": "legis_video",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

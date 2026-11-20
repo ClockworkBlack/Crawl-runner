@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legis:meetings:read",
+ "description": "YYYY-MM-DD",
+ "x-area": "kv",
+ "x-writer": "legis_meetings.run",
+ "x-readers": "legis_meetings, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

@@ -9,6 +9,9 @@ claims, for **every one of Georgia's 159 counties, 537 municipalities and 180 sc
 districts**, and hands it to the Electo site as import-ready JSON, per-person research
 packets and profile supplements in Electo's own shapes.
 
+Every format the crawler writes or reads (the export bundle, the database's records and kv keys, state, config,
+committed data) is written down in [`formats/`](formats/README.md); read it before changing any data (`CLAUDE.md`).
+
 ## What's in it
 
 | Piece | What it does |

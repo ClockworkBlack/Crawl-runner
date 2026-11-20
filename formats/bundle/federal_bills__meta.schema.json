@@ -1,0 +1,52 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/federal_bills/meta.json",
+ "description": "{congresses, now, counts, outlook_how, ends, generated, source, source_url}",
+ "x-area": "export_bundle",
+ "x-writer": "federal_bills.export_federal",
+ "x-readers": "Electo",
+ "x-version": "",
+ "x-documented-in": "none",
+ "x-observed": "not observed",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "congresses": {
+   "type": "array",
+   "items": {
+    "type": "integer"
+   }
+  },
+  "now": {
+   "type": "integer"
+  },
+  "counts": {
+   "type": "object"
+  },
+  "outlook_how": {
+   "type": "string"
+  },
+  "ends": {
+   "type": "string"
+  },
+  "generated": {
+   "type": "string"
+  },
+  "source": {
+   "type": "string"
+  },
+  "source_url": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "congresses",
+  "now",
+  "counts",
+  "outlook_how",
+  "ends",
+  "generated",
+  "source",
+  "source_url"
+ ]
+}

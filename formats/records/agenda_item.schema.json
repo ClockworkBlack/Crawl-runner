@@ -1,0 +1,70 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "agenda_item",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "minutes.py:337 _derive; sources/boarddocs.py:201 records; sources/legistar.py:176 _item_records",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "<expr:self.client>",
+    "<expr:source_id>",
+    "<expr:src[\"source_id\"]>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: derived,listed",
+   "x-values": [
+    "api",
+    "derived",
+    "listed"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "EventBodyName": {},
+    "EventId": {},
+    "attachments": {},
+    "category": {},
+    "from": {},
+    "item_id": {},
+    "meeting_id": {},
+    "mover": {},
+    "opened": {},
+    "opened_url": {},
+    "order": {},
+    "ordinance_ref": {},
+    "page_title": {},
+    "present": {},
+    "procedural": {},
+    "provider": {},
+    "result": {},
+    "seconder": {},
+    "tally": {},
+    "topics": {},
+    "type": {},
+    "unanimous": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

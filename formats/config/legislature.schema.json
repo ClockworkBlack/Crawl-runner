@@ -1,0 +1,285 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/legislature.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "legis_sessions, sources/legis, legis_video, bill_reasons",
+ "x-version": "",
+ "x-documented-in": "_about key",
+ "x-observed": "config/legislature.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_about": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "code_acts": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "sessions": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "integer",
+      "description": "seen 4 of 1",
+      "x-values": [
+       "1031",
+       "1032",
+       "1033",
+       "1034"
+      ]
+     }
+    }
+   },
+   "required": [
+    "sessions"
+   ],
+   "additionalProperties": false
+  },
+  "members": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "recheck_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "recheck_days"
+   ],
+   "additionalProperties": false
+  },
+  "sessions": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "current": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "integer",
+      "description": "seen 2 of 1"
+     }
+    },
+    "history": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "integer",
+      "description": "seen 11 of 1"
+     }
+    },
+    "names": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "1027": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1029": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1030": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1031": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1032": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1033": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "1034": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "24": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "25": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "26": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "27": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "1027",
+      "1029",
+      "1030",
+      "1031",
+      "1032",
+      "1033",
+      "1034",
+      "24",
+      "25",
+      "26",
+      "27"
+     ],
+     "additionalProperties": false
+    },
+    "years": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "array",
+      "description": "seen 11 of 1; map with 11 distinct keys, e.g. ['24', '25', '27', '1029']",
+      "items": {
+       "type": "integer",
+       "description": "seen 22 of 1"
+      }
+     }
+    }
+   },
+   "required": [
+    "current",
+    "history",
+    "names",
+    "years"
+   ],
+   "additionalProperties": false
+  },
+  "video": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "channels": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 1 of 1",
+      "properties": {
+       "basis": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "name": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "url": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       }
+      },
+      "required": [
+       "basis",
+       "name",
+       "url"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "official_pages": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 3 of 1"
+     }
+    },
+    "since": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "channels",
+    "official_pages",
+    "since"
+   ],
+   "additionalProperties": false
+  },
+  "votes": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "all_floor_votes": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "all_passed_in_current": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "key_bills": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 74 of 1",
+      "properties": {
+       "bill": {
+        "type": "string",
+        "description": "seen 74 of 74"
+       },
+       "session": {
+        "type": "integer",
+        "description": "seen 74 of 74",
+        "x-values": [
+         "1033",
+         "27",
+         "25",
+         "1029",
+         "1031",
+         "24",
+         "1034"
+        ]
+       },
+       "title": {
+        "type": "string",
+        "description": "seen 74 of 74"
+       }
+      },
+      "required": [
+       "bill",
+       "session",
+       "title"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "max_bills_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "all_floor_votes",
+    "all_passed_in_current",
+    "key_bills",
+    "max_bills_per_run"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "_about",
+  "code_acts",
+  "members",
+  "sessions",
+  "video",
+  "votes"
+ ],
+ "additionalProperties": false
+}

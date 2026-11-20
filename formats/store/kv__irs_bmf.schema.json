@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "irs_bmf",
+ "description": "JSON map",
+ "x-area": "kv",
+ "x-writer": "registries (IRS BMF cache); model_handoff",
+ "x-readers": "registries",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

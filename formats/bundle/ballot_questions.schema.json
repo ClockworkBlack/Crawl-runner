@@ -1,0 +1,114 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/ballot_questions.json",
+ "description": "{note, questions[]}",
+ "x-area": "export_bundle",
+ "x-writer": "ballot.export_questions",
+ "x-readers": "none in Electo (not pushed)",
+ "x-version": "2.3",
+ "x-documented-in": "export.py docstring one line",
+ "x-observed": "not observed; from code",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string"
+  },
+  "questions": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "jurisdiction": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "date": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "type": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "SPLOST, Referendum, ..."
+     },
+     "question": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "yes": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "null for text-only rows"
+     },
+     "no": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "total": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "result": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "passed|failed"
+     },
+     "official": {
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "results url [+ text url]"
+     },
+     "amount": {
+      "description": "from text record meta"
+     },
+     "years": {},
+     "purposes": {}
+    },
+    "required": [
+     "jurisdiction",
+     "name",
+     "date",
+     "type",
+     "question",
+     "yes",
+     "no",
+     "total",
+     "result",
+     "official",
+     "src",
+     "amount",
+     "years",
+     "purposes"
+    ]
+   }
+  }
+ },
+ "required": [
+  "note"
+ ]
+}

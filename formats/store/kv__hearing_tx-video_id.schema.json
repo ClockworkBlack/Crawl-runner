@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "hearing_tx:{video_id}",
+ "description": "'<how>:<YYYY-MM-DD>' or 'none:<day>'",
+ "x-area": "kv",
+ "x-writer": "legis_video.hearings",
+ "x-readers": "legis_video.hearings",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

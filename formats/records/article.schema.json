@@ -1,0 +1,57 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "article",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "candidates.py:1060 articles_batch; candidates.py:1094 _leads; discover_ai.py:590 keep; webresearch.py:208 outlet_archive; webresearch.py:273 web_search",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "(set by caller: cand:<id>)",
+    "<expr:SOURCE>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "x-values": [
+    "api",
+    "feed",
+    "html",
+    "wp_json"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "<expr:ev>",
+    "reported"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "approved": {},
+    "candidate_id": {},
+    "date_from": {},
+    "found_by": {},
+    "opened": {},
+    "outlet": {},
+    "quote": {},
+    "via": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

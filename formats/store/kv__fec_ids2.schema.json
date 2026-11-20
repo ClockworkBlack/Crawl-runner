@@ -1,0 +1,32 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "fec_ids2",
+ "description": "JSON map candidate id -> {ids, checked, fec_name}",
+ "x-area": "kv",
+ "x-writer": "finance (FEC id lookup); fec-reread apply (cli)",
+ "x-readers": "finance, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "additionalProperties": {
+  "type": "object",
+  "properties": {
+   "ids": {
+    "type": "array"
+   },
+   "checked": {
+    "type": "string"
+   },
+   "fec_name": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ids",
+   "checked",
+   "fec_name"
+  ]
+ }
+}

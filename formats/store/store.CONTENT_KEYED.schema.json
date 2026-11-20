@@ -1,0 +1,21 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "store.CONTENT_KEYED",
+ "description": "kinds keyed by content hash",
+ "x-area": "db_record_model",
+ "x-writer": "store.py constant",
+ "x-readers": "Record.natural_key",
+ "x-version": "",
+ "x-documented-in": "comment",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "connection": {
+   "type": "string"
+  },
+  "ocr": {
+   "type": "string"
+  }
+ }
+}

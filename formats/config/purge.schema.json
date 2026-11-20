@@ -1,0 +1,53 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/purge.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "cli purge, coverage",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/purge.yaml",
+ "x-issues": [],
+ "type": "array",
+ "items": {
+  "type": "object",
+  "description": "seen 5",
+  "properties": {
+   "channel": {
+    "type": "string",
+    "description": "seen 1 of 5"
+   },
+   "date": {
+    "type": "string",
+    "description": "seen 5 of 5",
+    "x-values": [
+     "2026-11-18",
+     "2026-11-06",
+     "2026-11-07"
+    ]
+   },
+   "reason": {
+    "type": "string",
+    "description": "seen 5 of 5"
+   },
+   "source": {
+    "type": "string",
+    "description": "seen 5 of 5",
+    "x-values": [
+     "columbus-muscogee:legistar",
+     "co-dekalb:site",
+     "folkston:civicclerk",
+     "homeland:civicclerk",
+     "co-bibb:civicclerk"
+    ]
+   }
+  },
+  "required": [
+   "date",
+   "reason",
+   "source"
+  ],
+  "additionalProperties": false
+ }
+}

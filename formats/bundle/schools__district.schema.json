@@ -1,0 +1,1717 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/schools/<district>.json",
+ "description": "district row + people, policy_list, meeting_list, video_list, member_votes, budget_list, school_list",
+ "x-area": "export_bundle",
+ "x-writer": "schools.export_schools",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "none",
+ "x-observed": "Electo/ga/crawl/schools/ (150 sampled)",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "address": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "board": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "string",
+    "description": "seen 73 of 150"
+   }
+  },
+  "board_metrics": {
+   "type": "object",
+   "description": "seen 150 of 150",
+   "properties": {
+    "2020": {
+     "type": "object",
+     "description": "seen 3 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 3 of 3",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 3 of 3",
+       "x-values": [
+        "16",
+        "14",
+        "3"
+       ]
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 3 of 3",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 3 of 3",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2021": {
+     "type": "object",
+     "description": "seen 7 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "25",
+        "12",
+        "29",
+        "17",
+        "22"
+       ]
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2022": {
+     "type": "object",
+     "description": "seen 16 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 16 of 16",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 16 of 16"
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 16 of 16",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 16 of 16",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2023": {
+     "type": "object",
+     "description": "seen 18 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 18 of 18",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 18 of 18"
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 18 of 18",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 18 of 18",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2024": {
+     "type": "object",
+     "description": "seen 22 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 22 of 22",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 22 of 22"
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 22 of 22",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 22 of 22",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2025": {
+     "type": "object",
+     "description": "seen 19 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 19 of 19",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 19 of 19"
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 19 of 19",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 19 of 19",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2026": {
+     "type": "object",
+     "description": "seen 49 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 49 of 49",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 49 of 49",
+       "x-values": [
+        "1",
+        "2",
+        "4",
+        "20",
+        "8",
+        "22",
+        "9",
+        "25",
+        "12",
+        "15",
+        "17",
+        "23",
+        "14",
+        "7",
+        "3",
+        "0",
+        "5",
+        "21",
+        "33",
+        "35",
+        "28"
+       ]
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 49 of 49",
+       "x-values": [
+        "0",
+        "4"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 49 of 49",
+       "x-values": [
+        "0",
+        "4"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2027": {
+     "type": "object",
+     "description": "seen 26 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 26 of 26",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 26 of 26",
+       "x-values": [
+        "12",
+        "6",
+        "1",
+        "10",
+        "11",
+        "9",
+        "22",
+        "24",
+        "37",
+        "8",
+        "15",
+        "48",
+        "7"
+       ]
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 26 of 26",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 26 of 26",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    },
+    "2028": {
+     "type": "object",
+     "description": "seen 7 of 150",
+     "properties": {
+      "divided": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      },
+      "meetings": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "1",
+        "3",
+        "4"
+       ]
+      },
+      "unanimous": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 7 of 7",
+       "x-values": [
+        "0"
+       ]
+      }
+     },
+     "required": [
+      "divided",
+      "meetings",
+      "unanimous",
+      "votes"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 8 of 150; map with 8 distinct keys, e.g. ['2020', '2021', '2022', '2023']",
+    "properties": {
+     "divided": {
+      "type": "integer",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "0"
+      ]
+     },
+     "meetings": {
+      "type": "integer",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "12",
+       "16",
+       "11",
+       "15",
+       "20",
+       "22"
+      ]
+     },
+     "unanimous": {
+      "type": "integer",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "0"
+      ]
+     },
+     "votes": {
+      "type": "integer",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "0"
+      ]
+     }
+    },
+    "required": [
+     "divided",
+     "meetings",
+     "unanimous",
+     "votes"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "budget_docs": {
+   "type": "integer",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "1",
+    "2",
+    "3",
+    "5",
+    "30",
+    "12",
+    "7"
+   ]
+  },
+  "budget_list": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "object",
+    "description": "seen 224 of 150",
+    "properties": {
+     "at": {
+      "type": "string",
+      "description": "seen 224 of 224",
+      "x-values": [
+       "2026-11-13",
+       "2026-11-09",
+       "2026-11-08",
+       "2026-11-14",
+       "2026-11-07",
+       "2026-11-16",
+       "2026-11-17",
+       "2026-11-20",
+       "2026-11-19"
+      ]
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 224 of 224",
+      "x-values": [
+       "",
+       "2022-12-31",
+       "2026-11-06"
+      ]
+     },
+     "how": {
+      "type": "string",
+      "description": "seen 150 of 224"
+     },
+     "k": {
+      "type": "string",
+      "description": "seen 224 of 224",
+      "x-values": [
+       "budget_doc",
+       "document",
+       "page"
+      ]
+     },
+     "t": {
+      "type": "string",
+      "description": "seen 224 of 224"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 224 of 224"
+     }
+    },
+    "required": [
+     "at",
+     "d",
+     "k",
+     "t",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "city": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "colleges": {
+   "type": "integer",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "0",
+    "1",
+    "2",
+    "8",
+    "9",
+    "6",
+    "5",
+    "13",
+    "7",
+    "3"
+   ]
+  },
+  "county": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "enrollment": {
+   "type": "integer",
+   "description": "seen 150 of 150"
+  },
+  "grades": {
+   "type": "string",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "PK-12",
+    "PK-08"
+   ]
+  },
+  "id": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "kind": {
+   "type": "string",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "school_district"
+   ]
+  },
+  "lat": {
+   "type": "number",
+   "description": "seen 150 of 150"
+  },
+  "lea_name": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "lon": {
+   "type": "number",
+   "description": "seen 150 of 150"
+  },
+  "meeting_list": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "object",
+    "description": "seen 2723 of 150",
+    "properties": {
+     "d": {
+      "type": "string",
+      "description": "seen 2723 of 2723"
+     },
+     "time": {
+      "type": "string",
+      "description": "seen 2616 of 2723"
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 2723 of 2723"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 2723 of 2723"
+     }
+    },
+    "required": [
+     "d",
+     "title",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "meeting_page": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "meetings": {
+   "type": "integer",
+   "description": "seen 150 of 150"
+  },
+  "member_votes": {
+   "type": "object",
+   "description": "seen 150 of 150",
+   "properties": {
+    "David Phillips": {
+     "type": "object",
+     "description": "seen 1 of 150",
+     "properties": {
+      "no": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "other": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "yes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "no",
+      "other",
+      "votes",
+      "yes"
+     ],
+     "additionalProperties": false
+    },
+    "Gregory Rogers": {
+     "type": "object",
+     "description": "seen 1 of 150",
+     "properties": {
+      "no": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "other": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "yes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "no",
+      "other",
+      "votes",
+      "yes"
+     ],
+     "additionalProperties": false
+    },
+    "Roy Perren": {
+     "type": "object",
+     "description": "seen 1 of 150",
+     "properties": {
+      "no": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "other": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "yes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "no",
+      "other",
+      "votes",
+      "yes"
+     ],
+     "additionalProperties": false
+    },
+    "Sara Rogers": {
+     "type": "object",
+     "description": "seen 1 of 150",
+     "properties": {
+      "no": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "other": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "votes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "yes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "no",
+      "other",
+      "votes",
+      "yes"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "name": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "nces_url": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "people": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "object",
+    "description": "seen 116 of 150",
+    "properties": {
+     "county": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "district_id": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "district_name": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "electo_key": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "found_at": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "line": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "page_title": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "pid": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     },
+     "role": {
+      "type": "string",
+      "description": "seen 116 of 116",
+      "x-values": [
+       "Member",
+       "Principal",
+       "Superintendent",
+       "Chair",
+       "Vice Chair"
+      ]
+     },
+     "school_id": {
+      "type": "string",
+      "description": "seen 24 of 116"
+     },
+     "school_name": {
+      "type": "string",
+      "description": "seen 24 of 116"
+     },
+     "seat": {
+      "type": "string",
+      "description": "seen 116 of 116",
+      "x-values": [
+       "",
+       "3",
+       "2",
+       "1",
+       "4",
+       "5",
+       "6",
+       "7",
+       "J",
+       "9",
+       "8",
+       "N",
+       "E",
+       "B"
+      ]
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 116 of 116"
+     }
+    },
+    "required": [
+     "county",
+     "district_id",
+     "district_name",
+     "electo_key",
+     "found_at",
+     "id",
+     "line",
+     "name",
+     "page_title",
+     "pid",
+     "role",
+     "seat",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "phone": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "policies": {
+   "type": "integer",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "0"
+   ]
+  },
+  "policy_list": {
+   "type": "array",
+   "description": "seen 150 of 150"
+  },
+  "portals": {
+   "type": "object",
+   "description": "seen 150 of 150",
+   "properties": {
+    "simbli": {
+     "type": "string",
+     "description": "seen 82 of 150"
+    },
+    "youtube": {
+     "type": "string",
+     "description": "seen 42 of 150"
+    }
+   },
+   "additionalProperties": false
+  },
+  "private_schools": {
+   "type": "integer",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "0",
+    "1",
+    "3",
+    "2",
+    "4",
+    "7",
+    "6",
+    "9",
+    "8",
+    "5",
+    "15",
+    "11",
+    "45",
+    "23",
+    "56",
+    "19",
+    "42",
+    "67",
+    "20"
+   ]
+  },
+  "ratio": {
+   "type": "number",
+   "description": "seen 150 of 150"
+  },
+  "school_list": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "object",
+    "description": "seen 1915 of 150",
+    "properties": {
+     "address": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "charter": {
+      "type": "boolean",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "city": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "district_id": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "enrollment": {
+      "type": "integer",
+      "description": "seen 1915 of 1915"
+     },
+     "frl": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "seen 1915 of 1915"
+     },
+     "grade_counts": {
+      "type": "object",
+      "description": "seen 1915 of 1915",
+      "properties": {
+       "G01": {
+        "type": "integer",
+        "description": "seen 1037 of 1915"
+       },
+       "G02": {
+        "type": "integer",
+        "description": "seen 1040 of 1915"
+       },
+       "G03": {
+        "type": "integer",
+        "description": "seen 1037 of 1915"
+       },
+       "G04": {
+        "type": "integer",
+        "description": "seen 1041 of 1915"
+       },
+       "G05": {
+        "type": "integer",
+        "description": "seen 1037 of 1915"
+       },
+       "G06": {
+        "type": "integer",
+        "description": "seen 487 of 1915"
+       },
+       "G07": {
+        "type": "integer",
+        "description": "seen 491 of 1915"
+       },
+       "G08": {
+        "type": "integer",
+        "description": "seen 496 of 1915"
+       },
+       "G09": {
+        "type": "integer",
+        "description": "seen 401 of 1915"
+       },
+       "G10": {
+        "type": "integer",
+        "description": "seen 404 of 1915"
+       },
+       "G11": {
+        "type": "integer",
+        "description": "seen 401 of 1915"
+       },
+       "G12": {
+        "type": "integer",
+        "description": "seen 396 of 1915"
+       },
+       "KG": {
+        "type": "integer",
+        "description": "seen 1035 of 1915"
+       },
+       "PK": {
+        "type": "integer",
+        "description": "seen 949 of 1915"
+       }
+      },
+      "additionalProperties": false
+     },
+     "grades": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "public"
+      ]
+     },
+     "lat": {
+      "type": "number",
+      "description": "seen 1915 of 1915"
+     },
+     "lea_name": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "leaid": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "level": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "Elementary",
+       "Middle",
+       "High",
+       "Other",
+       "Secondary",
+       "Prekindergarten"
+      ]
+     },
+     "locale": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "21-Suburb: Large",
+       "41-Rural: Fringe",
+       "42-Rural: Distant",
+       "12-City: Mid-size",
+       "32-Town: Distant",
+       "13-City: Small",
+       "43-Rural: Remote",
+       "31-Town: Fringe",
+       "23-Suburb: Small",
+       "22-Suburb: Mid-size",
+       "33-Town: Remote"
+      ]
+     },
+     "lon": {
+      "type": "number",
+      "description": "seen 1915 of 1915"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "nces_id": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "phone": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "principal": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "",
+       "sch-will-foster-sd-banks",
+       "sch-chuck-butler-sd-banks",
+       "sch-michael-boyle-sd-banks",
+       "sch-stacey-amerson-sd-mcduffie",
+       "sch-sonya-strong-sd-mcduffie",
+       "sch-brock-hawkins-sd-mcduffie",
+       "sch-brian-sirmans-sd-lanier",
+       "sch-nykia-carter-sd-peach",
+       "sch-anthony-blasingame-sd-peach",
+       "sch-heather-carr-sd-peach",
+       "sch-beth-kennedy-sd-tattnall",
+       "sch-amy-scott-sd-tattnall",
+       "sch-jody-heath-sd-pulaski",
+       "sch-zelda-white-davis-sd-randolph",
+       "sch-heather-melton-sd-randolph",
+       "sch-crystal-grimsley-sd-mitchell",
+       "sch-christina-chapman-sd-monroe",
+       "sch-sherondah-epps-sd-monroe",
+       "sch-daphene-blash-sd-monroe",
+       "sch-tamarkis-taylor-sd-monroe",
+       "sch-pam-elrod-sd-coffee",
+       "sch-alan-chancey-sd-coffee",
+       "sch-mohan-gugulothu-sd-sumter",
+       "sch-jodie-knight-sd-sumter"
+      ]
+     },
+     "ratio": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "description": "seen 1915 of 1915"
+     },
+     "st_leaid": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "stats": {
+      "type": "object",
+      "description": "seen 1915 of 1915",
+      "properties": {
+       "attendance": {
+        "type": "object",
+        "description": "seen 38 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 38 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 38 of 38"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "ccrpi": {
+        "type": "object",
+        "description": "seen 22 of 1915",
+        "properties": {
+         "FY25": {
+          "type": "object",
+          "description": "seen 22 of 22",
+          "properties": {
+           "v": {
+            "type": "number",
+            "description": "seen 22 of 22"
+           }
+          },
+          "required": [
+           "v"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "FY25"
+        ],
+        "additionalProperties": false
+       },
+       "dropouts_9_12": {
+        "type": "object",
+        "description": "seen 3 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 3 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 3 of 3"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "enrollment": {
+        "type": "object",
+        "description": "seen 38 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 38 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 38 of 38"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "eoc_all": {
+        "type": "object",
+        "description": "seen 19 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 19 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 19 of 19"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "eog_ela": {
+        "type": "object",
+        "description": "seen 18 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 18 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 18 of 18"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "eog_math": {
+        "type": "object",
+        "description": "seen 18 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 18 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 18 of 18"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "fesr_school": {
+        "type": "object",
+        "description": "seen 18 of 1915",
+        "properties": {
+         "FY25": {
+          "type": "object",
+          "description": "seen 18 of 18",
+          "properties": {
+           "ppe": {
+            "type": "number",
+            "description": "seen 18 of 18"
+           },
+           "v": {
+            "type": "number",
+            "description": "seen 18 of 18"
+           }
+          },
+          "required": [
+           "ppe",
+           "v"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "FY25"
+        ],
+        "additionalProperties": false
+       },
+       "ppe_school": {
+        "type": "object",
+        "description": "seen 34 of 1915",
+        "properties": {
+         "FY25": {
+          "type": "object",
+          "description": "seen 34 of 34",
+          "properties": {
+           "ppe": {
+            "type": "number",
+            "description": "seen 34 of 34"
+           },
+           "v": {
+            "type": "number",
+            "description": "seen 34 of 34"
+           }
+          },
+          "required": [
+           "ppe",
+           "v"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "FY25"
+        ],
+        "additionalProperties": false
+       },
+       "retained": {
+        "type": "object",
+        "description": "seen 5 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 5 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 5 of 5"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "teacher_salary": {
+        "type": "object",
+        "description": "seen 49 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 49 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 49 of 49"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "teachers": {
+        "type": "object",
+        "description": "seen 49 of 1915",
+        "additionalProperties": {
+         "type": "object",
+         "description": "seen 49 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+         "properties": {
+          "v": {
+           "type": "number",
+           "description": "seen 49 of 49"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       }
+      },
+      "additionalProperties": {
+       "type": "object",
+       "description": "seen 18812 of 1915; map with 16 distinct keys, e.g. ['ppe_school', 'teachers', 'teacher_salary', 'enrollment']",
+       "properties": {
+        "FY25": {
+         "type": "object",
+         "description": "seen 5536 of 18812",
+         "properties": {
+          "ppe": {
+           "type": "number",
+           "description": "seen 3684 of 5536"
+          },
+          "v": {
+           "type": "number",
+           "description": "seen 5536 of 5536"
+          }
+         },
+         "required": [
+          "v"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "additionalProperties": {
+        "type": "object",
+        "description": "seen 13276 of 1915; map with 1 distinct keys, e.g. ['2024-25']",
+        "properties": {
+         "v": {
+          "type": "number",
+          "description": "seen 13276 of 13276"
+         }
+        },
+        "required": [
+         "v"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "status": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "Open",
+       "New"
+      ]
+     },
+     "teachers": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "description": "seen 1915 of 1915"
+     },
+     "type": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "Regular School",
+       "Alternative Education School"
+      ]
+     },
+     "virtual": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "Not Virtual",
+       "Full Virtual"
+      ]
+     },
+     "website": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     },
+     "year": {
+      "type": "string",
+      "description": "seen 1915 of 1915",
+      "x-values": [
+       "2024-2025"
+      ]
+     },
+     "zip": {
+      "type": "string",
+      "description": "seen 1915 of 1915"
+     }
+    },
+    "required": [
+     "address",
+     "charter",
+     "city",
+     "county",
+     "district_id",
+     "enrollment",
+     "frl",
+     "grade_counts",
+     "grades",
+     "id",
+     "kind",
+     "lat",
+     "lea_name",
+     "leaid",
+     "level",
+     "locale",
+     "lon",
+     "name",
+     "nces_id",
+     "phone",
+     "principal",
+     "ratio",
+     "st_leaid",
+     "stats",
+     "status",
+     "teachers",
+     "type",
+     "virtual",
+     "website",
+     "year",
+     "zip"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "schools": {
+   "type": "integer",
+   "description": "seen 150 of 150"
+  },
+  "stats": {
+   "type": "object",
+   "description": "seen 150 of 150",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 2162 of 150; map with 15 distinct keys, e.g. ['attendance', 'teachers', 'teacher_salary', 'enrollment']",
+    "properties": {
+     "FY25": {
+      "type": "object",
+      "description": "seen 450 of 2162",
+      "properties": {
+       "ppe": {
+        "type": "number",
+        "description": "seen 300 of 450"
+       },
+       "v": {
+        "type": "number",
+        "description": "seen 450 of 450"
+       }
+      },
+      "required": [
+       "v"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "additionalProperties": {
+     "type": "object",
+     "description": "seen 1712 of 150; map with 1 distinct keys, e.g. ['2024-25']",
+     "properties": {
+      "v": {
+       "type": "number",
+       "description": "seen 1712 of 1712"
+      }
+     },
+     "required": [
+      "v"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "superintendent": {
+   "type": "string",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "",
+    "sch-stacy-mcdaniel-sd-city-chickamauga",
+    "MICHAEL WILLIAMS",
+    "sch-evaluation-instrument-sd-mcduffie",
+    "sch-gene-culpepper-sd-lanier",
+    "sch-joe-martin-sd-dekalb",
+    "sch-robert-griffin-sd-meriwether",
+    "sch-kristina-brooks-sd-baldwin",
+    "sch-chance-nix-sd-catoosa",
+    "sch-kristen-waters-sd-tattnall",
+    "sch-debbie-puckett-sd-pulaski",
+    "sch-tim-wright-sd-murray",
+    "sch-darren-berrong-sd-towns",
+    "sch-veronica-brown-sd-mitchell",
+    "sch-jim-finch-sd-monroe",
+    "sch-jerry-bell-sd-haralson",
+    "sch-dorothy-y-ingram-sd-webster",
+    "sch-walker-todd-button-sd-brantley",
+    "sch-merwan-massa-sd-mcintosh",
+    "sch-philip-brown-sd-jackson"
+   ]
+  },
+  "teachers": {
+   "type": "number",
+   "description": "seen 150 of 150"
+  },
+  "video_list": {
+   "type": "array",
+   "description": "seen 150 of 150",
+   "items": {
+    "type": "object",
+    "description": "seen 2615 of 150",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     },
+     "ch": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     },
+     "chu": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 2615 of 2615"
+     }
+    },
+    "required": [
+     "basis",
+     "ch",
+     "chu",
+     "d",
+     "title",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "votes": {
+   "type": "integer",
+   "description": "seen 150 of 150",
+   "x-values": [
+    "0",
+    "4"
+   ]
+  },
+  "website": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  },
+  "zip": {
+   "type": "string",
+   "description": "seen 150 of 150"
+  }
+ },
+ "required": [
+  "address",
+  "board",
+  "board_metrics",
+  "budget_docs",
+  "budget_list",
+  "city",
+  "colleges",
+  "county",
+  "enrollment",
+  "grades",
+  "id",
+  "kind",
+  "lat",
+  "lea_name",
+  "lon",
+  "meeting_list",
+  "meeting_page",
+  "meetings",
+  "member_votes",
+  "name",
+  "nces_url",
+  "people",
+  "phone",
+  "policies",
+  "policy_list",
+  "portals",
+  "private_schools",
+  "ratio",
+  "school_list",
+  "schools",
+  "stats",
+  "superintendent",
+  "teachers",
+  "video_list",
+  "votes",
+  "website",
+  "zip"
+ ],
+ "additionalProperties": false
+}

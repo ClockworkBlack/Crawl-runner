@@ -1,0 +1,313 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/agencies.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "agencies.load/run/export_state_meetings, cli",
+ "x-version": "",
+ "x-documented-in": "header comment lists keys (id, kind, name, agency, pages{u,reader,section,skip_section,archive,once}, reader, follow, event_pages, event_links, match, defaults, corrections, source, legacy, max_pages, links); NOT listed: committees[{rx,name}], recheck_days, pages[].post, not_read",
+ "x-observed": "config/agencies.yaml",
+ "x-issues": [
+  "I14 (undocumented): config/agencies.yaml: keys in use but not in the header's key list: committees[{rx,name}], recheck_days, pages[].post, not_read; links are written {t,u} in config and {l,u} in the export"
+ ],
+ "type": "object",
+ "properties": {
+  "agencies": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 30 of 1",
+    "properties": {
+     "agency": {
+      "type": "string",
+      "description": "seen 30 of 30"
+     },
+     "committees": {
+      "type": "array",
+      "description": "seen 1 of 30",
+      "items": {
+       "type": "object",
+       "description": "seen 5 of 30",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "seen 5 of 5"
+        },
+        "rx": {
+         "type": "string",
+         "description": "seen 5 of 5"
+        }
+       },
+       "required": [
+        "name",
+        "rx"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "corrections": {
+      "type": "array",
+      "description": "seen 1 of 30",
+      "items": {
+       "type": "object",
+       "description": "seen 2 of 30",
+       "properties": {
+        "d": {
+         "type": "string",
+         "description": "seen 2 of 2"
+        },
+        "drop": {
+         "type": "array",
+         "description": "seen 1 of 2",
+         "items": {
+          "type": "string",
+          "description": "seen 1 of 2"
+         }
+        },
+        "set": {
+         "type": "object",
+         "description": "seen 2 of 2",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "seen 2 of 2"
+          },
+          "time": {
+           "type": "string",
+           "description": "seen 1 of 2"
+          }
+         },
+         "required": [
+          "name"
+         ],
+         "additionalProperties": false
+        },
+        "why": {
+         "type": "string",
+         "description": "seen 2 of 2"
+        }
+       },
+       "required": [
+        "d",
+        "set",
+        "why"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "defaults": {
+      "type": "object",
+      "description": "seen 11 of 30",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "seen 10 of 11"
+       },
+       "time": {
+        "type": "string",
+        "description": "seen 2 of 11"
+       },
+       "where": {
+        "type": "string",
+        "description": "seen 2 of 11"
+       }
+      },
+      "additionalProperties": false
+     },
+     "event_links": {
+      "type": "string",
+      "description": "seen 1 of 30"
+     },
+     "event_pages": {
+      "type": "boolean",
+      "description": "seen 4 of 30",
+      "x-values": [
+       "True"
+      ]
+     },
+     "follow": {
+      "type": "array",
+      "description": "seen 8 of 30",
+      "items": {
+       "type": "string",
+       "description": "seen 10 of 30"
+      }
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 30 of 30"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 19 of 30",
+      "x-values": [
+       "authority",
+       "transit"
+      ]
+     },
+     "legacy": {
+      "type": "string",
+      "description": "seen 8 of 30",
+      "x-values": [
+       "drop"
+      ]
+     },
+     "links": {
+      "type": "array",
+      "description": "seen 3 of 30",
+      "items": {
+       "type": "object",
+       "description": "seen 3 of 30",
+       "properties": {
+        "t": {
+         "type": "string",
+         "description": "seen 3 of 3"
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 3 of 3"
+        }
+       },
+       "required": [
+        "t",
+        "u"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "match": {
+      "type": "string",
+      "description": "seen 1 of 30"
+     },
+     "max_pages": {
+      "type": "integer",
+      "description": "seen 2 of 30"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 30 of 30"
+     },
+     "pages": {
+      "type": "array",
+      "description": "seen 30 of 30",
+      "items": {
+       "type": [
+        "object",
+        "string"
+       ],
+       "description": "seen 53 of 30; MIXED types {'str': 33, 'object': 20}",
+       "properties": {
+        "archive": {
+         "type": "boolean",
+         "description": "seen 7 of 20",
+         "x-values": [
+          "True"
+         ]
+        },
+        "once": {
+         "type": "boolean",
+         "description": "seen 1 of 20"
+        },
+        "post": {
+         "type": "boolean",
+         "description": "seen 2 of 20"
+        },
+        "reader": {
+         "type": "string",
+         "description": "seen 18 of 20",
+         "x-values": [
+          "notice_posts",
+          "marta_documents",
+          "dated_lines",
+          "gtea_board",
+          "title_table",
+          "smma_minutes",
+          "marta_schedule",
+          "month_named"
+         ]
+        },
+        "section": {
+         "type": "string",
+         "description": "seen 2 of 20"
+        },
+        "skip_section": {
+         "type": "string",
+         "description": "seen 1 of 20"
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 20 of 20"
+        }
+       },
+       "required": [
+        "u"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "reader": {
+      "type": "string",
+      "description": "seen 6 of 30",
+      "x-values": [
+       "dated_lines",
+       "jekyll_board",
+       "month_named",
+       "gwcca_about",
+       "notice_posts"
+      ]
+     },
+     "recheck_days": {
+      "type": "integer",
+      "description": "seen 1 of 30"
+     },
+     "source": {
+      "type": "string",
+      "description": "seen 1 of 30"
+     }
+    },
+    "required": [
+     "agency",
+     "id",
+     "name",
+     "pages"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "not_read": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 2 of 1",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "seen 2 of 2"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 2 of 2"
+     },
+     "why": {
+      "type": "string",
+      "description": "seen 2 of 2"
+     }
+    },
+    "required": [
+     "name",
+     "u",
+     "why"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "agencies",
+  "not_read"
+ ],
+ "additionalProperties": false
+}

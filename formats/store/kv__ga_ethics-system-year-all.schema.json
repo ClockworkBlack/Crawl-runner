@@ -1,0 +1,35 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "ga_ethics:{system}:{year|all}",
+ "description": "JSON {page, total, size, at} or {complete:true, total, size, at}",
+ "x-area": "kv",
+ "x-writer": "ethics (ga-money job)",
+ "x-readers": "ethics (apply: further-along read wins)",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "page": {
+   "type": "integer"
+  },
+  "complete": {
+   "type": "boolean"
+  },
+  "total": {
+   "type": "integer"
+  },
+  "size": {
+   "type": "integer"
+  },
+  "at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "total",
+  "size",
+  "at"
+ ]
+}

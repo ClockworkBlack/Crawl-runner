@@ -1,0 +1,63 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "store.ID_FIELDS",
+ "description": "tuple of meta keys, first non-empty one is the natural id",
+ "x-area": "db_record_model",
+ "x-writer": "store.py constant",
+ "x-readers": "Record.natural_key",
+ "x-version": "",
+ "x-documented-in": "comment",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "EventItemId": {
+   "x-type": "meta key"
+  },
+  "VoteId": {
+   "x-type": "meta key"
+  },
+  "MatterId": {
+   "x-type": "meta key"
+  },
+  "EventId": {
+   "x-type": "meta key"
+  },
+  "OfficeRecordId": {
+   "x-type": "meta key"
+  },
+  "event_item_id": {
+   "x-type": "meta key"
+  },
+  "file_id": {
+   "x-type": "meta key"
+  },
+  "event_id": {
+   "x-type": "meta key"
+  },
+  "guid": {
+   "x-type": "meta key"
+  },
+  "wp_id": {
+   "x-type": "meta key"
+  },
+  "record_id": {
+   "x-type": "meta key"
+  },
+  "tweet_id": {
+   "x-type": "meta key"
+  },
+  "video_id": {
+   "x-type": "meta key"
+  },
+  "uri": {
+   "x-type": "meta key"
+  },
+  "account_id": {
+   "x-type": "meta key"
+  },
+  "person_id": {
+   "x-type": "meta key"
+  }
+ }
+}

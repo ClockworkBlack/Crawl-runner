@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "video_ai:tried",
+ "description": "JSON list (last 20000)",
+ "x-area": "kv",
+ "x-writer": "video_ai",
+ "x-readers": "video_ai",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

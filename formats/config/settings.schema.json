@@ -1,0 +1,615 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/settings.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "config.load (every command), backfill, openrecords, simbli_archive",
+ "x-version": "",
+ "x-documented-in": "comments",
+ "x-observed": "config/settings.yaml",
+ "x-issues": [
+  "I17 (mixed_types): minutes_log kept bool (740) vs int (2260); discover_log why str (292) vs list (398); rumor_log seconds float/int; settings http.host_intervals int/float"
+ ],
+ "type": "object",
+ "properties": {
+  "archive": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "refused_sources": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "refused_sources_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "refused_sources",
+    "refused_sources_per_run"
+   ],
+   "additionalProperties": false
+  },
+  "cadence_days": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "a": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "b": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "c": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "a",
+    "b",
+    "c"
+   ],
+   "additionalProperties": false
+  },
+  "candidates": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "account_recheck_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "archive": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "archive_articles_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "archive_sites_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "bluesky_search": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "cadence_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "dead_site_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "gdelt": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "google_news": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "leads_for": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "max_articles_per_query": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "max_host_wait_s": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "max_mentions": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "max_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "news_cadence_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "news_workers": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "recent_cadence_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "site_max_pages": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "site_recheck_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "web": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "web_cadence_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "web_outlets_per_candidate": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "web_pages_per_candidate": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "web_search": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "web_search_cap": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "web_workers": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "workers": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "account_recheck_days",
+    "archive",
+    "archive_articles_per_run",
+    "archive_sites_per_run",
+    "bluesky_search",
+    "cadence_days",
+    "dead_site_days",
+    "gdelt",
+    "google_news",
+    "leads_for",
+    "max_articles_per_query",
+    "max_host_wait_s",
+    "max_mentions",
+    "max_minutes",
+    "news_cadence_days",
+    "news_workers",
+    "recent_cadence_days",
+    "site_max_pages",
+    "site_recheck_days",
+    "web",
+    "web_cadence_days",
+    "web_outlets_per_candidate",
+    "web_pages_per_candidate",
+    "web_search",
+    "web_search_cap",
+    "web_workers",
+    "workers"
+   ],
+   "additionalProperties": false
+  },
+  "data_dir": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "electo": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "levels": {
+     "type": "array",
+     "description": "seen 1 of 1"
+    },
+    "min_last_race_year": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "levels",
+    "min_last_race_year"
+   ],
+   "additionalProperties": false
+  },
+  "frontier": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "document_ttl_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "page_revisit_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "document_ttl_days",
+    "page_revisit_days"
+   ],
+   "additionalProperties": false
+  },
+  "http": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "api_endpoints": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 11 of 1"
+     }
+    },
+    "blocked_ttl_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "contact": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "host_intervals": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "number",
+      "description": "seen 13 of 1; MIXED types {'float': 3, 'int': 10}; map with 13 distinct keys, e.g. ['webapi.legistar.com', 'www.legis.ga.gov', 'www.googleapis.com', 'api.civicclerk.com']",
+      "x-values": [
+       "2",
+       "1",
+       "6",
+       "3",
+       "4"
+      ]
+     }
+    },
+    "host_retries": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "integer",
+      "description": "seen 1 of 1; map with 1 distinct keys, e.g. ['web.archive.org']"
+     }
+    },
+    "host_timeouts": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "integer",
+      "description": "seen 1 of 1; map with 1 distinct keys, e.g. ['api.gdeltproject.org']"
+     }
+    },
+    "max_bytes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "max_doc_bytes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "min_interval_seconds": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "space_after_answer": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 2 of 1"
+     }
+    },
+    "timeout_seconds": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "user_agent": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "api_endpoints",
+    "blocked_ttl_days",
+    "contact",
+    "host_intervals",
+    "host_retries",
+    "host_timeouts",
+    "max_bytes",
+    "max_doc_bytes",
+    "min_interval_seconds",
+    "space_after_answer",
+    "timeout_seconds",
+    "user_agent"
+   ],
+   "additionalProperties": false
+  },
+  "limits": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "max_pages": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "meeting_lookback_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "since": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "max_pages",
+    "meeting_lookback_days",
+    "since"
+   ],
+   "additionalProperties": false
+  },
+  "max_minutes": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "openrecords": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "cooldown_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "daily_limit": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "enabled": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "follow_up_after_business_days": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "cooldown_days",
+    "daily_limit",
+    "enabled",
+    "follow_up_after_business_days"
+   ],
+   "additionalProperties": false
+  },
+  "recheck_days": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "schedule": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "api_anytime": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "daytime": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "hosts": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 6 of 1",
+        "x-values": [
+         "georgia.gov",
+         "ga.gov",
+         "gadoe.org",
+         "gosa.ga.gov",
+         "legis.ga.gov",
+         "k12.ga.us"
+        ]
+       }
+      },
+      "kinds": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       }
+      },
+      "slower_by": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "tiers": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       }
+      }
+     },
+     "required": [
+      "hosts",
+      "kinds",
+      "slower_by",
+      "tiers"
+     ],
+     "additionalProperties": false
+    },
+    "timezone": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "windows": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 2 of 1",
+      "properties": {
+       "days": {
+        "type": "array",
+        "description": "seen 2 of 2",
+        "items": {
+         "type": "string",
+         "description": "seen 7 of 2"
+        }
+       },
+       "end": {
+        "type": "string",
+        "description": "seen 2 of 2"
+       },
+       "start": {
+        "type": "string",
+        "description": "seen 2 of 2"
+       }
+      },
+      "required": [
+       "days",
+       "end",
+       "start"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "api_anytime",
+    "daytime",
+    "timezone",
+    "windows"
+   ],
+   "additionalProperties": false
+  },
+  "schools": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "calendar_archive": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "calendar_subscriptions": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "calendar_workers": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "district_calendars": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "simbli_archive": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "simbli_districts_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "calendar_archive",
+    "calendar_subscriptions",
+    "calendar_workers",
+    "district_calendars",
+    "simbli_archive",
+    "simbli_districts_per_run"
+   ],
+   "additionalProperties": false
+  },
+  "state_dir": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "transcribe": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "budget_seconds": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "enabled": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "hearing_budget_seconds": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "hearing_max_mb": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "max_mb": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "model": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "budget_seconds",
+    "enabled",
+    "hearing_budget_seconds",
+    "hearing_max_mb",
+    "max_mb",
+    "model",
+    "per_run"
+   ],
+   "additionalProperties": false
+  },
+  "workers": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "archive",
+  "cadence_days",
+  "candidates",
+  "data_dir",
+  "electo",
+  "frontier",
+  "http",
+  "limits",
+  "max_minutes",
+  "openrecords",
+  "recheck_days",
+  "schedule",
+  "schools",
+  "state_dir",
+  "transcribe",
+  "workers"
+ ],
+ "additionalProperties": false
+}

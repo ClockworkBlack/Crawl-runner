@@ -1,0 +1,1997 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/profiles/<key>.json",
+ "description": "profile supplement object",
+ "x-area": "export_bundle",
+ "x-writer": "profiles.ProfileWriter.add (ProfileBuilder.profile)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Profile supplement' (summary line)",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3); 800 sampled",
+ "x-issues": [
+  "I15 (mixed_types): money.total_raised is int in some files and float in others (packets 589 int / 194 float; profiles 571/219; profiles index 2680/320); fec.itemized 20 float / 1 int",
+  "undocumented keys vs schema.md section (81): act, address, also_funds, amount, amounts, archived, as_of, candidate_id, candidates, career_summary, check, committees, contributions, controversies, copy, cues, cycles, date, dates, donor, donor_name, employer, enacted, endorser, endorser_name, entity, expenditures, fec, first, headlines, id, ideology_markers, is_candidate, itemized, jurisdiction, jurisdictions, last, level, marker, n, name, not_theirs, note, occupation, office, officers, org_kind, organizations_gave_to, outcome, pages, party, path, pct, person, person_name, phrase, placeholder, procedural, receipts, recipient, recipient_name, recipients, result, roles, seq, session_id, site, sources, stage, status, t, topics, total, total_spent, u, unattributed, unreadable, urls, via, what, why"
+ ],
+ "type": "object",
+ "properties": {
+  "affiliations": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 1262 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 1262 of 1262",
+      "x-values": [
+       "legislature member record",
+       "campaign site",
+       "reported by roughdraftatlanta.com",
+       "reported by valdostadailytimes.com",
+       "reported by tiftongazette.com",
+       "reported by moultrieobserver.com",
+       "reported by wsbradio.com",
+       "reported by fox5atlanta.com",
+       "reported by americustimesrecorder.com",
+       "reported by henrycountytimes.com",
+       "reported by cbsnews.com",
+       "reported by cordeledispatch.com",
+       "reported by 41nbc.com"
+      ]
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 1262 of 1262"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 1262 of 1262",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "org": {
+      "type": "string",
+      "description": "seen 1262 of 1262"
+     },
+     "role": {
+      "type": "string",
+      "description": "seen 1262 of 1262"
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 1262 of 1262",
+      "items": {
+       "type": "integer",
+       "description": "seen 1262 of 1262"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 1262 of 1262"
+     }
+    },
+    "required": [
+     "basis",
+     "d",
+     "evidence",
+     "org",
+     "role",
+     "src",
+     "text"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "as_of": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "bills": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 10946 of 800",
+    "properties": {
+     "act": {
+      "type": "string",
+      "description": "seen 10946 of 10946"
+     },
+     "caption": {
+      "type": "string",
+      "description": "seen 10946 of 10946"
+     },
+     "enacted": {
+      "type": "boolean",
+      "description": "seen 10946 of 10946",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "number": {
+      "type": "string",
+      "description": "seen 10946 of 10946"
+     },
+     "role": {
+      "type": "string",
+      "description": "seen 10946 of 10946",
+      "x-values": [
+       "lead sponsor",
+       "co-sponsor"
+      ]
+     },
+     "seq": {
+      "type": "integer",
+      "description": "seen 10946 of 10946",
+      "x-values": [
+       "1",
+       "2",
+       "3",
+       "4",
+       "5",
+       "6"
+      ]
+     },
+     "session": {
+      "type": "string",
+      "description": "seen 10946 of 10946",
+      "x-values": [
+       "2015-2016",
+       "2017-2018",
+       "2019-2020",
+       "2025-2026",
+       "2021-2022",
+       "2023-2024 Regular Session",
+       "2026 special",
+       "2021 special",
+       "2023 Special Session",
+       "2018 special"
+      ]
+     },
+     "session_id": {
+      "type": "integer",
+      "description": "seen 10946 of 10946",
+      "x-values": [
+       "24",
+       "25",
+       "27",
+       "1033",
+       "1029",
+       "1031",
+       "1034",
+       "1030",
+       "1032",
+       "26"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 10946 of 10946",
+      "items": {
+       "type": "integer",
+       "description": "seen 10946 of 10946"
+      }
+     },
+     "status": {
+      "type": "string",
+      "description": "seen 10946 of 10946"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 10946 of 10946"
+     }
+    },
+    "required": [
+     "act",
+     "caption",
+     "enacted",
+     "number",
+     "role",
+     "seq",
+     "session",
+     "session_id",
+     "src",
+     "status",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "candidate_id": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "career": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 4299 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 4299 of 4299",
+      "x-values": [
+       "official results",
+       "legislature member record",
+       "legis.ga.gov member record",
+       "campaign site",
+       "candidate's own biography",
+       "minutes attendance (a floor on service, not a term)",
+       "office record (legistar)",
+       "reported by roughdraftatlanta.com",
+       "reported by valdostadailytimes.com",
+       "reported by tiftongazette.com",
+       "reported by moultrieobserver.com",
+       "reported by wsbradio.com",
+       "reported by fox5atlanta.com",
+       "reported by americustimesrecorder.com",
+       "reported by henrycountytimes.com",
+       "reported by cbsnews.com",
+       "reported by cordeledispatch.com",
+       "reported by 41nbc.com"
+      ]
+     },
+     "body": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 4299 of 4299",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "how": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 4299 of 4299",
+      "x-values": [
+       "election",
+       "membership",
+       "office",
+       "bio",
+       "attendance"
+      ]
+     },
+     "level": {
+      "type": "string",
+      "description": "seen 1897 of 4299",
+      "x-values": [
+       "legislative",
+       "local",
+       "federal",
+       "judicial",
+       "statewide"
+      ]
+     },
+     "outcome": {
+      "type": "string",
+      "description": "seen 1897 of 4299",
+      "x-values": [
+       "unopposed",
+       "won",
+       "did not win",
+       "runoff",
+       "nomaj",
+       "elected",
+       "led"
+      ]
+     },
+     "party": {
+      "type": "string",
+      "description": "seen 1897 of 4299",
+      "x-values": [
+       "R",
+       "D",
+       "",
+       "I",
+       "L"
+      ]
+     },
+     "pct": {
+      "type": [
+       "null",
+       "number"
+      ],
+      "description": "seen 1897 of 4299"
+     },
+     "role": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 4299 of 4299",
+      "items": {
+       "type": "integer",
+       "description": "seen 4429 of 4299"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "to": {
+      "type": "string",
+      "description": "seen 4299 of 4299"
+     },
+     "votes": {
+      "type": "integer",
+      "description": "seen 1897 of 4299"
+     }
+    },
+    "required": [
+     "basis",
+     "body",
+     "d",
+     "evidence",
+     "how",
+     "jurisdiction",
+     "kind",
+     "role",
+     "src",
+     "text",
+     "to"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "career_summary": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "controversies": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 8 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "reported by fox5atlanta.com",
+       "reported by roughdraftatlanta.com",
+       "reported by wrdw.com",
+       "reported by discoverwalker.com"
+      ]
+     },
+     "cues": {
+      "type": "array",
+      "description": "seen 8 of 8",
+      "items": {
+       "type": "string",
+       "description": "seen 14 of 8"
+      }
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "2026-08-23",
+       "2026-09-07",
+       "2025-10-03",
+       "2026-08-28",
+       "2026-08-22",
+       "2026-07-28"
+      ]
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "reported"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 8 of 8",
+      "items": {
+       "type": "integer",
+       "description": "seen 8 of 8"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 8 of 8"
+     }
+    },
+    "required": [
+     "basis",
+     "cues",
+     "d",
+     "evidence",
+     "src",
+     "text"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "depth": {
+   "type": "string",
+   "description": "seen 800 of 800",
+   "x-values": [
+    "none",
+    "full",
+    "partial",
+    "thin"
+   ]
+  },
+  "endorsement_items": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 207 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 207 of 207",
+      "x-values": [
+       "campaign site (self-reported)",
+       "reported by foxnews.com",
+       "reported by roughdraftatlanta.com"
+      ]
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 207 of 207"
+     },
+     "direction": {
+      "type": "string",
+      "description": "seen 207 of 207",
+      "x-values": [
+       "received",
+       "given"
+      ]
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 207 of 207",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 207 of 207"
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 207 of 207",
+      "items": {
+       "type": "integer",
+       "description": "seen 207 of 207"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 207 of 207"
+     }
+    },
+    "required": [
+     "basis",
+     "d",
+     "direction",
+     "evidence",
+     "name",
+     "src",
+     "text"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "endorsements": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "string",
+    "description": "seen 186 of 800"
+   }
+  },
+  "esrc": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "integer",
+    "description": "seen 94 of 800"
+   }
+  },
+  "ideology": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "ideology_markers": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 329 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 329 of 329",
+      "x-values": [
+       "campaign site",
+       "reported by foxnews.com"
+      ]
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 329 of 329"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 329 of 329",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "marker": {
+      "type": "string",
+      "description": "seen 329 of 329",
+      "x-values": [
+       "self-description",
+       "conservative",
+       "progressive",
+       "moderate",
+       "libertarian",
+       "populist"
+      ]
+     },
+     "phrase": {
+      "type": "string",
+      "description": "seen 329 of 329"
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 329 of 329",
+      "items": {
+       "type": "integer",
+       "description": "seen 329 of 329"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 329 of 329"
+     }
+    },
+    "required": [
+     "basis",
+     "d",
+     "evidence",
+     "marker",
+     "phrase",
+     "src",
+     "text"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "inference_inputs": {
+   "type": "integer",
+   "description": "seen 800 of 800"
+  },
+  "isrc": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "integer",
+    "description": "seen 256 of 800"
+   }
+  },
+  "jurisdictions": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "string",
+    "description": "seen 688 of 800"
+   }
+  },
+  "key": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "seen 800 of 800"
+  },
+  "money": {
+   "type": "object",
+   "description": "seen 800 of 800",
+   "properties": {
+    "contributions": {
+     "type": "integer",
+     "description": "seen 790 of 800"
+    },
+    "donors": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 8834 of 800",
+      "properties": {
+       "also_funds": {
+        "type": "array",
+        "description": "seen 2998 of 8834",
+        "items": {
+         "type": "object",
+         "description": "seen 25051 of 8834",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "seen 25051 of 25051"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 25051 of 25051"
+          },
+          "src": {
+           "type": "string",
+           "description": "seen 25051 of 25051"
+          }
+         },
+         "required": [
+          "amount",
+          "name",
+          "src"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "employer": {
+        "type": "string",
+        "description": "seen 5130 of 8834"
+       },
+       "first": {
+        "type": "string",
+        "description": "seen 8834 of 8834"
+       },
+       "id": {
+        "type": "string",
+        "description": "seen 8834 of 8834"
+       },
+       "kind": {
+        "type": "string",
+        "description": "seen 8834 of 8834",
+        "x-values": [
+         "person",
+         "org",
+         "committee",
+         "candidate"
+        ]
+       },
+       "last": {
+        "type": "string",
+        "description": "seen 8834 of 8834"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 8834 of 8834"
+       },
+       "name": {
+        "type": "string",
+        "description": "seen 8834 of 8834"
+       },
+       "occupation": {
+        "type": "string",
+        "description": "seen 5075 of 8834"
+       },
+       "officers": {
+        "type": "array",
+        "description": "seen 2998 of 8834",
+        "items": {
+         "type": "object",
+         "description": "seen 2224 of 8834",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "seen 2224 of 2224"
+          },
+          "role": {
+           "type": "string",
+           "description": "seen 2224 of 2224",
+           "x-values": [
+            "treasurer",
+            "chairperson"
+           ]
+          },
+          "src": {
+           "type": "string",
+           "description": "seen 2224 of 2224"
+          }
+         },
+         "required": [
+          "name",
+          "role",
+          "src"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "org_kind": {
+        "type": "string",
+        "description": "seen 2998 of 8834",
+        "x-values": [
+         "committee",
+         "unknown",
+         "nonprofit"
+        ]
+       },
+       "src": {
+        "type": "array",
+        "description": "seen 8834 of 8834",
+        "items": {
+         "type": "string",
+         "description": "seen 11453 of 8834"
+        }
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 8834 of 8834"
+       },
+       "what": {
+        "type": "string",
+        "description": "seen 2998 of 8834"
+       }
+      },
+      "required": [
+       "first",
+       "id",
+       "kind",
+       "last",
+       "n",
+       "name",
+       "src",
+       "total"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "employers": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 2848 of 800",
+      "properties": {
+       "employer": {
+        "type": "string",
+        "description": "seen 2848 of 2848"
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 2848 of 2848"
+       }
+      },
+      "required": [
+       "employer",
+       "total"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "entity": {
+     "type": "string",
+     "description": "seen 790 of 800"
+    },
+    "expenditures": {
+     "type": "integer",
+     "description": "seen 790 of 800",
+     "x-values": [
+      "0"
+     ]
+    },
+    "fec": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "seen 790 of 800",
+     "properties": {
+      "check": {
+       "type": "string",
+       "description": "seen 20 of 20",
+       "x-values": [
+        "ok"
+       ]
+      },
+      "committees": {
+       "type": "array",
+       "description": "seen 20 of 20",
+       "items": {
+        "type": "string",
+        "description": "seen 25 of 20"
+       }
+      },
+      "cycles": {
+       "type": "array",
+       "description": "seen 20 of 20",
+       "items": {
+        "type": "integer",
+        "description": "seen 57 of 20",
+        "x-values": [
+         "2022",
+         "2020",
+         "2018",
+         "2024",
+         "2026",
+         "2016"
+        ]
+       }
+      },
+      "itemized": {
+       "type": "number",
+       "description": "seen 20 of 20"
+      },
+      "receipts": {
+       "type": "number",
+       "description": "seen 20 of 20"
+      }
+     },
+     "required": [
+      "check",
+      "committees",
+      "cycles",
+      "itemized",
+      "receipts"
+     ],
+     "additionalProperties": false
+    },
+    "organizations": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 3489 of 800",
+      "properties": {
+       "also_funds": {
+        "type": "array",
+        "description": "seen 3489 of 3489",
+        "items": {
+         "type": "object",
+         "description": "seen 27079 of 3489",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "seen 27079 of 27079"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 27079 of 27079"
+          },
+          "src": {
+           "type": "string",
+           "description": "seen 27079 of 27079"
+          }
+         },
+         "required": [
+          "amount",
+          "name",
+          "src"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "employer": {
+        "type": "string",
+        "description": "seen 53 of 3489"
+       },
+       "first": {
+        "type": "string",
+        "description": "seen 3489 of 3489"
+       },
+       "id": {
+        "type": "string",
+        "description": "seen 3489 of 3489"
+       },
+       "kind": {
+        "type": "string",
+        "description": "seen 3489 of 3489",
+        "x-values": [
+         "org",
+         "committee"
+        ]
+       },
+       "last": {
+        "type": "string",
+        "description": "seen 3489 of 3489"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 3489 of 3489"
+       },
+       "name": {
+        "type": "string",
+        "description": "seen 3489 of 3489"
+       },
+       "occupation": {
+        "type": "string",
+        "description": "seen 49 of 3489"
+       },
+       "officers": {
+        "type": "array",
+        "description": "seen 3489 of 3489",
+        "items": {
+         "type": "object",
+         "description": "seen 2345 of 3489",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "seen 2345 of 2345"
+          },
+          "role": {
+           "type": "string",
+           "description": "seen 2345 of 2345",
+           "x-values": [
+            "treasurer",
+            "chairperson"
+           ]
+          },
+          "src": {
+           "type": "string",
+           "description": "seen 2345 of 2345"
+          }
+         },
+         "required": [
+          "name",
+          "role",
+          "src"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "org_kind": {
+        "type": "string",
+        "description": "seen 3489 of 3489",
+        "x-values": [
+         "committee",
+         "unknown",
+         "nonprofit"
+        ]
+       },
+       "src": {
+        "type": "array",
+        "description": "seen 3489 of 3489",
+        "items": {
+         "type": "string",
+         "description": "seen 5031 of 3489"
+        }
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 3489 of 3489"
+       },
+       "what": {
+        "type": "string",
+        "description": "seen 3489 of 3489"
+       }
+      },
+      "required": [
+       "also_funds",
+       "first",
+       "id",
+       "kind",
+       "last",
+       "n",
+       "name",
+       "officers",
+       "org_kind",
+       "src",
+       "total",
+       "what"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "patterns": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 7466 of 800",
+      "properties": {
+       "amounts": {
+        "type": "array",
+        "description": "seen 838 of 7466",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "description": "seen 1676 of 7466"
+        }
+       },
+       "candidates": {
+        "type": "array",
+        "description": "seen 10 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 21 of 7466",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 21 of 21"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 21 of 21"
+          }
+         },
+         "required": [
+          "id",
+          "name"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "dates": {
+        "type": "array",
+        "description": "seen 838 of 7466",
+        "items": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "seen 1676 of 7466"
+        }
+       },
+       "donor": {
+        "type": "string",
+        "description": "seen 5937 of 7466"
+       },
+       "donor_name": {
+        "type": "string",
+        "description": "seen 5937 of 7466"
+       },
+       "donors": {
+        "type": "array",
+        "description": "seen 620 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 364322 of 7466",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 364322 of 364322"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 364322 of 364322"
+          }
+         },
+         "required": [
+          "id",
+          "name"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "employer": {
+        "type": "string",
+        "description": "seen 620 of 7466"
+       },
+       "endorser": {
+        "type": "string",
+        "description": "seen 10 of 7466"
+       },
+       "endorser_name": {
+        "type": "string",
+        "description": "seen 10 of 7466"
+       },
+       "evidence": {
+        "type": "string",
+        "description": "seen 7466 of 7466",
+        "x-values": [
+         "primary"
+        ]
+       },
+       "is_candidate": {
+        "type": "boolean",
+        "description": "seen 458 of 7466",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "kind": {
+        "type": "string",
+        "description": "seen 7466 of 7466",
+        "x-values": [
+         "shared_donor",
+         "org_chain",
+         "employer_cluster",
+         "donor_official",
+         "officer_overlap",
+         "shared_endorser"
+        ]
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 5540 of 7466"
+       },
+       "note": {
+        "type": "string",
+        "description": "seen 7466 of 7466"
+       },
+       "organizations": {
+        "type": "array",
+        "description": "seen 61 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 141 of 7466",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 141 of 141"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 141 of 141"
+          },
+          "roles": {
+           "type": "array",
+           "description": "seen 141 of 141",
+           "items": {
+            "type": "string",
+            "description": "seen 143 of 141",
+            "x-values": [
+             "treasurer",
+             "chairperson"
+            ]
+           }
+          }
+         },
+         "required": [
+          "id",
+          "name",
+          "roles"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "organizations_gave_to": {
+        "type": "array",
+        "description": "seen 61 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 2758 of 7466",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 2758 of 2758"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 2758 of 2758"
+          }
+         },
+         "required": [
+          "id",
+          "name"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "path": {
+        "type": "array",
+        "description": "seen 838 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 2514 of 7466",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 2514 of 2514"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 2514 of 2514"
+          }
+         },
+         "required": [
+          "id",
+          "name"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "person": {
+        "type": "string",
+        "description": "seen 61 of 7466"
+       },
+       "person_name": {
+        "type": "string",
+        "description": "seen 61 of 7466"
+       },
+       "recipient": {
+        "type": "string",
+        "description": "seen 620 of 7466"
+       },
+       "recipient_name": {
+        "type": "string",
+        "description": "seen 620 of 7466"
+       },
+       "recipients": {
+        "type": "array",
+        "description": "seen 5937 of 7466",
+        "items": {
+         "type": "object",
+         "description": "seen 228266 of 7466",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "seen 4325 of 228266"
+          },
+          "date": {
+           "type": "string",
+           "description": "seen 4325 of 228266"
+          },
+          "id": {
+           "type": "string",
+           "description": "seen 228266 of 228266"
+          },
+          "name": {
+           "type": "string",
+           "description": "seen 228266 of 228266"
+          },
+          "total": {
+           "type": "number",
+           "description": "seen 223941 of 228266"
+          }
+         },
+         "required": [
+          "id",
+          "name"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "src": {
+        "type": "array",
+        "description": "seen 7466 of 7466",
+        "items": {
+         "type": "string",
+         "description": "seen 35917 of 7466"
+        }
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 6160 of 7466"
+       }
+      },
+      "required": [
+       "evidence",
+       "kind",
+       "note",
+       "src"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "sources": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "string",
+      "description": "seen 2669 of 800"
+     }
+    },
+    "total_raised": {
+     "type": "number",
+     "description": "seen 790 of 800; MIXED types {'int': 571, 'float': 219}",
+     "x-values": [
+      "0"
+     ]
+    },
+    "total_spent": {
+     "type": "integer",
+     "description": "seen 790 of 800",
+     "x-values": [
+      "0"
+     ]
+    },
+    "unattributed": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 49 of 800",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "seen 49 of 49"
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 49 of 49"
+       }
+      },
+      "required": [
+       "name",
+       "total"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "via": {
+     "type": "array",
+     "description": "seen 790 of 800",
+     "items": {
+      "type": "object",
+      "description": "seen 4 of 800",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "seen 4 of 4"
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 4 of 4"
+       }
+      },
+      "required": [
+       "name",
+       "total"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "name": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "office": {
+   "type": "string",
+   "description": "seen 800 of 800"
+  },
+  "ordinances_opposed": {
+   "type": "array",
+   "description": "seen 800 of 800"
+  },
+  "ordinances_supported": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 166 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 166 of 166",
+      "x-values": [
+       "unanimous",
+       "seconded",
+       "moved",
+       "tally"
+      ]
+     },
+     "bill": {
+      "type": "string",
+      "description": "seen 166 of 166"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 166 of 166"
+     },
+     "result": {
+      "type": "string",
+      "description": "seen 166 of 166",
+      "x-values": [
+       "passed",
+       "failed",
+       ""
+      ]
+     },
+     "session": {
+      "type": "string",
+      "description": "seen 166 of 166",
+      "x-values": [
+       "lagrange",
+       "jackson",
+       "co-white",
+       "marietta",
+       "co-bacon",
+       "co-sumter",
+       "co-jackson",
+       "co-toombs",
+       "co-hall"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 166 of 166",
+      "items": {
+       "type": "integer",
+       "description": "seen 166 of 166"
+      }
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 166 of 166"
+     },
+     "topics": {
+      "type": "array",
+      "description": "seen 166 of 166",
+      "items": {
+       "type": "string",
+       "description": "seen 275 of 166",
+       "x-values": [
+        "Roads and transportation",
+        "Zoning and land use",
+        "Water and utilities",
+        "Parks and recreation",
+        "Public safety",
+        "Elections and ethics",
+        "Government operations",
+        "Budget and taxes",
+        "Alcohol",
+        "Business licensing",
+        "Development and incentives",
+        "Schools and youth",
+        "Noise and nuisance",
+        "Environment",
+        "Health and social services",
+        "Housing",
+        "Cannabis and hemp",
+        "Animals"
+       ]
+      }
+     },
+     "vote": {
+      "type": "string",
+      "description": "seen 166 of 166",
+      "x-values": [
+       "yes"
+      ]
+     }
+    },
+    "required": [
+     "basis",
+     "bill",
+     "d",
+     "result",
+     "session",
+     "src",
+     "title",
+     "topics",
+     "vote"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "party": {
+   "type": "string",
+   "description": "seen 800 of 800",
+   "x-values": [
+    "",
+    "R",
+    "D",
+    "I",
+    "L"
+   ]
+  },
+  "positions": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 4596 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 4596 of 4596"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 4596 of 4596"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 4596 of 4596",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 4596 of 4596",
+      "items": {
+       "type": "integer",
+       "description": "seen 4596 of 4596"
+      }
+     },
+     "stance": {
+      "type": "string",
+      "description": "seen 4596 of 4596"
+     },
+     "topic": {
+      "type": "string",
+      "description": "seen 4596 of 4596"
+     }
+    },
+    "required": [
+     "basis",
+     "d",
+     "evidence",
+     "src",
+     "stance",
+     "topic"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "ratings": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 3 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 3 of 3",
+      "x-values": [
+       "campaign site (self-reported)"
+      ]
+     },
+     "org": {
+      "type": "string",
+      "description": "seen 3 of 3"
+     },
+     "rating": {
+      "type": "string",
+      "description": "seen 3 of 3",
+      "x-values": [
+       "B",
+       "A",
+       "D"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 3 of 3",
+      "items": {
+       "type": "integer",
+       "description": "seen 3 of 3"
+      }
+     },
+     "year": {
+      "type": "string",
+      "description": "seen 3 of 3",
+      "x-values": [
+       "",
+       "2012"
+      ]
+     }
+    },
+    "required": [
+     "basis",
+     "org",
+     "rating",
+     "src",
+     "year"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "site": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "description": "seen 800 of 800",
+   "properties": {
+    "archived": {
+     "type": "object",
+     "description": "seen 14 of 214",
+     "properties": {
+      "address": {
+       "type": "string",
+       "description": "seen 14 of 14"
+      },
+      "copy": {
+       "type": "string",
+       "description": "seen 14 of 14"
+      },
+      "d": {
+       "type": "string",
+       "description": "seen 14 of 14"
+      },
+      "why": {
+       "type": "string",
+       "description": "seen 14 of 14"
+      }
+     },
+     "required": [
+      "address",
+      "copy",
+      "d",
+      "why"
+     ],
+     "additionalProperties": false
+    },
+    "headlines": {
+     "type": "array",
+     "description": "seen 214 of 214",
+     "items": {
+      "type": "object",
+      "description": "seen 815 of 214",
+      "properties": {
+       "basis": {
+        "type": "string",
+        "description": "seen 815 of 815",
+        "x-values": [
+         "campaign site (headline)"
+        ]
+       },
+       "d": {
+        "type": "string",
+        "description": "seen 815 of 815"
+       },
+       "evidence": {
+        "type": "string",
+        "description": "seen 815 of 815",
+        "x-values": [
+         "primary"
+        ]
+       },
+       "src": {
+        "type": "array",
+        "description": "seen 815 of 815",
+        "items": {
+         "type": "integer",
+         "description": "seen 815 of 815"
+        }
+       },
+       "text": {
+        "type": "string",
+        "description": "seen 815 of 815"
+       }
+      },
+      "required": [
+       "basis",
+       "d",
+       "evidence",
+       "src",
+       "text"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "not_theirs": {
+     "type": "integer",
+     "description": "seen 116 of 214"
+    },
+    "pages": {
+     "type": "integer",
+     "description": "seen 214 of 214"
+    },
+    "placeholder": {
+     "type": "integer",
+     "description": "seen 8 of 214"
+    },
+    "positions": {
+     "type": "integer",
+     "description": "seen 214 of 214"
+    },
+    "statements": {
+     "type": "integer",
+     "description": "seen 214 of 214"
+    },
+    "unreadable": {
+     "type": "integer",
+     "description": "seen 19 of 214",
+     "x-values": [
+      "1",
+      "2",
+      "20"
+     ]
+    },
+    "urls": {
+     "type": "array",
+     "description": "seen 214 of 214",
+     "items": {
+      "type": "string",
+      "description": "seen 525 of 214"
+     }
+    }
+   },
+   "required": [
+    "headlines",
+    "pages",
+    "positions",
+    "statements",
+    "urls"
+   ],
+   "additionalProperties": false
+  },
+  "sources": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 53932 of 800",
+    "properties": {
+     "d": {
+      "type": "string",
+      "description": "seen 53932 of 53932"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 53932 of 53932",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "kind": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 53932 of 53932",
+      "x-values": [
+       "vote",
+       "bill",
+       "statement",
+       "election_result",
+       "article",
+       "legislator",
+       "connection",
+       "mention",
+       "official"
+      ]
+     },
+     "t": {
+      "type": "string",
+      "description": "seen 53932 of 53932"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 53932 of 53932"
+     }
+    },
+    "required": [
+     "d",
+     "evidence",
+     "kind",
+     "t",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "statements": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 2347 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 2347 of 2347"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 2347 of 2347"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 2347 of 2347",
+      "x-values": [
+       "primary",
+       "reported"
+      ]
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 2347 of 2347",
+      "items": {
+       "type": "integer",
+       "description": "seen 2347 of 2347"
+      }
+     },
+     "text": {
+      "type": "string",
+      "description": "seen 2347 of 2347"
+     }
+    },
+    "required": [
+     "basis",
+     "d",
+     "evidence",
+     "src",
+     "text"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "votes": {
+   "type": "array",
+   "description": "seen 800 of 800",
+   "items": {
+    "type": "object",
+    "description": "seen 31318 of 800",
+    "properties": {
+     "basis": {
+      "type": "string",
+      "description": "seen 31318 of 31318",
+      "x-values": [
+       "roll call",
+       "unanimous",
+       "seconded",
+       "moved",
+       "tally",
+       "named"
+      ]
+     },
+     "bill": {
+      "type": "string",
+      "description": "seen 31318 of 31318"
+     },
+     "d": {
+      "type": "string",
+      "description": "seen 31318 of 31318"
+     },
+     "procedural": {
+      "type": "boolean",
+      "description": "seen 504 of 31318",
+      "x-values": [
+       "True"
+      ]
+     },
+     "result": {
+      "type": "string",
+      "description": "seen 1318 of 31318",
+      "x-values": [
+       "passed",
+       "failed",
+       ""
+      ]
+     },
+     "session": {
+      "type": "string",
+      "description": "seen 31318 of 31318"
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 31318 of 31318",
+      "items": {
+       "type": "integer",
+       "description": "seen 31318 of 31318"
+      }
+     },
+     "stage": {
+      "type": "string",
+      "description": "seen 30000 of 31318"
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 31318 of 31318"
+     },
+     "topics": {
+      "type": "array",
+      "description": "seen 1318 of 31318",
+      "items": {
+       "type": "string",
+       "description": "seen 2342 of 31318",
+       "x-values": [
+        "Roads and transportation",
+        "Zoning and land use",
+        "Government operations",
+        "Water and utilities",
+        "Budget and taxes",
+        "Parks and recreation",
+        "Public safety",
+        "Elections and ethics",
+        "Development and incentives",
+        "Business licensing",
+        "Alcohol",
+        "Housing",
+        "Schools and youth",
+        "Noise and nuisance",
+        "Environment",
+        "Health and social services",
+        "Animals",
+        "Cannabis and hemp"
+       ]
+      }
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 30000 of 31318"
+     },
+     "vote": {
+      "type": "string",
+      "description": "seen 31318 of 31318",
+      "x-values": [
+       "Yea",
+       "Nay",
+       "Excused",
+       "Not voting",
+       "yes",
+       "no",
+       "recused"
+      ]
+     }
+    },
+    "required": [
+     "basis",
+     "bill",
+     "d",
+     "session",
+     "src",
+     "title",
+     "vote"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "affiliations",
+  "as_of",
+  "bills",
+  "candidate_id",
+  "career",
+  "career_summary",
+  "controversies",
+  "depth",
+  "endorsement_items",
+  "endorsements",
+  "esrc",
+  "ideology",
+  "ideology_markers",
+  "inference_inputs",
+  "isrc",
+  "jurisdictions",
+  "key",
+  "money",
+  "name",
+  "note",
+  "office",
+  "ordinances_opposed",
+  "ordinances_supported",
+  "party",
+  "positions",
+  "ratings",
+  "site",
+  "sources",
+  "statements",
+  "votes"
+ ],
+ "additionalProperties": false,
+ "x-widened": [
+  "$.career[1].pct: null seen beside number (andre-dickens.json)"
+ ]
+}

@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "fec_totals",
+ "description": "JSON map committee id -> {checked, cycles{cycle:{receipts,...}}}",
+ "x-area": "kv",
+ "x-writer": "finance._fec_totals; cli apply",
+ "x-readers": "finance, connections, coverage",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "additionalProperties": {
+  "type": "object",
+  "properties": {
+   "checked": {
+    "type": "string"
+   },
+   "cycles": {
+    "type": "object"
+   }
+  },
+  "required": [
+   "checked",
+   "cycles"
+  ]
+ }
+}

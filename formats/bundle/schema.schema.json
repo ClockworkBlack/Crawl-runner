@@ -1,0 +1,15 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/schema.md",
+ "description": "markdown, sections: Record, Research packet, Profile supplement, Open records, Connections, Council alignment, Donors, vote_model, bill_reasons, Policing, Jurisdiction, state_meetings.json (format 2)",
+ "x-area": "export_bundle",
+ "x-writer": "gacrawl/export.py (SCHEMA_MD.format(version) + agencies.STATE_MEETINGS_SCHEMA)",
+ "x-readers": "people; Electo",
+ "x-version": "2.3",
+ "x-documented-in": "self; identical to current main's text (diffed)",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [],
+ "x-widened": [
+  "schema.md: does not read (JSONDecodeError): not measured"
+ ]
+}

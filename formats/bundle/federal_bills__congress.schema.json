@@ -1,0 +1,55 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/federal_bills/<congress>.json",
+ "description": "{c, cols, rows[[...COLS]]}",
+ "x-area": "export_bundle",
+ "x-writer": "federal_bills.export_federal",
+ "x-readers": "Electo federal tab (not pushed)",
+ "x-version": "",
+ "x-documented-in": "federal_bills.py docstring",
+ "x-observed": "not observed",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "c": {
+   "type": "integer"
+  },
+  "cols": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "x-values": [
+    "t",
+    "n",
+    "title",
+    "intro",
+    "sponsor",
+    "party",
+    "state",
+    "cos",
+    "cos_other",
+    "ga",
+    "stage",
+    "last_d",
+    "last",
+    "law",
+    "area",
+    "summary",
+    "outlook",
+    "ai"
+   ]
+  },
+  "rows": {
+   "type": "array",
+   "items": {
+    "type": "array",
+    "description": "stage in introduced|reported|passed_one|passed_both|law (+adopted|vetoed|failed labels); ai = {t,m}|null"
+   }
+  }
+ },
+ "required": [
+  "c",
+  "cols"
+ ]
+}

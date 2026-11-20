@@ -1,0 +1,104 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/district_calendars.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand/generated",
+ "x-readers": "district_calendars, calendar_subscriber",
+ "x-version": "",
+ "x-documented-in": "_about key",
+ "x-observed": "config/district_calendars.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_about": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "districts": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 53 of 1; map with 53 distinct keys, e.g. ['sd-gwinnett', 'sd-fulton', 'sd-clayton', 'sd-forsyth']",
+    "properties": {
+     "feeds": {
+      "type": "array",
+      "description": "seen 40 of 53",
+      "items": {
+       "type": "object",
+       "description": "seen 40 of 53",
+       "properties": {
+        "board": {
+         "type": "boolean",
+         "description": "seen 2 of 40"
+        },
+        "checked": {
+         "type": "string",
+         "description": "seen 40 of 40",
+         "x-values": [
+          "2026-11-19"
+         ]
+        },
+        "found_on": {
+         "type": "string",
+         "description": "seen 12 of 40"
+        },
+        "kind": {
+         "type": "string",
+         "description": "seen 40 of 40",
+         "x-values": [
+          "finalsite_page",
+          "ics",
+          "edlio_page"
+         ]
+        },
+        "platform": {
+         "type": "string",
+         "description": "seen 40 of 40",
+         "x-values": [
+          "finalsite",
+          "apptegy",
+          "edlio",
+          "wordpress",
+          "google"
+         ]
+        },
+        "seen": {
+         "type": "string",
+         "description": "seen 40 of 40"
+        },
+        "url": {
+         "type": "string",
+         "description": "seen 40 of 40"
+        }
+       },
+       "required": [
+        "checked",
+        "kind",
+        "platform",
+        "seen",
+        "url"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "note": {
+      "type": "string",
+      "description": "seen 13 of 53"
+     },
+     "site": {
+      "type": "string",
+      "description": "seen 14 of 53"
+     }
+    },
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "_about",
+  "districts"
+ ],
+ "additionalProperties": false
+}

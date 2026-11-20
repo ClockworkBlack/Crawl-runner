@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "archive_src:{source_id}",
+ "description": "JSON {at, pages}",
+ "x-area": "kv",
+ "x-writer": "archive_sources",
+ "x-readers": "archive_sources",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "at": {
+   "type": "string"
+  },
+  "pages": {
+   "type": "integer"
+  }
+ },
+ "required": [
+  "at",
+  "pages"
+ ]
+}

@@ -1,0 +1,133 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/rumor_mill_video.json",
+ "description": "{note, videos[]} (row shape = data/rumor_mill/videos.jsonl)",
+ "x-area": "export_bundle",
+ "x-writer": "export.export() from rumor_video.VideoRumorMill (data/rumor_mill/videos.jsonl)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "export.py docstring one line",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3) (videos empty there)",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "videos": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 208",
+    "properties": {
+     "channel": {
+      "type": "object",
+      "description": "seen 208 of 208",
+      "properties": {
+       "handle": {
+        "type": "string",
+        "description": "seen 208 of 208"
+       },
+       "id": {
+        "type": "string",
+        "description": "seen 208 of 208"
+       },
+       "title": {
+        "type": "string",
+        "description": "seen 208 of 208"
+       },
+       "url": {
+        "type": "string",
+        "description": "seen 208 of 208"
+       }
+      },
+      "required": [
+       "handle",
+       "id",
+       "title",
+       "url"
+      ],
+      "additionalProperties": false
+     },
+     "first_seen": {
+      "type": "string",
+      "description": "seen 208 of 208",
+      "x-values": [
+       "2026-11-07T06:06:28+00:00",
+       "2026-11-07T06:07:52+00:00",
+       "2026-11-07T06:07:00+00:00",
+       "2026-11-07T06:08:05+00:00"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 208 of 208"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 208 of 208",
+      "x-values": [
+       "sd-clayton",
+       "sd-ware",
+       "sd-fannin",
+       "sd-city-jefferson"
+      ]
+     },
+     "last_seen": {
+      "type": "string",
+      "description": "seen 208 of 208",
+      "x-values": [
+       "2026-11-07T06:06:28+00:00",
+       "2026-11-07T06:07:52+00:00",
+       "2026-11-07T06:07:00+00:00",
+       "2026-11-07T06:08:05+00:00"
+      ]
+     },
+     "published": {
+      "type": "string",
+      "description": "seen 208 of 208"
+     },
+     "reason": {
+      "type": "string",
+      "description": "seen 208 of 208"
+     },
+     "status": {
+      "type": "string",
+      "description": "seen 208 of 208",
+      "x-values": [
+       "unverified"
+      ]
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 208 of 208"
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 208 of 208"
+     }
+    },
+    "required": [
+     "channel",
+     "first_seen",
+     "id",
+     "jurisdiction",
+     "last_seen",
+     "published",
+     "reason",
+     "status",
+     "title",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "note",
+  "videos"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,29 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "simbli:archive:{source}",
+ "description": "JSON {at, district, meetings, policies, pages, captures[-12:]}",
+ "x-area": "kv",
+ "x-writer": "simbli_archive",
+ "x-readers": "simbli_archive",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "at": {},
+  "district": {},
+  "meetings": {},
+  "policies": {},
+  "pages": {},
+  "captures": {}
+ },
+ "required": [
+  "at",
+  "district",
+  "meetings",
+  "policies",
+  "pages",
+  "captures"
+ ]
+}

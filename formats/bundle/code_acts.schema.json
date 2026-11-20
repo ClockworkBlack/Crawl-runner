@@ -1,0 +1,50 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/code_acts.json",
+ "description": "{note, parser, acts[code_act meta minus opened/opened_url/parser]}",
+ "x-area": "export_bundle",
+ "x-writer": "codeacts.export_code_acts",
+ "x-readers": "Electo (Code text)",
+ "x-version": "parser 4",
+ "x-documented-in": "export.py docstring; note text",
+ "x-observed": "not observed; keys from Record(meta) in codeacts.run",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string"
+  },
+  "parser": {
+   "type": "integer",
+   "description": "codeacts.PARSER_VERSION",
+   "x-values": [
+    4
+   ]
+  },
+  "acts": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "act": {},
+     "bill": {},
+     "caption": {},
+     "document_url": {},
+     "effective": {},
+     "legislation_id": {},
+     "page_url": {},
+     "sections": {},
+     "session": {},
+     "session_name": {},
+     "signed": {},
+     "status": {},
+     "version": {}
+    }
+   }
+  }
+ },
+ "required": [
+  "note",
+  "parser"
+ ]
+}

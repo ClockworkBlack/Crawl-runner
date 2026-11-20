@@ -1,0 +1,720 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/manifest.json",
+ "description": "object of counts",
+ "x-area": "export_bundle",
+ "x-writer": "gacrawl/export.py export()",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; crawl.yml (exists check)",
+ "x-version": "schema_version 2.3 (export.SCHEMA_VERSION)",
+ "x-documented-in": "listed in export.py docstring only; no field reference in schema.md",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "I04 (two_versions): Three unrelated version numbers: store.SCHEMA_VERSION = 2 (kv 'schema'), export SCHEMA_VERSION '2.3' (manifest schema_version), agencies FMT = 2 (state_meetings 'format' and meta.fmt); codeacts parser 4; no other file carries a format number (DATA_FORMAT_PLAN rule 1)"
+ ],
+ "type": "object",
+ "properties": {
+  "bill_reasons": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "bills": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "patterns": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "with_reasons": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "bills",
+    "patterns",
+    "with_reasons"
+   ],
+   "additionalProperties": false
+  },
+  "blocked_hosts": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "candidates_with_records": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "code_acts": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "connections": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "edges": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "file": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "bytes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "edges": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "nodes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "patterns": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "bytes",
+      "edges",
+      "nodes",
+      "patterns"
+     ],
+     "additionalProperties": false
+    },
+    "nodes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "patterns": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "edges",
+    "file",
+    "nodes",
+    "patterns"
+   ],
+   "additionalProperties": false
+  },
+  "councils_with_vote_alignment": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "donors": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "donors": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "gifts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "profiles": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "recipients": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "rows": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "spend": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "donors",
+    "gifts",
+    "profiles",
+    "recipients",
+    "rows",
+    "spend"
+   ],
+   "additionalProperties": false
+  },
+  "federal_bills": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "bills": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "congresses": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "bills",
+    "congresses"
+   ],
+   "additionalProperties": false
+  },
+  "gacrawl_version": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "generated_at": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "jurisdictions": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "jurisdictions_with_records": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "jurisdictions_with_website": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "legislation": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "meeting_summaries": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "from_hearings": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "from_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "from_recordings": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "lines_by_parser": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "summaries": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "with_summary": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "from_hearings",
+    "from_minutes",
+    "from_recordings",
+    "lines_by_parser",
+    "summaries",
+    "with_summary"
+   ],
+   "additionalProperties": false
+  },
+  "open_records": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "acknowledged": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "cost_estimate": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "followed_up": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "fulfilled": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "partial": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "portal_only": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "withdrawn": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "acknowledged",
+    "cost_estimate",
+    "followed_up",
+    "fulfilled",
+    "partial",
+    "portal_only",
+    "withdrawn"
+   ],
+   "additionalProperties": false
+  },
+  "policing": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "departments": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "from_pages": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "incidents": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "departments": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "incidents": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "departments",
+      "incidents"
+     ],
+     "additionalProperties": false
+    },
+    "listed_only": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "others": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "outlets": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "records_contacts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "departments",
+    "from_pages",
+    "incidents",
+    "listed_only",
+    "others",
+    "outlets",
+    "records_contacts"
+   ],
+   "additionalProperties": false
+  },
+  "profile_supplements": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "records_by_kind": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "agenda_item": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "appointment": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "article": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "ballot_question": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "budget_doc": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "connection": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "contribution": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "document": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "election": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "election_result": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "feed_item": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "lead": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "matter": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "meeting": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "meeting_summary": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "mention": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "official": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "ordinance": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "page": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "police_incident": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "post": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "qualifying": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "school": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "screenshot": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "sponsorship": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "statement": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "video": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "vote": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "agenda_item",
+    "appointment",
+    "article",
+    "ballot_question",
+    "budget_doc",
+    "connection",
+    "contribution",
+    "document",
+    "election",
+    "election_result",
+    "feed_item",
+    "lead",
+    "matter",
+    "meeting",
+    "meeting_summary",
+    "mention",
+    "official",
+    "ordinance",
+    "page",
+    "police_incident",
+    "post",
+    "qualifying",
+    "school",
+    "screenshot",
+    "sponsorship",
+    "statement",
+    "video",
+    "vote"
+   ],
+   "additionalProperties": false
+  },
+  "records_total": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "research_packets": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "rumor_mill": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "unverified": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "unverified"
+   ],
+   "additionalProperties": false
+  },
+  "rumor_mill_videos": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "schema_version": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "schools": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "districts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "people": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "policies": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "schools": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "stats_series": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "districts",
+    "people",
+    "policies",
+    "schools",
+    "stats_series"
+   ],
+   "additionalProperties": false
+  },
+  "screenshots": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "ordinances": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "posts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "text": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "ordinances",
+    "posts",
+    "text"
+   ],
+   "additionalProperties": false
+  },
+  "state_meetings": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "agencies": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "agency_meetings": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "bodies": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "left_out": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "legislature_meetings": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "agencies",
+    "agency_meetings",
+    "bodies",
+    "left_out",
+    "legislature_meetings"
+   ],
+   "additionalProperties": false
+  },
+  "verified_posts": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "vote_model": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "best_rule": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "best_rule_right": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "bills": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "built": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "chances": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "divided_roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "members": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "members_shown": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "model_right": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "status": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "verdict": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "votes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "best_rule",
+    "best_rule_right",
+    "bills",
+    "built",
+    "chances",
+    "divided_roll_calls",
+    "members",
+    "members_shown",
+    "model_right",
+    "roll_calls",
+    "status",
+    "verdict",
+    "votes"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "bill_reasons",
+  "blocked_hosts",
+  "candidates_with_records",
+  "code_acts",
+  "connections",
+  "councils_with_vote_alignment",
+  "donors",
+  "federal_bills",
+  "gacrawl_version",
+  "generated_at",
+  "jurisdictions",
+  "jurisdictions_with_records",
+  "jurisdictions_with_website",
+  "legislation",
+  "meeting_summaries",
+  "open_records",
+  "policing",
+  "profile_supplements",
+  "records_by_kind",
+  "records_total",
+  "research_packets",
+  "rumor_mill",
+  "rumor_mill_videos",
+  "schema_version",
+  "schools",
+  "screenshots",
+  "state_meetings",
+  "verified_posts",
+  "vote_model"
+ ],
+ "additionalProperties": false
+}

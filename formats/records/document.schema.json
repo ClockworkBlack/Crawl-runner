@@ -1,0 +1,62 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "document",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "simbli_archive.py:269 district; sources/civicclerk.py:264 _open_file; sources/civicclerk.py:271 _open_file",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "<expr:self.client>",
+    "<expr:sid>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: archive",
+   "x-values": [
+    "api",
+    "archive"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "EventBodyName": {},
+    "EventDate": {},
+    "MID": {},
+    "archived": {},
+    "captured": {},
+    "doc_type": {},
+    "event_id": {},
+    "file_id": {},
+    "file_name": {},
+    "opened": {},
+    "original": {},
+    "provider": {},
+    "published_on": {},
+    "unreadable": {},
+    "via": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

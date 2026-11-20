@@ -1,0 +1,24 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "elections:report:{jurisdiction}:{iso}",
+ "description": "JSON state {url?, tries, at, ...} (STATE_V)",
+ "x-area": "kv",
+ "x-writer": "election_reports",
+ "x-readers": "election_reports",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "url": {
+   "type": "string"
+  },
+  "tries": {
+   "type": "integer"
+  },
+  "at": {
+   "type": "string"
+  }
+ }
+}

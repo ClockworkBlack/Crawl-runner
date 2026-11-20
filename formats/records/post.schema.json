@@ -1,0 +1,51 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "post",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "candidates.py:821 _posts; channels.py:966 crawl",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "(set by caller: cand:<id>)",
+    "<expr:sid>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "x-values": [
+    "<expr:p.get(\"source\", \"manual\")>",
+    "wp_json"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "account_id": {},
+    "modified": {},
+    "opened": {},
+    "platform": {},
+    "topics": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

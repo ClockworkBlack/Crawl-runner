@@ -1,0 +1,41 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "tests/fixtures/history/sos_*_*_two_columns.json",
+ "description": "1 file(s); inferred from the files (Nov 20, 2026)",
+ "x-area": "work",
+ "x-writer": "",
+ "x-readers": "",
+ "x-observed": "inferred from 1 file(s)",
+ "type": "array",
+ "items": {
+  "type": "object",
+  "properties": {
+   "w": {
+    "type": "integer"
+   },
+   "h": {
+    "type": "integer"
+   },
+   "words": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "x0": {
+       "type": "number"
+      },
+      "x1": {
+       "type": "number"
+      },
+      "top": {
+       "type": "number"
+      },
+      "text": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  }
+ }
+}

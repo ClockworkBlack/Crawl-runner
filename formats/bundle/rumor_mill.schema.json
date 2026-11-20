@@ -1,0 +1,211 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/rumor_mill.json",
+ "description": "list of rumor rows",
+ "x-area": "export_bundle",
+ "x-writer": "export.export() from candidates.RumorMill (data/rumor_mill/rumors.jsonl), meta.text dropped",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "export.py docstring one line",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [],
+ "type": "array",
+ "items": {
+  "type": "object",
+  "description": "seen 1523",
+  "properties": {
+   "ai": {
+    "type": "object",
+    "description": "seen 1028 of 1523",
+    "properties": {
+     "at": {
+      "type": "string",
+      "description": "seen 1028 of 1028",
+      "x-values": [
+       "2026-11-10",
+       "2026-11-11",
+       "2026-11-18",
+       "2026-11-15",
+       "2026-11-12",
+       "2026-11-17",
+       "2026-11-19",
+       "2026-11-20",
+       "2026-11-13",
+       "2026-11-16",
+       "2026-11-14",
+       "2026-11-09"
+      ]
+     },
+     "attribution": {
+      "type": "string",
+      "description": "seen 1023 of 1028",
+      "x-values": [
+       "named source",
+       "none",
+       "official record",
+       "anonymous"
+      ]
+     },
+     "m": {
+      "type": "string",
+      "description": "seen 1028 of 1028",
+      "x-values": [
+       "Qwen3-8B (Q4_K_M)",
+       "rule"
+      ]
+     },
+     "named": {
+      "type": "boolean",
+      "description": "seen 1028 of 1028"
+     },
+     "opinion": {
+      "type": "boolean",
+      "description": "seen 1023 of 1028",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "quote": {
+      "type": "string",
+      "description": "seen 1028 of 1028"
+     },
+     "same_person": {
+      "type": [
+       "boolean",
+       "null"
+      ],
+      "description": "seen 45 of 1028"
+     },
+     "v": {
+      "type": "integer",
+      "description": "seen 1028 of 1028",
+      "x-values": [
+       "1",
+       "2"
+      ]
+     },
+     "why": {
+      "type": "string",
+      "description": "seen 5 of 1028"
+     }
+    },
+    "required": [
+     "at",
+     "m",
+     "named",
+     "quote",
+     "v"
+    ],
+    "additionalProperties": false
+   },
+   "author": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "candidate_id": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "claim": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "corroboration": {
+    "type": "array",
+    "description": "seen 1523 of 1523"
+   },
+   "domain": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "first_seen": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "id": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "last_seen": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "meta": {
+    "type": "object",
+    "description": "seen 1523 of 1523",
+    "properties": {
+     "text_error": {
+      "type": "string",
+      "description": "seen 1 of 1523"
+     },
+     "text_tried": {
+      "type": "string",
+      "description": "seen 41 of 1523"
+     },
+     "text_url": {
+      "type": "string",
+      "description": "seen 40 of 1523"
+     },
+     "via": {
+      "type": "string",
+      "description": "seen 1523 of 1523",
+      "x-values": [
+       "api"
+      ]
+     }
+    },
+    "required": [
+     "via"
+    ],
+    "additionalProperties": false
+   },
+   "notes": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   },
+   "opened": {
+    "type": "boolean",
+    "description": "seen 1523 of 1523",
+    "x-values": [
+     "True"
+    ]
+   },
+   "origin": {
+    "type": "string",
+    "description": "seen 1523 of 1523",
+    "x-values": [
+     "article"
+    ]
+   },
+   "status": {
+    "type": "string",
+    "description": "seen 1523 of 1523",
+    "x-values": [
+     "unverified"
+    ]
+   },
+   "url": {
+    "type": "string",
+    "description": "seen 1523 of 1523"
+   }
+  },
+  "required": [
+   "author",
+   "candidate_id",
+   "claim",
+   "corroboration",
+   "domain",
+   "first_seen",
+   "id",
+   "last_seen",
+   "meta",
+   "notes",
+   "opened",
+   "origin",
+   "status",
+   "url"
+  ],
+  "additionalProperties": false
+ }
+}

@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dead_site:{source_id}",
+ "description": "ISO datetime",
+ "x-area": "kv",
+ "x-writer": "candidates",
+ "x-readers": "candidates",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

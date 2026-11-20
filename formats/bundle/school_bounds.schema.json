@@ -1,0 +1,49 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/school_bounds.json",
+ "description": "{as_of, crs, rings}",
+ "x-area": "export_bundle",
+ "x-writer": "schools.export_schools (copy of state/school_bounds.json)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "",
+ "x-documented-in": "none",
+ "x-observed": "Electo/ga/crawl/school_bounds.json",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "as_of": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "crs": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "rings": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "array",
+    "description": "seen 180 of 1; map with 180 distinct keys, e.g. ['sd-troup', 'sd-appling', 'sd-harris', 'sd-henry']",
+    "items": {
+     "type": "array",
+     "description": "seen 1503 of 1",
+     "items": {
+      "type": "array",
+      "description": "seen 31712 of 1",
+      "items": {
+       "type": "number",
+       "description": "seen 63424 of 1"
+      }
+     }
+    }
+   }
+  }
+ },
+ "required": [
+  "as_of",
+  "crs",
+  "rings"
+ ],
+ "additionalProperties": false
+}

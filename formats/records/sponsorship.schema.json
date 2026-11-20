@@ -1,0 +1,56 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "sponsorship",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "candidates.py:799 _sponsorships",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "NOT in the documented kind list (store.Record comment, schema.md)",
+ "x-observed": "",
+ "x-issues": [
+  "I01 (undocumented): Record kinds: store.Record's comment and schema.md list 17 kinds; the code writes 29 more by name (appointment, ballot_question, bill, bill_reason, bill_video, budget_doc, code_act, contribution, election, election_result, endorsement, federal_bill, guide, guide_answer, legislator, meeting_summary, news_item, organization, police_incident, policy, press_release, qualifying, rating, school, school_stat, screenshot, sponsorship, transcript, video); 13 of them are in the Nov 20 bundle's records_by_kind"
+ ],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "(set by caller: cand:<id>)"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "x-values": [
+    "store"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "MatterId": {},
+    "enacted": {},
+    "enacted_date": {},
+    "number": {},
+    "opened": {},
+    "opened_url": {},
+    "record_id": {},
+    "role": {},
+    "status": {},
+    "topics": {},
+    "type": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

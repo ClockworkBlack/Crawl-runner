@@ -1,0 +1,86 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/records_contacts.json",
+ "description": "object",
+ "x-area": "export_bundle",
+ "x-writer": "police.export_policing",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; electo-crawl-policing.yml",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Policing'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (1): note"
+ ],
+ "type": "object",
+ "properties": {
+  "contacts": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 126 of 1; map with 126 distinct keys, e.g. ['co-cobb', 'co-fulton', 'co-dekalb', 'co-forsyth']",
+    "properties": {
+     "emails": {
+      "type": "array",
+      "description": "seen 126 of 126",
+      "items": {
+       "type": "string",
+       "description": "seen 158 of 126"
+      }
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 126 of 126",
+      "x-values": [
+       "city",
+       "county",
+       "school_district",
+       "town",
+       "consolidated"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 126 of 126"
+     },
+     "page": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 126 of 126"
+     },
+     "portal": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 126 of 126"
+     },
+     "website": {
+      "type": "string",
+      "description": "seen 126 of 126"
+     }
+    },
+    "required": [
+     "emails",
+     "kind",
+     "name",
+     "page",
+     "portal",
+     "website"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "contacts",
+  "note"
+ ],
+ "additionalProperties": false
+}

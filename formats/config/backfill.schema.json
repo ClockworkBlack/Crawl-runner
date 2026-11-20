@@ -1,0 +1,277 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/backfill.json",
+ "description": "JSON",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "backfill.py, summary, watchdog.yml, sync-code.yml, crawl.yml",
+ "x-version": "",
+ "x-documented-in": "_note key",
+ "x-observed": "config/backfill.json",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "crawl_minutes": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "enabled": {
+   "type": "boolean",
+   "description": "seen 1 of 1"
+  },
+  "finance_minutes": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "free": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "days": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "integer",
+      "description": "seen 4 of 1",
+      "x-values": [
+       "0",
+       "2",
+       "4",
+       "6"
+      ]
+     }
+    },
+    "minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "police_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "police_runs": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "research_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "shards": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "days",
+    "minutes",
+    "police_minutes",
+    "police_runs",
+    "research_minutes",
+    "shards"
+   ],
+   "additionalProperties": false
+  },
+  "free_after": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "month_minutes_before": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "integer",
+    "description": "seen 1 of 1; map with 1 distinct keys, e.g. ['2026-11']"
+   }
+  },
+  "month_minutes_cap": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "night_minutes": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "night_shards": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "research_minutes": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "runner": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "_why_daytime": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "backfill_shards": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "continuous": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "crawl_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "crawl_shards": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "finance_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "night_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "night_shards": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "police_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "police_news_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "pro": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "_why": {
+       "type": "string",
+       "description": "seen 1 of 1"
+      },
+      "backfill_shards": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "crawl_shards": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "night_shards": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "_why",
+      "backfill_shards",
+      "crawl_shards",
+      "night_shards"
+     ],
+     "additionalProperties": false
+    },
+    "research_minutes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "until": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "_why_daytime",
+    "backfill_shards",
+    "continuous",
+    "crawl_minutes",
+    "crawl_shards",
+    "finance_minutes",
+    "night_minutes",
+    "night_shards",
+    "police_minutes",
+    "police_news_minutes",
+    "pro",
+    "research_minutes",
+    "until"
+   ],
+   "additionalProperties": false
+  },
+  "stop": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "min_added": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "never_researched": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "quiet_runs": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "min_added",
+    "never_researched",
+    "quiet_runs"
+   ],
+   "additionalProperties": false
+  },
+  "until": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "window": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "end": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "start": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "timezone": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "end",
+    "start",
+    "timezone"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "_note",
+  "crawl_minutes",
+  "enabled",
+  "finance_minutes",
+  "free",
+  "free_after",
+  "month_minutes_before",
+  "month_minutes_cap",
+  "night_minutes",
+  "night_shards",
+  "research_minutes",
+  "runner",
+  "stop",
+  "until",
+  "window"
+ ],
+ "additionalProperties": false
+}

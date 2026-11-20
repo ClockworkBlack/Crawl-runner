@@ -1,0 +1,2908 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/donors.json",
+ "description": "{recipients[], gifts[], spend[], donors[], by{}...}",
+ "x-area": "export_bundle",
+ "x-writer": "donors.export_donors",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; money_to_electo.sh",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Donors'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (38): after_filing, before_first_filing, caps, check, conduit, conduits, cy, cycles, fec, fec_cy, generated, hold, individual, itemized, kinds, link_src, links, listed, moved, named, note, pac_of, pac_of_key, pac_of_name, pac_of_party, pairs, receipts, redated, rows, self, self_inferred, skipped, spend_hold, through, unitemized, via, years, yr"
+ ],
+ "type": "object",
+ "properties": {
+  "by": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "array",
+    "description": "seen 8 of 1; map with 8 distinct keys, e.g. ['donor_state', 'donor_county', 'donor_city', 'party']",
+    "items": {
+     "type": "object",
+     "description": "seen 258 of 1",
+     "properties": {
+      "k": {
+       "type": "string",
+       "description": "seen 258 of 258"
+      },
+      "t": {
+       "type": "number",
+       "description": "seen 258 of 258"
+      }
+     },
+     "required": [
+      "k",
+      "t"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "caps": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "donors": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "gifts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "spend": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "donors",
+    "gifts",
+    "spend"
+   ],
+   "additionalProperties": false
+  },
+  "conduits": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 6 of 1",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "seen 6 of 6"
+     },
+     "total": {
+      "type": "number",
+      "description": "seen 6 of 6"
+     }
+    },
+    "required": [
+     "name",
+     "total"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "cycles": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 6 of 1",
+    "x-values": [
+     "2016",
+     "2018",
+     "2020",
+     "2022",
+     "2024",
+     "2026"
+    ]
+   }
+  },
+  "donors": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "city": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "employer": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "person",
+       "org",
+       "committee",
+       "self"
+      ]
+     },
+     "n": {
+      "type": "integer",
+      "description": "seen 3000 of 3000"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "r": {
+      "type": "array",
+      "description": "seen 3000 of 3000",
+      "items": {
+       "type": "integer",
+       "description": "seen 34631 of 3000"
+      }
+     },
+     "state": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "total": {
+      "type": "number",
+      "description": "seen 3000 of 3000"
+     }
+    },
+    "required": [
+     "city",
+     "county",
+     "employer",
+     "id",
+     "kind",
+     "n",
+     "name",
+     "r",
+     "state",
+     "total"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "generated": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "gifts": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "city": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "cy": {
+      "type": "object",
+      "description": "seen 3000 of 3000",
+      "properties": {
+       "2016": {
+        "type": "array",
+        "description": "seen 63 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 126 of 3000; MIXED types {'float': 63, 'int': 63}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "20",
+          "9"
+         ]
+        }
+       },
+       "2018": {
+        "type": "array",
+        "description": "seen 75 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 150 of 3000; MIXED types {'float': 75, 'int': 75}",
+         "x-values": [
+          "2",
+          "1",
+          "3",
+          "4",
+          "5",
+          "6",
+          "10",
+          "9",
+          "8"
+         ]
+        }
+       },
+       "2020": {
+        "type": "array",
+        "description": "seen 79 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 158 of 3000; MIXED types {'float': 79, 'int': 79}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "5",
+          "4",
+          "6",
+          "8",
+          "12",
+          "78",
+          "7"
+         ]
+        }
+       },
+       "2022": {
+        "type": "array",
+        "description": "seen 1230 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 2460 of 3000; MIXED types {'float': 1230, 'int': 1230}"
+        }
+       },
+       "2024": {
+        "type": "array",
+        "description": "seen 1117 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 2234 of 3000; MIXED types {'float': 1117, 'int': 1117}"
+        }
+       },
+       "2026": {
+        "type": "array",
+        "description": "seen 1250 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 2500 of 3000; MIXED types {'float': 1250, 'int': 1250}"
+        }
+       }
+      },
+      "additionalProperties": false
+     },
+     "donor": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "employer": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "first": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "fs": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "Georgia State Ethics Commission",
+       "FEC"
+      ]
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "person",
+       "org",
+       "committee",
+       "self"
+      ]
+     },
+     "last": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "n": {
+      "type": "integer",
+      "description": "seen 3000 of 3000"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "occupation": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "r": {
+      "type": "integer",
+      "description": "seen 3000 of 3000"
+     },
+     "review": {
+      "type": "boolean",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "False"
+      ]
+     },
+     "state": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "total": {
+      "type": "number",
+      "description": "seen 3000 of 3000"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "yr": {
+      "type": "object",
+      "description": "seen 3000 of 3000",
+      "properties": {
+       "2016": {
+        "type": "array",
+        "description": "seen 47 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 94 of 3000; MIXED types {'float': 47, 'int': 47}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "5",
+          "20",
+          "4",
+          "9"
+         ]
+        }
+       },
+       "2017": {
+        "type": "array",
+        "description": "seen 42 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 84 of 3000; MIXED types {'float': 42, 'int': 42}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "5",
+          "7",
+          "4"
+         ]
+        }
+       },
+       "2018": {
+        "type": "array",
+        "description": "seen 30 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 60 of 3000; MIXED types {'float': 30, 'int': 30}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ]
+        }
+       },
+       "2019": {
+        "type": "array",
+        "description": "seen 24 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 48 of 3000; MIXED types {'float': 24, 'int': 24}",
+         "x-values": [
+          "1",
+          "2",
+          "4",
+          "3"
+         ]
+        }
+       },
+       "2020": {
+        "type": "array",
+        "description": "seen 47 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 94 of 3000; MIXED types {'float': 47, 'int': 47}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "6",
+          "5",
+          "12",
+          "78",
+          "7"
+         ]
+        }
+       },
+       "2021": {
+        "type": "array",
+        "description": "seen 292 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 584 of 3000; MIXED types {'float': 292, 'int': 292}",
+         "x-values": [
+          "1",
+          "2",
+          "4",
+          "3",
+          "6",
+          "7",
+          "47",
+          "24",
+          "132",
+          "290",
+          "36",
+          "3928",
+          "11",
+          "14"
+         ]
+        }
+       },
+       "2022": {
+        "type": "array",
+        "description": "seen 1043 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 2086 of 3000; MIXED types {'float': 1043, 'int': 1043}"
+        }
+       },
+       "2023": {
+        "type": "array",
+        "description": "seen 412 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 824 of 3000; MIXED types {'float': 412, 'int': 412}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "12",
+          "27",
+          "7",
+          "10",
+          "7135",
+          "8",
+          "376",
+          "41",
+          "17",
+          "210",
+          "13",
+          "39",
+          "4",
+          "24",
+          "129",
+          "52"
+         ]
+        }
+       },
+       "2024": {
+        "type": "array",
+        "description": "seen 890 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 1780 of 3000; MIXED types {'float': 890, 'int': 890}"
+        }
+       },
+       "2025": {
+        "type": "array",
+        "description": "seen 621 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 1242 of 3000; MIXED types {'float': 621, 'int': 621}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "6",
+          "5",
+          "8",
+          "12",
+          "15",
+          "7",
+          "12998",
+          "24",
+          "9",
+          "19534",
+          "57",
+          "1501",
+          "30",
+          "1310",
+          "153",
+          "53",
+          "13",
+          "29",
+          "47",
+          "46"
+         ]
+        }
+       },
+       "2026": {
+        "type": "array",
+        "description": "seen 799 of 3000",
+        "items": {
+         "type": "number",
+         "description": "seen 1598 of 3000; MIXED types {'float': 799, 'int': 799}",
+         "x-values": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "7",
+          "6",
+          "64",
+          "9",
+          "8",
+          "11",
+          "12",
+          "20"
+         ]
+        }
+       }
+      },
+      "additionalProperties": {
+       "type": "array",
+       "description": "seen 165 of 3000; map with 11 distinct keys, e.g. ['2022', '2023', '2016', '2019']",
+       "items": {
+        "type": "number",
+        "description": "seen 330 of 3000; MIXED types {'float': 165, 'int': 165}",
+        "x-values": [
+         "1",
+         "2",
+         "3",
+         "4",
+         "5",
+         "7"
+        ]
+       }
+      }
+     },
+     "redated": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "city",
+     "county",
+     "cy",
+     "donor",
+     "employer",
+     "first",
+     "fs",
+     "kind",
+     "last",
+     "n",
+     "name",
+     "occupation",
+     "r",
+     "review",
+     "state",
+     "total",
+     "u",
+     "yr"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "hold": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "recipients": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 2149 of 1",
+    "properties": {
+     "cid": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "committees": {
+      "type": "array",
+      "description": "seen 1208 of 2149",
+      "items": {
+       "type": "string",
+       "description": "seen 1549 of 2149"
+      }
+     },
+     "conduit": {
+      "type": "number",
+      "description": "seen 674 of 2149"
+     },
+     "conduits": {
+      "type": "array",
+      "description": "seen 674 of 2149",
+      "items": {
+       "type": "object",
+       "description": "seen 780 of 2149",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "seen 780 of 780"
+        },
+        "total": {
+         "type": "number",
+         "description": "seen 780 of 780"
+        }
+       },
+       "required": [
+        "name",
+        "total"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "cy": {
+      "type": "object",
+      "description": "seen 2149 of 2149",
+      "properties": {
+       "2016": {
+        "type": "object",
+        "description": "seen 35 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 35 of 35"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 34 of 35"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 35 of 35",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 18 of 35"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 14 of 35"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 34 of 35"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 20 of 35"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 35 of 35"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 35 of 35"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 18 of 35"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 28 of 35"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         }
+        },
+        "required": [
+         "first",
+         "kinds",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2018": {
+        "type": "object",
+        "description": "seen 49 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 49 of 49"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 42 of 49"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 42 of 49",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 22 of 42"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 23 of 42"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 38 of 42"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 24 of 42"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 49 of 49"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 49 of 49"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 49 of 49"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 26 of 49"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 49 of 49"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 49 of 49"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 32 of 49"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 49 of 49"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2020": {
+        "type": "object",
+        "description": "seen 62 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 62 of 62"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 36 of 62"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 35 of 62",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 27 of 35"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 24 of 35"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 34 of 35"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 17 of 35"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 62 of 62"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 62 of 62"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 62 of 62"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 29 of 62"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 62 of 62"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 62 of 62"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 31 of 62"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 62 of 62"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2022": {
+        "type": "object",
+        "description": "seen 1069 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 1069 of 1069"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 900 of 1069"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 1026 of 1069",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 587 of 1026"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 690 of 1026"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 859 of 1026"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 206 of 1026"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 1069 of 1069"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 1069 of 1069"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 1069 of 1069"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 803 of 1069"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 1069 of 1069"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 1069 of 1069"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 750 of 1069"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 1069 of 1069"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2024": {
+        "type": "object",
+        "description": "seen 930 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 930 of 930"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 819 of 930"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 902 of 930",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 529 of 902"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 651 of 902"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 765 of 902"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 157 of 902"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 930 of 930"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 930 of 930"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 930 of 930"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 757 of 930"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 930 of 930"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 930 of 930"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 695 of 930"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 930 of 930"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2026": {
+        "type": "object",
+        "description": "seen 1207 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 1207 of 1207"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 1047 of 1207"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 1146 of 1207",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 672 of 1146"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 766 of 1146"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 890 of 1146"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 151 of 1146"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 1207 of 1207"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 1207 of 1207"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 1207 of 1207"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 947 of 1207"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 1207 of 1207"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 1207 of 1207"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 810 of 1207"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 1207 of 1207"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": false
+     },
+     "employers": {
+      "type": "array",
+      "description": "seen 2149 of 2149",
+      "items": {
+       "type": "object",
+       "description": "seen 10191 of 2149",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "seen 10191 of 10191"
+        },
+        "total": {
+         "type": "number",
+         "description": "seen 10191 of 10191"
+        }
+       },
+       "required": [
+        "name",
+        "total"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "fec": {
+      "type": "object",
+      "description": "seen 82 of 2149",
+      "properties": {
+       "check": {
+        "type": "string",
+        "description": "seen 82 of 82",
+        "x-values": [
+         "ok"
+        ]
+       },
+       "cycles": {
+        "type": "array",
+        "description": "seen 82 of 82",
+        "items": {
+         "type": "integer",
+         "description": "seen 203 of 82",
+         "x-values": [
+          "2018",
+          "2020",
+          "2022",
+          "2016",
+          "2024",
+          "2026"
+         ]
+        }
+       },
+       "itemized": {
+        "type": "number",
+        "description": "seen 82 of 82"
+       },
+       "receipts": {
+        "type": "number",
+        "description": "seen 82 of 82"
+       }
+      },
+      "required": [
+       "check",
+       "cycles",
+       "itemized",
+       "receipts"
+      ],
+      "additionalProperties": false
+     },
+     "fec_cy": {
+      "type": "object",
+      "description": "seen 82 of 2149",
+      "properties": {
+       "2016": {
+        "type": "object",
+        "description": "seen 34 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 34 of 34"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 34 of 34"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 34 of 34",
+          "x-values": [
+           "2016-12-31",
+           "2016-09-30",
+           "2016-05-04",
+           "2016-06-14",
+           "2016-07-18",
+           "2016-06-30",
+           "2016-06-01",
+           "2016-11-28",
+           "2016-07-14",
+           "2016-03-31"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 34 of 34"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       },
+       "2018": {
+        "type": "object",
+        "description": "seen 43 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 43 of 43"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 43 of 43"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 43 of 43",
+          "x-values": [
+           "2018-12-31",
+           "2017-09-30",
+           "2017-06-30",
+           "2018-09-30",
+           "2018-07-03",
+           "2018-01-17",
+           "2017-03-31",
+           "2017-03-29",
+           "2017-09-05",
+           "2017-07-15",
+           "2017-12-31",
+           "2017-05-31",
+           "2018-06-07",
+           "2017-04-27",
+           "2018-12-06",
+           "2018-03-31",
+           "2018-05-29"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 43 of 43"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       },
+       "2020": {
+        "type": "object",
+        "description": "seen 35 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 35 of 35",
+          "x-values": [
+           "2020-12-31",
+           "2020-09-30",
+           "2020-10-01",
+           "2020-01-17",
+           "2020-07-07",
+           "2020-10-14",
+           "2020-07-15",
+           "2020-03-31"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 35 of 35"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       },
+       "2022": {
+        "type": "object",
+        "description": "seen 27 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 27 of 27"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 27 of 27"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 27 of 27",
+          "x-values": [
+           "2022-12-31",
+           "2022-08-31",
+           "2022-02-01",
+           "2021-06-08",
+           "2021-12-31",
+           "2021-04-01",
+           "2021-01-31",
+           "2022-06-30",
+           "2021-03-31"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 27 of 27"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       },
+       "2024": {
+        "type": "object",
+        "description": "seen 20 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 20 of 20",
+          "x-values": [
+           "2024-12-31",
+           "2023-06-27",
+           "2023-06-30",
+           "2023-03-31",
+           "2023-05-22"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       },
+       "2026": {
+        "type": "object",
+        "description": "seen 20 of 82",
+        "properties": {
+         "individual": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         },
+         "receipts": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         },
+         "through": {
+          "type": "string",
+          "description": "seen 20 of 20",
+          "x-values": [
+           "2026-10-14",
+           "2026-09-30",
+           "2026-06-30"
+          ]
+         },
+         "unitemized": {
+          "type": "number",
+          "description": "seen 20 of 20"
+         }
+        },
+        "required": [
+         "individual",
+         "receipts",
+         "through",
+         "unitemized"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": false
+     },
+     "first": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "i": {
+      "type": "integer",
+      "description": "seen 2149 of 2149"
+     },
+     "in_ga": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "in_kind": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "jur": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "key": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "kinds": {
+      "type": "object",
+      "description": "seen 2149 of 2149",
+      "properties": {
+       "committee": {
+        "type": "number",
+        "description": "seen 1163 of 2149"
+       },
+       "org": {
+        "type": "number",
+        "description": "seen 1355 of 2149"
+       },
+       "person": {
+        "type": "number",
+        "description": "seen 1736 of 2149"
+       },
+       "self": {
+        "type": "number",
+        "description": "seen 507 of 2149"
+       }
+      },
+      "additionalProperties": false
+     },
+     "last": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "level": {
+      "type": "string",
+      "description": "seen 2149 of 2149",
+      "x-values": [
+       "legislative",
+       "committee",
+       "judicial",
+       "",
+       "federal",
+       "statewide",
+       "local"
+      ]
+     },
+     "link_src": {
+      "type": "string",
+      "description": "seen 11 of 2149"
+     },
+     "links": {
+      "type": "array",
+      "description": "seen 5 of 2149",
+      "items": {
+       "type": "object",
+       "description": "seen 6 of 2149",
+       "properties": {
+        "committee": {
+         "type": "string",
+         "description": "seen 6 of 6",
+         "x-values": [
+          "Tillery for Georgia, Inc.",
+          "Burt Jones for Georgia",
+          "Jones, William Burton",
+          "Harper for Georgia, Inc.",
+          "Duncan for Georgia",
+          "Jackson for Governor, Inc."
+         ]
+        },
+        "source": {
+         "type": "string",
+         "description": "seen 6 of 6"
+        }
+       },
+       "required": [
+        "committee",
+        "source"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "loans": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "moved": {
+      "type": "object",
+      "description": "seen 36 of 2149",
+      "properties": {
+       "cy": {
+        "type": "object",
+        "description": "seen 36 of 36",
+        "properties": {
+         "2022": {
+          "type": "number",
+          "description": "seen 13 of 36"
+         },
+         "2024": {
+          "type": "number",
+          "description": "seen 7 of 36"
+         },
+         "2026": {
+          "type": "number",
+          "description": "seen 18 of 36"
+         }
+        },
+        "additionalProperties": false
+       },
+       "from": {
+        "type": "array",
+        "description": "seen 36 of 36",
+        "items": {
+         "type": "object",
+         "description": "seen 44 of 36",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "seen 44 of 44"
+          },
+          "total": {
+           "type": "number",
+           "description": "seen 44 of 44"
+          }
+         },
+         "required": [
+          "name",
+          "total"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 36 of 36"
+       },
+       "total": {
+        "type": "number",
+        "description": "seen 36 of 36"
+       },
+       "yr": {
+        "type": "object",
+        "description": "seen 36 of 36",
+        "properties": {
+         "2021": {
+          "type": "number",
+          "description": "seen 3 of 36"
+         },
+         "2022": {
+          "type": "number",
+          "description": "seen 11 of 36"
+         },
+         "2023": {
+          "type": "number",
+          "description": "seen 2 of 36"
+         },
+         "2024": {
+          "type": "number",
+          "description": "seen 5 of 36"
+         },
+         "2025": {
+          "type": "number",
+          "description": "seen 10 of 36"
+         },
+         "2026": {
+          "type": "number",
+          "description": "seen 11 of 36"
+         }
+        },
+        "additionalProperties": false
+       }
+      },
+      "required": [
+       "cy",
+       "from",
+       "n",
+       "total",
+       "yr"
+      ],
+      "additionalProperties": false
+     },
+     "n": {
+      "type": "integer",
+      "description": "seen 2149 of 2149"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "nx": {
+      "type": "integer",
+      "description": "seen 2149 of 2149",
+      "x-values": [
+       "0"
+      ]
+     },
+     "office": {
+      "type": "string",
+      "description": "seen 2149 of 2149"
+     },
+     "orgs": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "pac_of": {
+      "type": "string",
+      "description": "seen 6 of 2149",
+      "x-values": [
+       "brian-kemp",
+       "burt-jones",
+       "stacey-abrams",
+       "keisha-lance-bottoms",
+       "rick-jackson",
+       "greg-dolezal"
+      ]
+     },
+     "pac_of_key": {
+      "type": "string",
+      "description": "seen 6 of 2149",
+      "x-values": [
+       "BRIAN KEMP",
+       "BURT JONES",
+       "STACEY ABRAMS",
+       "KEISHA LANCE BOTTOMS",
+       "RICK JACKSON",
+       "GREG DOLEZAL"
+      ]
+     },
+     "pac_of_name": {
+      "type": "string",
+      "description": "seen 6 of 2149"
+     },
+     "pac_of_party": {
+      "type": "string",
+      "description": "seen 6 of 2149",
+      "x-values": [
+       "R",
+       "D"
+      ]
+     },
+     "party": {
+      "type": "string",
+      "description": "seen 2149 of 2149",
+      "x-values": [
+       "",
+       "D",
+       "R",
+       "L",
+       "I"
+      ]
+     },
+     "raised": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "redated": {
+      "type": "integer",
+      "description": "seen 12 of 2149",
+      "x-values": [
+       "1",
+       "8"
+      ]
+     },
+     "self": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "small": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "sources": {
+      "type": "array",
+      "description": "seen 2149 of 2149",
+      "items": {
+       "type": "string",
+       "description": "seen 2975 of 2149"
+      }
+     },
+     "spent": {
+      "type": "number",
+      "description": "seen 2149 of 2149"
+     },
+     "via": {
+      "type": "array",
+      "description": "seen 5 of 2149",
+      "items": {
+       "type": "object",
+       "description": "seen 12 of 2149",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "seen 12 of 12"
+        },
+        "total": {
+         "type": "number",
+         "description": "seen 12 of 12"
+        }
+       },
+       "required": [
+        "name",
+        "total"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "yr": {
+      "type": "object",
+      "description": "seen 2149 of 2149",
+      "properties": {
+       "2016": {
+        "type": "object",
+        "description": "seen 28 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 28 of 28"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 27 of 28"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 28 of 28",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 11 of 28"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 7 of 28"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 27 of 28"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 20 of 28"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 28 of 28"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 28 of 28"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 28 of 28"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 11 of 28"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 28 of 28"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 28 of 28"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 21 of 28"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 28 of 28"
+         }
+        },
+        "required": [
+         "first",
+         "kinds",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2017": {
+        "type": "object",
+        "description": "seen 31 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 31 of 31"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 31 of 31"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 31 of 31",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 12 of 31"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 11 of 31"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 27 of 31"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 19 of 31"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 31 of 31"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 31 of 31"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 31 of 31"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 15 of 31"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 31 of 31"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 31 of 31"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 22 of 31"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 31 of 31"
+         }
+        },
+        "required": [
+         "first",
+         "in_ga",
+         "kinds",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2018": {
+        "type": "object",
+        "description": "seen 24 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 24 of 24"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 17 of 24"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 17 of 24",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 9 of 17"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 9 of 17"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 17 of 17"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 9 of 17"
+           }
+          },
+          "required": [
+           "person"
+          ],
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 24 of 24"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 24 of 24"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 24 of 24"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 11 of 24"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 24 of 24"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 24 of 24"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 16 of 24"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 24 of 24"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2019": {
+        "type": "object",
+        "description": "seen 21 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 21 of 21"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 13 of 21"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 12 of 21",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 7 of 12"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 7 of 12"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 11 of 12"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 6 of 12"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 21 of 21"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 21 of 21"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 21 of 21"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 8 of 21"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 21 of 21"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 21 of 21"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 10 of 21"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 21 of 21"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2020": {
+        "type": "object",
+        "description": "seen 41 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 41 of 41"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 23 of 41"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 23 of 41",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 16 of 23"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 11 of 23"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 22 of 23"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 11 of 23"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 41 of 41"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 41 of 41"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 41 of 41"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 17 of 41"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 41 of 41"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 41 of 41"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 21 of 41"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 41 of 41"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2021": {
+        "type": "object",
+        "description": "seen 452 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 452 of 452"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 382 of 452"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 430 of 452",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 205 of 430"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 263 of 430"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 319 of 430"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 52 of 430"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 452 of 452"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 452 of 452"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 452 of 452"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 319 of 452"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 452 of 452"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 452 of 452"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 244 of 452"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 452 of 452"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2022": {
+        "type": "object",
+        "description": "seen 973 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 973 of 973"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 828 of 973"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 942 of 973",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 538 of 942"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 633 of 942"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 789 of 942"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 171 of 942"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 973 of 973"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 973 of 973"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 973 of 973"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 742 of 973"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 973 of 973"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 973 of 973"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 677 of 973"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 973 of 973"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2023": {
+        "type": "object",
+        "description": "seen 560 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 560 of 560"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 483 of 560"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 540 of 560",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 293 of 540"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 380 of 540"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 423 of 540"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 59 of 540"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 560 of 560"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 560 of 560"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 560 of 560"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 435 of 560"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 560 of 560"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 560 of 560"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 360 of 560"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 560 of 560"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2024": {
+        "type": "object",
+        "description": "seen 836 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 836 of 836"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 745 of 836"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 807 of 836",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 466 of 807"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 582 of 807"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 683 of 807"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 119 of 807"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 836 of 836"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 836 of 836"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 836 of 836"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 675 of 836"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 836 of 836"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 836 of 836"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 606 of 836"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 836 of 836"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2025": {
+        "type": "object",
+        "description": "seen 716 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 716 of 716"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 633 of 716"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 691 of 716",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 396 of 691"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 480 of 691"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 554 of 691"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 70 of 691"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 716 of 716"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 716 of 716"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 716 of 716"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 546 of 716"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 716 of 716"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 716 of 716"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 467 of 716"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 716 of 716"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       },
+       "2026": {
+        "type": "object",
+        "description": "seen 977 of 2149",
+        "properties": {
+         "first": {
+          "type": "string",
+          "description": "seen 977 of 977"
+         },
+         "in_ga": {
+          "type": "number",
+          "description": "seen 857 of 977"
+         },
+         "kinds": {
+          "type": "object",
+          "description": "seen 922 of 977",
+          "properties": {
+           "committee": {
+            "type": "number",
+            "description": "seen 543 of 922"
+           },
+           "org": {
+            "type": "number",
+            "description": "seen 601 of 922"
+           },
+           "person": {
+            "type": "number",
+            "description": "seen 695 of 922"
+           },
+           "self": {
+            "type": "number",
+            "description": "seen 100 of 922"
+           }
+          },
+          "additionalProperties": false
+         },
+         "last": {
+          "type": "string",
+          "description": "seen 977 of 977"
+         },
+         "loans": {
+          "type": "number",
+          "description": "seen 977 of 977"
+         },
+         "n": {
+          "type": "integer",
+          "description": "seen 977 of 977"
+         },
+         "orgs": {
+          "type": "number",
+          "description": "seen 762 of 977"
+         },
+         "raised": {
+          "type": "number",
+          "description": "seen 977 of 977"
+         },
+         "self": {
+          "type": "number",
+          "description": "seen 977 of 977"
+         },
+         "small": {
+          "type": "number",
+          "description": "seen 634 of 977"
+         },
+         "spent": {
+          "type": "number",
+          "description": "seen 977 of 977"
+         }
+        },
+        "required": [
+         "first",
+         "last",
+         "loans",
+         "n",
+         "raised",
+         "self",
+         "spent"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": {
+       "type": "object",
+       "description": "seen 105 of 2149; map with 11 distinct keys, e.g. ['2019', '2020', '2021', '2022']",
+       "properties": {
+        "first": {
+         "type": "string",
+         "description": "seen 105 of 105"
+        },
+        "in_ga": {
+         "type": "number",
+         "description": "seen 105 of 105"
+        },
+        "kinds": {
+         "type": "object",
+         "description": "seen 105 of 105",
+         "properties": {
+          "committee": {
+           "type": "number",
+           "description": "seen 101 of 105"
+          },
+          "org": {
+           "type": "number",
+           "description": "seen 89 of 105"
+          },
+          "person": {
+           "type": "number",
+           "description": "seen 105 of 105"
+          },
+          "self": {
+           "type": "number",
+           "description": "seen 13 of 105"
+          }
+         },
+         "required": [
+          "person"
+         ],
+         "additionalProperties": false
+        },
+        "last": {
+         "type": "string",
+         "description": "seen 105 of 105"
+        },
+        "loans": {
+         "type": "number",
+         "description": "seen 105 of 105"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 105 of 105"
+        },
+        "orgs": {
+         "type": "number",
+         "description": "seen 103 of 105"
+        },
+        "raised": {
+         "type": "number",
+         "description": "seen 105 of 105"
+        },
+        "self": {
+         "type": "number",
+         "description": "seen 105 of 105"
+        },
+        "small": {
+         "type": "number",
+         "description": "seen 95 of 105"
+        },
+        "spent": {
+         "type": "number",
+         "description": "seen 105 of 105"
+        }
+       },
+       "required": [
+        "first",
+        "in_ga",
+        "kinds",
+        "last",
+        "loans",
+        "n",
+        "raised",
+        "self",
+        "spent"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "cid",
+     "county",
+     "cy",
+     "employers",
+     "first",
+     "i",
+     "in_ga",
+     "in_kind",
+     "jur",
+     "key",
+     "kinds",
+     "last",
+     "level",
+     "loans",
+     "n",
+     "name",
+     "nx",
+     "office",
+     "orgs",
+     "party",
+     "raised",
+     "self",
+     "small",
+     "sources",
+     "spent",
+     "yr"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "redated": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "after_filing": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "before_first_filing": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "after_filing",
+    "before_first_filing"
+   ],
+   "additionalProperties": false
+  },
+  "rows": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "skipped": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "integer",
+    "description": "seen 7 of 1; map with 7 distinct keys, e.g. ['memo_lines', 'duplicate_lines', 'transfers_between_own_committees', 'fec_lines_awaiting_reread']",
+    "x-values": [
+     "0",
+     "1565895",
+     "50",
+     "220",
+     "43"
+    ]
+   }
+  },
+  "spend": {
+   "type": "array",
+   "description": "seen 1 of 1"
+  },
+  "spend_hold": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "totals": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "donors": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "gifts": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "listed": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "named": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "pairs": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "raised": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "recipients": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "self_inferred": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "donors",
+    "gifts",
+    "listed",
+    "named",
+    "pairs",
+    "raised",
+    "recipients",
+    "self_inferred"
+   ],
+   "additionalProperties": false
+  },
+  "years": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 11 of 1"
+   }
+  }
+ },
+ "required": [
+  "by",
+  "caps",
+  "conduits",
+  "cycles",
+  "donors",
+  "generated",
+  "gifts",
+  "hold",
+  "note",
+  "recipients",
+  "redated",
+  "rows",
+  "skipped",
+  "spend",
+  "spend_hold",
+  "totals",
+  "years"
+ ],
+ "additionalProperties": false,
+ "x-widened": [
+  "$.gifts[11432]: keys ['redated'] found in real data, not in the draft (donors.json)"
+ ]
+}

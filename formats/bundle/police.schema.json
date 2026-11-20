@@ -1,0 +1,595 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/police.json",
+ "description": "object",
+ "x-area": "export_bundle",
+ "x-writer": "police.export_policing",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; electo-crawl-policing.yml",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Policing'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (17): as_of, captured, checked_at, counties, jurisdiction_kind, listed_by, name_from, note, number, ori, others, pages, roster, sheriffs, source, text, via"
+ ],
+ "type": "object",
+ "properties": {
+  "departments": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 567 of 1",
+    "properties": {
+     "address": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "seen 567 of 567",
+      "properties": {
+       "src": {
+        "type": "string",
+        "description": "seen 184 of 184"
+       },
+       "text": {
+        "type": "string",
+        "description": "seen 184 of 184"
+       }
+      },
+      "required": [
+       "src",
+       "text"
+      ],
+      "additionalProperties": false
+     },
+     "checked_at": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "chief": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "seen 567 of 567",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "seen 151 of 151"
+       },
+       "src": {
+        "type": "string",
+        "description": "seen 151 of 151"
+       },
+       "title": {
+        "type": "string",
+        "description": "seen 151 of 151"
+       }
+      },
+      "required": [
+       "name",
+       "src",
+       "title"
+      ],
+      "additionalProperties": false
+     },
+     "complaints": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "seen 567 of 567",
+      "properties": {
+       "emails": {
+        "type": "array",
+        "description": "seen 40 of 40",
+        "items": {
+         "type": "string",
+         "description": "seen 15 of 40"
+        }
+       },
+       "phones": {
+        "type": "array",
+        "description": "seen 40 of 40",
+        "items": {
+         "type": "string",
+         "description": "seen 38 of 40"
+        }
+       },
+       "url": {
+        "type": "string",
+        "description": "seen 40 of 40"
+       }
+      },
+      "required": [
+       "emails",
+       "phones",
+       "url"
+      ],
+      "additionalProperties": false
+     },
+     "county": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "emails": {
+      "type": "array",
+      "description": "seen 567 of 567",
+      "items": {
+       "type": "object",
+       "description": "seen 377 of 567",
+       "properties": {
+        "address": {
+         "type": "string",
+         "description": "seen 377 of 377"
+        },
+        "page": {
+         "type": "string",
+         "description": "seen 133 of 377",
+         "x-values": [
+          "contact",
+          "chief",
+          "records",
+          "complaints",
+          "precincts"
+         ]
+        },
+        "src": {
+         "type": "string",
+         "description": "seen 377 of 377"
+        }
+       },
+       "required": [
+        "address",
+        "src"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "jurisdiction_kind": {
+      "type": "string",
+      "description": "seen 567 of 567",
+      "x-values": [
+       "city",
+       "county",
+       "town",
+       "consolidated"
+      ]
+     },
+     "jurisdiction_name": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 567 of 567",
+      "x-values": [
+       "police",
+       "sheriff",
+       "marshal"
+      ]
+     },
+     "listed_by": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 567 of 567",
+      "x-values": [
+       "fbi"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "name_from": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     },
+     "ori": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 567 of 567"
+     },
+     "pages": {
+      "type": "object",
+      "description": "seen 567 of 567",
+      "properties": {
+       "chief": {
+        "type": "object",
+        "description": "seen 51 of 567",
+        "properties": {
+         "label": {
+          "type": "string",
+          "description": "seen 51 of 51"
+         },
+         "url": {
+          "type": "string",
+          "description": "seen 51 of 51"
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       },
+       "complaints": {
+        "type": "object",
+        "description": "seen 40 of 567",
+        "properties": {
+         "label": {
+          "type": "string",
+          "description": "seen 40 of 40"
+         },
+         "url": {
+          "type": "string",
+          "description": "seen 40 of 40"
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       },
+       "contact": {
+        "type": "object",
+        "description": "seen 40 of 567",
+        "properties": {
+         "label": {
+          "type": "string",
+          "description": "seen 40 of 40"
+         },
+         "url": {
+          "type": "string",
+          "description": "seen 40 of 40"
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       },
+       "precincts": {
+        "type": "object",
+        "description": "seen 16 of 567",
+        "properties": {
+         "label": {
+          "type": "string",
+          "description": "seen 16 of 16"
+         },
+         "url": {
+          "type": "string",
+          "description": "seen 16 of 16"
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       },
+       "records": {
+        "type": "object",
+        "description": "seen 42 of 567",
+        "properties": {
+         "label": {
+          "type": "string",
+          "description": "seen 42 of 42"
+         },
+         "url": {
+          "type": "string",
+          "description": "seen 42 of 42"
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": false
+     },
+     "phones": {
+      "type": "array",
+      "description": "seen 567 of 567",
+      "items": {
+       "type": "object",
+       "description": "seen 987 of 567",
+       "properties": {
+        "label": {
+         "type": "string",
+         "description": "seen 987 of 987"
+        },
+        "number": {
+         "type": "string",
+         "description": "seen 987 of 987"
+        },
+        "src": {
+         "type": "string",
+         "description": "seen 987 of 987"
+        }
+       },
+       "required": [
+        "label",
+        "number",
+        "src"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "precincts": {
+      "type": "array",
+      "description": "seen 567 of 567",
+      "items": {
+       "type": "object",
+       "description": "seen 4 of 567",
+       "properties": {
+        "address": {
+         "type": "string",
+         "description": "seen 4 of 4"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 4 of 4"
+        },
+        "phone": {
+         "type": "string",
+         "description": "seen 4 of 4"
+        },
+        "src": {
+         "type": "string",
+         "description": "seen 4 of 4"
+        }
+       },
+       "required": [
+        "address",
+        "name",
+        "phone",
+        "src"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "records": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "seen 567 of 567",
+      "properties": {
+       "emails": {
+        "type": "array",
+        "description": "seen 42 of 42",
+        "items": {
+         "type": "string",
+         "description": "seen 35 of 42"
+        }
+       },
+       "phones": {
+        "type": "array",
+        "description": "seen 42 of 42",
+        "items": {
+         "type": "string",
+         "description": "seen 42 of 42"
+        }
+       },
+       "url": {
+        "type": "string",
+        "description": "seen 42 of 42"
+       }
+      },
+      "required": [
+       "emails",
+       "phones",
+       "url"
+      ],
+      "additionalProperties": false
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 567 of 567"
+     }
+    },
+    "required": [
+     "address",
+     "checked_at",
+     "chief",
+     "complaints",
+     "county",
+     "emails",
+     "jurisdiction",
+     "jurisdiction_kind",
+     "jurisdiction_name",
+     "kind",
+     "listed_by",
+     "name",
+     "name_from",
+     "ori",
+     "pages",
+     "phones",
+     "precincts",
+     "records",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "others": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 148 of 1",
+    "properties": {
+     "county": {
+      "type": "string",
+      "description": "seen 148 of 148"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 148 of 148"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 148 of 148",
+      "x-values": [
+       "campus",
+       "state_patrol",
+       "schools",
+       "marshal",
+       "state",
+       "other"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 148 of 148"
+     },
+     "ori": {
+      "type": "string",
+      "description": "seen 148 of 148"
+     }
+    },
+    "required": [
+     "county",
+     "jurisdiction",
+     "kind",
+     "name",
+     "ori"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "roster": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "as_of": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "source": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "as_of",
+    "source"
+   ],
+   "additionalProperties": false
+  },
+  "sheriffs": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "as_of": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "captured": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "counties": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "object",
+      "description": "seen 158 of 1; map with 158 distinct keys, e.g. ['Appling', 'Atkinson', 'Bacon', 'Baker']",
+      "properties": {
+       "address": {
+        "type": "string",
+        "description": "seen 158 of 158"
+       },
+       "captured": {
+        "type": "string",
+        "description": "seen 158 of 158",
+        "x-values": [
+         "2026-07-19"
+        ]
+       },
+       "name": {
+        "type": "string",
+        "description": "seen 158 of 158"
+       },
+       "phone": {
+        "type": "string",
+        "description": "seen 158 of 158"
+       },
+       "src": {
+        "type": "string",
+        "description": "seen 158 of 158"
+       },
+       "title": {
+        "type": "string",
+        "description": "seen 158 of 158"
+       },
+       "via": {
+        "type": "string",
+        "description": "seen 158 of 158",
+        "x-values": [
+         "wayback"
+        ]
+       }
+      },
+      "required": [
+       "address",
+       "captured",
+       "name",
+       "phone",
+       "src",
+       "title",
+       "via"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "site": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "source": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "via": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "as_of",
+    "captured",
+    "counties",
+    "site",
+    "source",
+    "via"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "departments",
+  "note",
+  "others",
+  "roster",
+  "sheriffs"
+ ],
+ "additionalProperties": false
+}

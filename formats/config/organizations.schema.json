@@ -1,0 +1,23 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/organizations.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "finance",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/organizations.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "organizations": {
+   "type": "array",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "organizations"
+ ],
+ "additionalProperties": false
+}

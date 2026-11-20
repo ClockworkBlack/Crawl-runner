@@ -1,0 +1,720 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/bill_reasons.json",
+ "description": "{patterns, bills[]...}",
+ "x-area": "export_bundle",
+ "x-writer": "bill_reasons.export_reasons",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Why bills passed or died'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (10): at, committee, generated, hearing, note, platform, press_release, step, step_date, videos"
+ ],
+ "type": "object",
+ "properties": {
+  "bills": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 2803 of 1",
+    "properties": {
+     "act": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "bipartisan_sponsors": {
+      "type": "boolean",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "caption": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "committees": {
+      "type": "array",
+      "description": "seen 2803 of 2803",
+      "items": {
+       "type": "string",
+       "description": "seen 5317 of 2803"
+      }
+     },
+     "features": {
+      "type": "object",
+      "description": "seen 2803 of 2803",
+      "properties": {
+       "bipartisan_sponsors": {
+        "type": "boolean",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "False",
+         "True"
+        ]
+       },
+       "first_vote_party_line": {
+        "type": "boolean",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "False",
+         "True"
+        ]
+       },
+       "lead_majority": {
+        "type": "boolean",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "no_floor_vote": {
+        "type": "boolean",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "False",
+         "True"
+        ]
+       },
+       "passed_first_chamber": {
+        "type": "boolean",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       }
+      },
+      "required": [
+       "bipartisan_sponsors",
+       "first_vote_party_line",
+       "lead_majority",
+       "no_floor_vote",
+       "passed_first_chamber"
+      ],
+      "additionalProperties": false
+     },
+     "lead_sponsor": {
+      "type": "object",
+      "description": "seen 2803 of 2803",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "seen 2803 of 2803"
+       },
+       "party": {
+        "type": "string",
+        "description": "seen 2803 of 2803",
+        "x-values": [
+         "R",
+         "D"
+        ]
+       }
+      },
+      "required": [
+       "name",
+       "party"
+      ],
+      "additionalProperties": false
+     },
+     "majority_party": {
+      "type": "string",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "R"
+      ]
+     },
+     "number": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "origin": {
+      "type": "string",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "House",
+       "Senate"
+      ]
+     },
+     "outcome": {
+      "type": "string",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "law",
+       "died",
+       "vetoed"
+      ]
+     },
+     "reasons": {
+      "type": "array",
+      "description": "seen 2803 of 2803",
+      "items": {
+       "type": "object",
+       "description": "seen 5678 of 2803",
+       "properties": {
+        "at": {
+         "type": "string",
+         "description": "seen 2626 of 5678"
+        },
+        "d": {
+         "type": "string",
+         "description": "seen 5678 of 5678"
+        },
+        "excerpts": {
+         "type": "array",
+         "description": "seen 5678 of 5678",
+         "items": {
+          "type": "object",
+          "description": "seen 7967 of 5678",
+          "properties": {
+           "stance": {
+            "type": "string",
+            "description": "seen 7967 of 7967",
+            "x-values": [
+             "context",
+             "outcome",
+             "oppose",
+             "support"
+            ]
+           },
+           "x": {
+            "type": "string",
+            "description": "seen 7967 of 7967"
+           }
+          },
+          "required": [
+           "stance",
+           "x"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "hearing": {
+         "type": "boolean",
+         "description": "seen 2626 of 5678",
+         "x-values": [
+          "True"
+         ]
+        },
+        "outlet": {
+         "type": "string",
+         "description": "seen 5678 of 5678"
+        },
+        "press_release": {
+         "type": "boolean",
+         "description": "seen 247 of 5678",
+         "x-values": [
+          "True"
+         ]
+        },
+        "t": {
+         "type": "string",
+         "description": "seen 5678 of 5678"
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 5678 of 5678"
+        }
+       },
+       "required": [
+        "d",
+        "excerpts",
+        "outlet",
+        "t",
+        "u"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "session": {
+      "type": "integer",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "1033",
+       "1031",
+       "1029",
+       "27",
+       "25",
+       "1032",
+       "24",
+       "1034"
+      ]
+     },
+     "session_name": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "sponsor_parties": {
+      "type": "object",
+      "description": "seen 2803 of 2803",
+      "properties": {
+       "D": {
+        "type": "integer",
+        "description": "seen 1100 of 2803",
+        "x-values": [
+         "1",
+         "2",
+         "3",
+         "4",
+         "6",
+         "5"
+        ]
+       },
+       "R": {
+        "type": "integer",
+        "description": "seen 2640 of 2803",
+        "x-values": [
+         "6",
+         "5",
+         "1",
+         "4",
+         "2",
+         "3"
+        ]
+       }
+      },
+      "additionalProperties": false
+     },
+     "stage": {
+      "type": "string",
+      "description": "seen 2803 of 2803",
+      "x-values": [
+       "law",
+       "first chamber",
+       "no floor vote",
+       "both chambers",
+       "vetoed",
+       "failed on the floor"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "status_date": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 2803 of 2803"
+     },
+     "videos": {
+      "type": "array",
+      "description": "seen 2803 of 2803",
+      "items": {
+       "type": "object",
+       "description": "seen 6761 of 2803",
+       "properties": {
+        "committee": {
+         "type": "string",
+         "description": "seen 6761 of 6761"
+        },
+        "d": {
+         "type": "string",
+         "description": "seen 6761 of 6761"
+        },
+        "platform": {
+         "type": "string",
+         "description": "seen 6761 of 6761",
+         "x-values": [
+          "vimeo"
+         ]
+        },
+        "step": {
+         "type": "string",
+         "description": "seen 6761 of 6761",
+         "x-values": [
+          "House Committee Favorably Reported By Substitute",
+          "Senate Committee Favorably Reported",
+          "Senate Committee Favorably Reported By Substitute",
+          "House Committee Favorably Reported",
+          "House Conference Committee Appointed 9th, 11th, 74th",
+          "House Conference Committee Appointed 8th, 104th, 19th",
+          "Senate Conference Committee Appointed 19th, 31st, 52nd",
+          "House Conference Committee Appointed 155th, 104th, 47th",
+          "Senate Conference Committee Appointed 13th, 11th, 50th",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #884",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #464",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #456",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #539",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #141",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #484",
+          "House Conference Committee Appointed 155th, 47th, 170th",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #546",
+          "Senate Conference Committee Appointed 20th, 25th, 45th",
+          "Agree to Committee Report House Vote #18",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #586",
+          "ADOPT CONFERENCE COMMITTEE REPORT Senate Vote #975",
+          "House Conference Committee Appointed 116th, 159th, 47th",
+          "Senate Conference Committee Appointed 19th, 17th, 22nd",
+          "Senate Committee Unfavorably Reported"
+         ]
+        },
+        "step_date": {
+         "type": "string",
+         "description": "seen 6761 of 6761"
+        },
+        "t": {
+         "type": "string",
+         "description": "seen 6761 of 6761"
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 6761 of 6761"
+        }
+       },
+       "required": [
+        "committee",
+        "d",
+        "platform",
+        "step",
+        "step_date",
+        "t",
+        "u"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "votes": {
+      "type": "array",
+      "description": "seen 2803 of 2803",
+      "items": {
+       "type": "object",
+       "description": "seen 4057 of 2803",
+       "properties": {
+        "caption": {
+         "type": "string",
+         "description": "seen 4057 of 4057"
+        },
+        "chamber": {
+         "type": "string",
+         "description": "seen 4057 of 4057",
+         "x-values": [
+          "Senate",
+          "House"
+         ]
+        },
+        "date": {
+         "type": "string",
+         "description": "seen 4057 of 4057"
+        },
+        "nay": {
+         "type": "integer",
+         "description": "seen 4057 of 4057"
+        },
+        "party": {
+         "type": "object",
+         "description": "seen 4057 of 4057",
+         "properties": {
+          "?": {
+           "type": "array",
+           "description": "seen 835 of 4057",
+           "items": {
+            "type": "integer",
+            "description": "seen 1670 of 4057",
+            "x-values": [
+             "0"
+            ]
+           }
+          },
+          "D": {
+           "type": "array",
+           "description": "seen 4057 of 4057",
+           "items": {
+            "type": "integer",
+            "description": "seen 8114 of 4057"
+           }
+          },
+          "I": {
+           "type": "array",
+           "description": "seen 252 of 4057",
+           "items": {
+            "type": "integer",
+            "description": "seen 504 of 4057",
+            "x-values": [
+             "0",
+             "1"
+            ]
+           }
+          },
+          "R": {
+           "type": "array",
+           "description": "seen 4057 of 4057",
+           "items": {
+            "type": "integer",
+            "description": "seen 8114 of 4057"
+           }
+          }
+         },
+         "required": [
+          "D",
+          "R"
+         ],
+         "additionalProperties": false
+        },
+        "party_line": {
+         "type": "boolean",
+         "description": "seen 4057 of 4057",
+         "x-values": [
+          "False",
+          "True"
+         ]
+        },
+        "result": {
+         "type": "string",
+         "description": "seen 4057 of 4057",
+         "x-values": [
+          "passed",
+          "failed"
+         ]
+        },
+        "yea": {
+         "type": "integer",
+         "description": "seen 4057 of 4057"
+        }
+       },
+       "required": [
+        "caption",
+        "chamber",
+        "date",
+        "nay",
+        "party",
+        "party_line",
+        "result",
+        "yea"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "act",
+     "bipartisan_sponsors",
+     "caption",
+     "committees",
+     "features",
+     "lead_sponsor",
+     "majority_party",
+     "number",
+     "origin",
+     "outcome",
+     "reasons",
+     "session",
+     "session_name",
+     "sponsor_parties",
+     "stage",
+     "status",
+     "status_date",
+     "url",
+     "videos",
+     "votes"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "generated": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "patterns": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "became_law": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "bills": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "by": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "bipartisan_sponsors": {
+       "type": "object",
+       "description": "seen 1 of 1",
+       "properties": {
+        "became_law": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "rate": {
+         "type": "number",
+         "description": "seen 1 of 1"
+        }
+       },
+       "required": [
+        "became_law",
+        "label",
+        "n",
+        "rate"
+       ],
+       "additionalProperties": false
+      },
+      "first_vote_party_line": {
+       "type": "object",
+       "description": "seen 1 of 1",
+       "properties": {
+        "became_law": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "rate": {
+         "type": "number",
+         "description": "seen 1 of 1"
+        }
+       },
+       "required": [
+        "became_law",
+        "label",
+        "n",
+        "rate"
+       ],
+       "additionalProperties": false
+      },
+      "lead_majority": {
+       "type": "object",
+       "description": "seen 1 of 1",
+       "properties": {
+        "became_law": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "rate": {
+         "type": "number",
+         "description": "seen 1 of 1"
+        }
+       },
+       "required": [
+        "became_law",
+        "label",
+        "n",
+        "rate"
+       ],
+       "additionalProperties": false
+      },
+      "no_floor_vote": {
+       "type": "object",
+       "description": "seen 1 of 1",
+       "properties": {
+        "became_law": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "rate": {
+         "type": "number",
+         "description": "seen 1 of 1"
+        }
+       },
+       "required": [
+        "became_law",
+        "label",
+        "n",
+        "rate"
+       ],
+       "additionalProperties": false
+      },
+      "passed_first_chamber": {
+       "type": "object",
+       "description": "seen 1 of 1",
+       "properties": {
+        "became_law": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        },
+        "n": {
+         "type": "integer",
+         "description": "seen 1 of 1"
+        },
+        "rate": {
+         "type": "number",
+         "description": "seen 1 of 1"
+        }
+       },
+       "required": [
+        "became_law",
+        "label",
+        "n",
+        "rate"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "bipartisan_sponsors",
+      "first_vote_party_line",
+      "lead_majority",
+      "no_floor_vote",
+      "passed_first_chamber"
+     ],
+     "additionalProperties": false
+    },
+    "rate": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "became_law",
+    "bills",
+    "by",
+    "rate"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "bills",
+  "generated",
+  "note",
+  "patterns"
+ ],
+ "additionalProperties": false
+}

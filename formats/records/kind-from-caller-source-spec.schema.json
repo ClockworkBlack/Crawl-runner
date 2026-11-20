@@ -1,0 +1,104 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "(kind from caller / source spec)",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "archive_sources.py:149 source; channels.py:734 _doc_record; channels.py:750 _doc_record; channels.py:752 _doc_record; channels.py:757 _doc_record; channels.py:841 _page_record; channels.py:966 crawl; channels.py:1253 _html_crawl; channels.py:1429 _browser_crawl_locked; finance.py:564 from_documents; finance.py:937 resolve_all; ingest.py:125 image_to_record; ingest.py:258 pdf_to_record; model_handoff.py:187 apply; screens.py:483 capture_record; sources/legistar.py:523 fill_sponsors; sources/legistar.py:543 fill_sponsors; store.py:716 _import_legacy_jsonl; transcripts.py:201 from_meetings",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "NOT in the documented kind list (store.Record comment, schema.md)",
+ "x-observed": "",
+ "x-issues": [
+  "I01 (undocumented): Record kinds: store.Record's comment and schema.md list 17 kinds; the code writes 29 more by name (appointment, ballot_question, bill, bill_reason, bill_video, budget_doc, code_act, contribution, election, election_result, endorsement, federal_bill, guide, guide_answer, legislator, meeting_summary, news_item, organization, police_incident, policy, press_release, qualifying, rating, school, school_stat, screenshot, sponsorship, transcript, video); 13 of them are in the Nov 20 bundle's records_by_kind"
+ ],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "<expr:d[\"source_id\"]>",
+    "<expr:m[\"source_id\"]>",
+    "<expr:r[\"source_id\"]>",
+    "<expr:sid>",
+    "<expr:source_id>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: archive,docx,text",
+   "x-values": [
+    "<expr:d.get(\"channel\") or \"\">",
+    "<expr:d.get(\"channel\", \"\")>",
+    "<expr:m[\"channel\"]>",
+    "<expr:r.get(\"channel\") or \"\">",
+    "api",
+    "archive",
+    "browser",
+    "docx",
+    "html",
+    "ocr",
+    "pdf",
+    "text",
+    "wp_json"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "<expr:d.get(\"evidence\") or \"\">",
+    "<expr:d.get(\"evidence\", \"\")>",
+    "<expr:m[\"evidence\"]>",
+    "<expr:r.get(\"evidence\") or \"\">",
+    "<expr:r.get(\"evidence\") or \"primary\">",
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "archive_why": {},
+    "archived": {},
+    "captured": {},
+    "captured_as": {},
+    "captured_by": {},
+    "committee_of": {},
+    "date_from": {},
+    "doc_type": {},
+    "donor_entity": {},
+    "employer_entity": {},
+    "engine": {},
+    "file": {},
+    "finance_filer": {},
+    "finance_parse_v": {},
+    "finance_parsed": {},
+    "finance_rows": {},
+    "mean_confidence": {},
+    "modified": {},
+    "needs_review": {},
+    "ocr_pages": {},
+    "ocr_pending": {},
+    "ocr_truncated": {},
+    "opened": {},
+    "opened_url": {},
+    "original": {},
+    "pages": {},
+    "recipient_entity": {},
+    "screenshot_file": {},
+    "screenshot_sha256": {},
+    "sha256": {},
+    "sponsors": {},
+    "sponsors_modified": {},
+    "text_from": {},
+    "transcript_checked": {},
+    "unreadable": {},
+    "via": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

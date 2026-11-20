@@ -1,0 +1,40 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "agency_archive:{agency_id}:{page_url}",
+ "description": "JSON stamp of the Internet Archive reading of one page",
+ "x-area": "kv",
+ "x-writer": "agencies.read_body / run",
+ "x-readers": "agencies.read_body, export_state_meetings (as_of)",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [
+  "I09 (writers_disagree): kv agency_archive stamps: 6 kv_set sites in agencies.py write different key sets ({at, as_of, rev?}, {at, rev?} without as_of, stamp | {tried, since}); export_state_meetings reads as_of, so a body whose newest stamp came from the {at} path loses archive_as_of"
+ ],
+ "type": "object",
+ "properties": {
+  "at": {
+   "type": "string",
+   "format": "date",
+   "description": "day the copy was read; absent when only tried"
+  },
+  "as_of": {
+   "type": "string",
+   "description": "copy capture day; NOT written by the 'no copy taken' path (agencies.py ~1713: {at}|{rev})"
+  },
+  "rev": {
+   "type": "integer",
+   "description": "READER_REV of the reader that read it (only when >1)"
+  },
+  "tried": {
+   "type": "string",
+   "format": "date",
+   "description": "asked today, not taken"
+  },
+  "since": {
+   "type": "string",
+   "format": "date",
+   "description": "first day not taken"
+  }
+ }
+}

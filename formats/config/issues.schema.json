@@ -1,0 +1,27 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/issues.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "stances",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/issues.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "issues": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "string",
+    "description": "seen 27 of 1; map with 27 distinct keys, e.g. ['Abortion', 'Health care', 'Taxes and budget', 'Education']"
+   }
+  }
+ },
+ "required": [
+  "issues"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "agency_read:{agency_id}",
+ "description": "ISO datetime UTC",
+ "x-area": "kv",
+ "x-writer": "agencies.run",
+ "x-readers": "agencies.run (ordering)",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

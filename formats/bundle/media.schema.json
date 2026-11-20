@@ -1,0 +1,163 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/media.json",
+ "description": "object",
+ "x-area": "export_bundle",
+ "x-writer": "police.export_policing",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py; electo-crawl-policing.yml",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Policing'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (7): anchor, checked_at, county_outlets, home, note, regions, statewide"
+ ],
+ "type": "object",
+ "properties": {
+  "county_outlets": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "array",
+    "description": "seen 60 of 1; map with 60 distinct keys, e.g. ['cobb', 'gwinnett', 'dekalb', 'fulton']",
+    "items": {
+     "type": "string",
+     "description": "seen 79 of 1"
+    }
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "outlets": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 110 of 1",
+    "properties": {
+     "checked_at": {
+      "type": "string",
+      "description": "seen 110 of 110"
+     },
+     "domain": {
+      "type": "string",
+      "description": "seen 110 of 110"
+     },
+     "home": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 110 of 110"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 110 of 110"
+     },
+     "page": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 110 of 110"
+     },
+     "tips": {
+      "type": "array",
+      "description": "seen 110 of 110",
+      "items": {
+       "type": "object",
+       "description": "seen 42 of 110",
+       "properties": {
+        "address": {
+         "type": "string",
+         "description": "seen 42 of 42"
+        },
+        "label": {
+         "type": "string",
+         "description": "seen 42 of 42"
+        },
+        "src": {
+         "type": "string",
+         "description": "seen 42 of 42"
+        }
+       },
+       "required": [
+        "address",
+        "label",
+        "src"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "checked_at",
+     "domain",
+     "home",
+     "name",
+     "page",
+     "tips"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "regions": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 12 of 1; map with 12 distinct keys, e.g. ['atlanta', 'athens', 'gainesville', 'rome']",
+    "properties": {
+     "anchor": {
+      "type": "array",
+      "description": "seen 12 of 12",
+      "items": {
+       "type": "number",
+       "description": "seen 24 of 12"
+      }
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     },
+     "outlets": {
+      "type": "array",
+      "description": "seen 12 of 12",
+      "items": {
+       "type": "string",
+       "description": "seen 54 of 12"
+      }
+     }
+    },
+    "required": [
+     "anchor",
+     "name",
+     "outlets"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "statewide": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 3 of 1",
+    "x-values": [
+     "ajc.com",
+     "gpb.org",
+     "georgiarecorder.com"
+    ]
+   }
+  }
+ },
+ "required": [
+  "county_outlets",
+  "note",
+  "outlets",
+  "regions",
+  "statewide"
+ ],
+ "additionalProperties": false
+}

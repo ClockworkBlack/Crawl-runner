@@ -1,0 +1,38 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "orgs",
+ "description": "JSON map entity id -> {checked, v?, kind, sources}",
+ "x-area": "kv",
+ "x-writer": "finance.OrgEnricher.flush; model_handoff (KV_KEYS)",
+ "x-readers": "finance",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [
+  "I10 (writers_disagree): kv orgs: finance._enrich_one writes {checked, v, kind, sources}, finance.enrich writes {checked, kind, sources} (no v)"
+ ],
+ "type": "object",
+ "additionalProperties": {
+  "type": "object",
+  "properties": {
+   "checked": {
+    "type": "string"
+   },
+   "v": {
+    "type": "integer",
+    "description": "written by _enrich_one (REG_V), NOT by enrich(): two writers disagree"
+   },
+   "kind": {
+    "type": "string"
+   },
+   "sources": {
+    "type": "integer"
+   }
+  },
+  "required": [
+   "checked",
+   "kind",
+   "sources"
+  ]
+ }
+}

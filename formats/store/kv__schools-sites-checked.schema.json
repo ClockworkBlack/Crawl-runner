@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "schools:sites:checked",
+ "description": "JSON map",
+ "x-area": "kv",
+ "x-writer": "schools",
+ "x-readers": "schools",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

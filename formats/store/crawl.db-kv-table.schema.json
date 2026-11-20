@@ -1,0 +1,24 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "data/crawl.db: kv table",
+ "description": "SQLite table k TEXT PK, v TEXT (JSON or plain text by key)",
+ "x-area": "db_record_model",
+ "x-writer": "store.kv_set (see area kv)",
+ "x-readers": "store.kv_get",
+ "x-version": "2",
+ "x-documented-in": "none beyond DDL",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "k": {
+   "type": "string"
+  },
+  "v": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "k"
+ ]
+}

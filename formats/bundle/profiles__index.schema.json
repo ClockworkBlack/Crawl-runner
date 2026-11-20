@@ -1,0 +1,220 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/profiles/index.json",
+ "description": "{note, profiles[{key,candidate_id,name,file,depth,inference_inputs,counts,money}], written, thin}",
+ "x-area": "export_bundle",
+ "x-writer": "profiles.ProfileWriter.finish",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "none",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "I15 (mixed_types): money.total_raised is int in some files and float in others (packets 589 int / 194 float; profiles 571/219; profiles index 2680/320); fec.itemized 20 float / 1 int"
+ ],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "profiles": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "candidate_id": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "counts": {
+      "type": "object",
+      "description": "seen 3000 of 3000",
+      "properties": {
+       "affiliations": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "bills": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "career": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "controversies": {
+        "type": "integer",
+        "description": "seen 3000 of 3000",
+        "x-values": [
+         "0",
+         "1"
+        ]
+       },
+       "endorsement_items": {
+        "type": "integer",
+        "description": "seen 3000 of 3000",
+        "x-values": [
+         "0",
+         "1",
+         "2",
+         "3",
+         "7",
+         "6",
+         "4",
+         "5",
+         "11",
+         "20",
+         "9",
+         "13",
+         "18",
+         "8",
+         "12"
+        ]
+       },
+       "positions": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "ratings": {
+        "type": "integer",
+        "description": "seen 3000 of 3000",
+        "x-values": [
+         "0",
+         "1"
+        ]
+       },
+       "sources": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "statements": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "votes": {
+        "type": "integer",
+        "description": "seen 3000 of 3000",
+        "x-values": [
+         "0",
+         "300",
+         "1",
+         "6",
+         "2",
+         "12",
+         "3",
+         "140",
+         "59",
+         "75",
+         "30",
+         "105",
+         "10",
+         "152",
+         "19",
+         "233",
+         "100",
+         "4",
+         "190"
+        ]
+       }
+      },
+      "required": [
+       "affiliations",
+       "bills",
+       "career",
+       "controversies",
+       "endorsement_items",
+       "positions",
+       "ratings",
+       "sources",
+       "statements",
+       "votes"
+      ],
+      "additionalProperties": false
+     },
+     "depth": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "none",
+       "full",
+       "partial",
+       "thin"
+      ]
+     },
+     "file": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 3000 of 3000"
+     },
+     "inference_inputs": {
+      "type": "integer",
+      "description": "seen 3000 of 3000"
+     },
+     "key": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 3000 of 3000"
+     },
+     "money": {
+      "type": "object",
+      "description": "seen 3000 of 3000",
+      "properties": {
+       "donors": {
+        "type": "integer",
+        "description": "seen 3000 of 3000"
+       },
+       "total_raised": {
+        "type": "number",
+        "description": "seen 3000 of 3000; MIXED types {'int': 2680, 'float': 320}",
+        "x-values": [
+         "0"
+        ]
+       }
+      },
+      "required": [
+       "donors",
+       "total_raised"
+      ],
+      "additionalProperties": false
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     }
+    },
+    "required": [
+     "candidate_id",
+     "counts",
+     "depth",
+     "file",
+     "inference_inputs",
+     "key",
+     "money",
+     "name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "thin": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "written": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "note",
+  "profiles",
+  "thin",
+  "written"
+ ],
+ "additionalProperties": false
+}

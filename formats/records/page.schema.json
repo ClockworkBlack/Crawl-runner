@@ -1,0 +1,51 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "page",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "schools.py:1031 sites; schools.py:1124 district_people_pages",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "<expr:SRC_DPAGES>",
+    "<expr:SRC_SITES>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "x-values": [
+    "html"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "district_id": {},
+    "found_on": {},
+    "opened": {},
+    "principal": {},
+    "role": {},
+    "school_id": {},
+    "school_name": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

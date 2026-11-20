@@ -1,0 +1,81 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/channel_decisions.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand (owner)",
+ "x-readers": "transcripts, video_ai, channel_ai, channel_decisions, export",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/channel_decisions.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "channels": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 4 of 1; map with 4 distinct keys, e.g. ['UCF6qQB_RJgr-ujG86DZwreQ', 'UCLB7HPZaLQrd0ptiMEsoExg', 'UCbK-5QqXTFdKhCCaGh5xkuA', 'UCMxOzyWKnFzRgYpCmdOU-8g']",
+    "properties": {
+     "by": {
+      "type": "string",
+      "description": "seen 4 of 4",
+      "x-values": [
+       "owner"
+      ]
+     },
+     "decided": {
+      "type": "string",
+      "description": "seen 4 of 4",
+      "x-values": [
+       "2026-11-08"
+      ]
+     },
+     "found_on": {
+      "type": "string",
+      "description": "seen 2 of 4"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 4 of 4",
+      "x-values": [
+       "sd-clayton",
+       "sd-ware",
+       "sd-city-jefferson",
+       "sd-fannin"
+      ]
+     },
+     "note": {
+      "type": "string",
+      "description": "seen 4 of 4"
+     },
+     "status": {
+      "type": "string",
+      "description": "seen 4 of 4",
+      "x-values": [
+       "confirmed"
+      ]
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 4 of 4"
+     }
+    },
+    "required": [
+     "by",
+     "decided",
+     "jurisdiction",
+     "note",
+     "status",
+     "title"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "channels"
+ ],
+ "additionalProperties": false
+}

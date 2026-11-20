@@ -1,0 +1,98 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/open_records.json",
+ "description": "{note, counts{status:n}, requests[]}",
+ "x-area": "export_bundle",
+ "x-writer": "export.export_open_records (openrecords.Tracker data/openrecords/requests.json)",
+ "x-readers": "Electo (not pushed)",
+ "x-version": "",
+ "x-documented-in": "schema.md 'Open records' (lists received, history; omits updated_at)",
+ "x-observed": "not observed; manifest open_records counts show status 'withdrawn' which is NOT in the note's status list",
+ "x-issues": [
+  "I08 (doc_vs_data): open_records.json note lists 10 statuses; the Nov 20 manifest counts 65 'withdrawn', not in the list"
+ ],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string"
+  },
+  "counts": {
+   "type": "object"
+  },
+  "requests": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "jurisdiction": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "how": {
+      "type": "string",
+      "x-values": [
+       "email",
+       "portal"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "x-values": [
+       "queued",
+       "portal_only",
+       "sent",
+       "acknowledged",
+       "cost_estimate",
+       "partial",
+       "fulfilled",
+       "denied",
+       "bounced",
+       "followed_up"
+      ]
+     },
+     "sent_at": {
+      "type": "string"
+     },
+     "due": {
+      "type": "string"
+     },
+     "followed_up_at": {
+      "type": "string"
+     },
+     "found_on": {
+      "type": "string"
+     },
+     "portal": {
+      "type": "string",
+      "x-values": "only with how=portal"
+     },
+     "updated_at": {
+      "type": "string"
+     },
+     "received": {
+      "type": "integer"
+     },
+     "history": {
+      "type": "array",
+      "items": {
+       "x-type": "{at,status}",
+       "x-values": "last 20"
+      }
+     }
+    },
+    "required": [
+     "jurisdiction",
+     "name",
+     "how",
+     "received"
+    ]
+   }
+  }
+ },
+ "required": [
+  "note",
+  "counts"
+ ]
+}

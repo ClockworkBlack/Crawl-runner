@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "bill_history:{legislation_id}",
+ "description": "JSON list of committee steps",
+ "x-area": "kv",
+ "x-writer": "legis_video",
+ "x-readers": "legis_video.link_videos",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

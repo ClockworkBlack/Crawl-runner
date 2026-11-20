@@ -1,0 +1,501 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/schools.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "schools",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/schools.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "budgets": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "depth": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "hosts": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 1 of 1"
+     }
+    },
+    "max_file_bytes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "pages": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 1 of 1"
+     }
+    }
+   },
+   "required": [
+    "depth",
+    "hosts",
+    "max_file_bytes",
+    "pages"
+   ],
+   "additionalProperties": false
+  },
+  "ccrpi": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "link_words": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 3 of 1",
+      "x-values": [
+       "ccrpi",
+       "single score",
+       "score"
+      ]
+     }
+    }
+   },
+   "required": [
+    "link_words"
+   ],
+   "additionalProperties": false
+  },
+  "gosa": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "downloads": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "max_file_bytes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "series": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "object",
+      "description": "seen 14 of 1; map with 14 distinct keys, e.g. ['graduation_rate', 'enrollment', 'attendance', 'dropouts_9_12']",
+      "properties": {
+       "add": {
+        "type": "array",
+        "description": "seen 3 of 14",
+        "items": {
+         "type": "string",
+         "description": "seen 6 of 14",
+         "x-values": [
+          "PROFICIENT_PCT",
+          "DISTINGUISHED_PCT"
+         ]
+        }
+       },
+       "avg": {
+        "type": "boolean",
+        "description": "seen 1 of 14"
+       },
+       "counts": {
+        "type": "object",
+        "description": "seen 3 of 14",
+        "properties": {
+         "den": {
+          "type": "string",
+          "description": "seen 3 of 3",
+          "x-values": [
+           "NUM_TESTED_CNT"
+          ]
+         },
+         "num": {
+          "type": "array",
+          "description": "seen 3 of 3",
+          "items": {
+           "type": "string",
+           "description": "seen 6 of 3",
+           "x-values": [
+            "PROFICIENT_CNT",
+            "DISTINGUISHED_CNT"
+           ]
+          }
+         },
+         "where": {
+          "type": "object",
+          "description": "seen 3 of 3",
+          "properties": {
+           "SUBGROUP_NAME": {
+            "type": "string",
+            "description": "seen 3 of 3"
+           },
+           "TEST_CMPNT_TYP_NM": {
+            "type": "string",
+            "description": "seen 2 of 3"
+           }
+          },
+          "required": [
+           "SUBGROUP_NAME"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "den",
+         "num",
+         "where"
+        ],
+        "additionalProperties": false
+       },
+       "label": {
+        "type": "string",
+        "description": "seen 13 of 14"
+       },
+       "level_value": {
+        "type": "object",
+        "description": "seen 1 of 14",
+        "properties": {
+         "district": {
+          "type": "string",
+          "description": "seen 1 of 1"
+         },
+         "school": {
+          "type": "string",
+          "description": "seen 1 of 1"
+         },
+         "state": {
+          "type": "string",
+          "description": "seen 1 of 1"
+         }
+        },
+        "required": [
+         "district",
+         "school",
+         "state"
+        ],
+        "additionalProperties": false
+       },
+       "match": {
+        "type": "string",
+        "description": "seen 14 of 14"
+       },
+       "outputs": {
+        "type": "array",
+        "description": "seen 1 of 14",
+        "items": {
+         "type": "object",
+         "description": "seen 2 of 14",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "seen 2 of 2"
+          },
+          "label": {
+           "type": "string",
+           "description": "seen 2 of 2"
+          },
+          "value": {
+           "type": "string",
+           "description": "seen 2 of 2"
+          },
+          "where": {
+           "type": "object",
+           "description": "seen 2 of 2",
+           "properties": {
+            "DATA_CATEGORY": {
+             "type": "string",
+             "description": "seen 2 of 2"
+            },
+            "DATA_SUB_CATEGORY": {
+             "type": "string",
+             "description": "seen 2 of 2"
+            },
+            "EMPLOYEE_TYPE": {
+             "type": "string",
+             "description": "seen 2 of 2"
+            }
+           },
+           "required": [
+            "DATA_CATEGORY",
+            "DATA_SUB_CATEGORY",
+            "EMPLOYEE_TYPE"
+           ],
+           "additionalProperties": false
+          }
+         },
+         "required": [
+          "id",
+          "label",
+          "value",
+          "where"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "ratio": {
+        "type": "array",
+        "description": "seen 1 of 14",
+        "items": {
+         "type": "string",
+         "description": "seen 2 of 14"
+        }
+       },
+       "sum": {
+        "type": "boolean",
+        "description": "seen 2 of 14"
+       },
+       "value": {
+        "type": "string",
+        "description": "seen 6 of 14",
+        "x-values": [
+         "PROGRAM_PERCENT",
+         "ENROLLMENT_COUNT",
+         "OVER_15_PERCENT_ALL",
+         "HOPE_ELIGIBLE_PCT",
+         "PROGRAM_TOTAL"
+        ]
+       },
+       "where": {
+        "type": "object",
+        "description": "seen 8 of 14",
+        "properties": {
+         "ACDMC_LVL": {
+          "type": "string",
+          "description": "seen 3 of 8",
+          "x-values": [
+           "ALL GRADES"
+          ]
+         },
+         "COMPLETER_TYPE": {
+          "type": "string",
+          "description": "seen 1 of 8"
+         },
+         "ENROLLMENT_PERIOD": {
+          "type": "string",
+          "description": "seen 1 of 8"
+         },
+         "LABEL_LVL_1_DESC": {
+          "type": "string",
+          "description": "seen 2 of 8"
+         },
+         "LABEL_LVL_5_CD": {
+          "type": "string",
+          "description": "seen 1 of 8"
+         },
+         "SUBGROUP_NAME": {
+          "type": "string",
+          "description": "seen 3 of 8"
+         },
+         "SUBGRP_DESC": {
+          "type": "string",
+          "description": "seen 1 of 8"
+         },
+         "TEST_CMPNT_TYP_CD": {
+          "type": "string",
+          "description": "seen 1 of 8"
+         },
+         "TEST_CMPNT_TYP_NM": {
+          "type": "string",
+          "description": "seen 2 of 8"
+         }
+        },
+        "additionalProperties": false
+       },
+       "xlsx": {
+        "type": "boolean",
+        "description": "seen 2 of 14"
+       }
+      },
+      "required": [
+       "match"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "downloads",
+    "max_file_bytes",
+    "series"
+   ],
+   "additionalProperties": false
+  },
+  "nces": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "boundary_offset": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "districts": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "postsecondary": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "private_schools": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "public_schools": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "state": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "state_fips": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "boundary_offset",
+    "districts",
+    "postsecondary",
+    "private_schools",
+    "public_schools",
+    "state",
+    "state_fips"
+   ],
+   "additionalProperties": false
+  },
+  "people": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "board_page": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 6 of 1",
+      "x-values": [
+       "board of education",
+       "board members",
+       "school board",
+       "our board",
+       "board-of-education",
+       "boardmembers"
+      ]
+     }
+    },
+    "max_school_sites_per_run": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "principal_page": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 7 of 1"
+     }
+    },
+    "roles": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "chair": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 5 of 1",
+        "x-values": [
+         "chair",
+         "chairman",
+         "chairwoman",
+         "chairperson",
+         "president"
+        ]
+       }
+      },
+      "member": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 6 of 1",
+        "x-values": [
+         "member",
+         "district",
+         "post",
+         "seat",
+         "at-large",
+         "at large"
+        ]
+       }
+      },
+      "vice_chair": {
+       "type": "array",
+       "description": "seen 1 of 1",
+       "items": {
+        "type": "string",
+        "description": "seen 4 of 1",
+        "x-values": [
+         "vice chair",
+         "vice-chair",
+         "vice chairman",
+         "vice president"
+        ]
+       }
+      }
+     },
+     "required": [
+      "chair",
+      "member",
+      "vice_chair"
+     ],
+     "additionalProperties": false
+    },
+    "school_site_pages": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "seat": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "superintendent_page": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "string",
+      "description": "seen 1 of 1"
+     }
+    }
+   },
+   "required": [
+    "board_page",
+    "max_school_sites_per_run",
+    "principal_page",
+    "roles",
+    "school_site_pages",
+    "seat",
+    "superintendent_page"
+   ],
+   "additionalProperties": false
+  }
+ },
+ "required": [
+  "budgets",
+  "ccrpi",
+  "gosa",
+  "nces",
+  "people"
+ ],
+ "additionalProperties": false
+}

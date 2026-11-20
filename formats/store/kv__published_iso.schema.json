@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "published_iso",
+ "description": "'1' once dates rewritten",
+ "x-area": "kv",
+ "x-writer": "store.normalize_published",
+ "x-readers": "store.normalize_published",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

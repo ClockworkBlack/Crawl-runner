@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "profile_inputs",
+ "description": "JSON map candidate id -> inference_inputs",
+ "x-area": "kv",
+ "x-writer": "profiles.ProfileBuilder",
+ "x-readers": "candidates",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

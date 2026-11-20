@@ -1,0 +1,124 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/sources.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "registry",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/sources.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "sources": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 27 of 1",
+    "properties": {
+     "depth": {
+      "type": "integer",
+      "description": "seen 12 of 27",
+      "x-values": [
+       "3"
+      ]
+     },
+     "enabled": {
+      "type": "boolean",
+      "description": "seen 27 of 27",
+      "x-values": [
+       "True"
+      ]
+     },
+     "exclude": {
+      "type": "array",
+      "description": "seen 12 of 27",
+      "items": {
+       "type": "string",
+       "description": "seen 84 of 27",
+       "x-values": [
+        "/search",
+        "login",
+        "?print",
+        "/tag/",
+        "/author/",
+        "/event",
+        "calendar.aspx?"
+       ]
+      }
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 27 of 27"
+     },
+     "include": {
+      "type": "array",
+      "description": "seen 27 of 27",
+      "items": {
+       "type": "string",
+       "description": "seen 112 of 27"
+      }
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 12 of 27",
+      "x-values": [
+       "ga"
+      ]
+     },
+     "jurisdiction_name": {
+      "type": "string",
+      "description": "seen 24 of 27"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 27 of 27",
+      "x-values": [
+       "page"
+      ]
+     },
+     "max_pages": {
+      "type": "integer",
+      "description": "seen 27 of 27",
+      "x-values": [
+       "80",
+       "100",
+       "120",
+       "60",
+       "200",
+       "150"
+      ]
+     },
+     "tier": {
+      "type": "string",
+      "description": "seen 27 of 27",
+      "x-values": [
+       "a",
+       "b"
+      ]
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 27 of 27"
+     }
+    },
+    "required": [
+     "enabled",
+     "id",
+     "include",
+     "kind",
+     "max_pages",
+     "tier",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "sources"
+ ],
+ "additionalProperties": false
+}

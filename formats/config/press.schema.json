@@ -1,0 +1,78 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/press.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "registry, press",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/press.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "press": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 8 of 1",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "seen 8 of 8"
+     },
+     "include": {
+      "type": "array",
+      "description": "seen 8 of 8",
+      "items": {
+       "type": "string",
+       "description": "seen 25 of 8",
+       "x-values": [
+        "news",
+        "press",
+        "press-releases",
+        "/press",
+        "elections",
+        "house",
+        "senate",
+        "state-board",
+        "commissioners",
+        "board"
+       ]
+      }
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 8 of 8"
+     },
+     "tier": {
+      "type": "string",
+      "description": "seen 8 of 8",
+      "x-values": [
+       "b",
+       "c",
+       "a"
+      ]
+     },
+     "url": {
+      "type": "string",
+      "description": "seen 8 of 8"
+     }
+    },
+    "required": [
+     "id",
+     "include",
+     "name",
+     "tier",
+     "url"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "press"
+ ],
+ "additionalProperties": false
+}

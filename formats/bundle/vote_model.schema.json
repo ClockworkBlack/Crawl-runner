@@ -1,0 +1,881 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/vote_model.json",
+ "description": "{built_from, status, members[], test, sources, macro, ...}",
+ "x-area": "export_bundle",
+ "x-writer": "vote_model.export_vote_model",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'How legislators vote'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (9): best_rule_brier, best_rule_right, built, member_votes_agree_share, model_brier, model_right, note, tallies_agree_share, v"
+ ],
+ "type": "object",
+ "properties": {
+  "built": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "built_from": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "bills": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "divided_roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "members": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "votes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "years": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "integer",
+      "description": "seen 12 of 1"
+     }
+    }
+   },
+   "required": [
+    "bills",
+    "divided_roll_calls",
+    "members",
+    "roll_calls",
+    "votes",
+    "years"
+   ],
+   "additionalProperties": false
+  },
+  "macro": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "carried": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "failed": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "failed_called_right": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "largest_misses": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 12 of 1",
+      "properties": {
+       "D": {
+        "type": "array",
+        "description": "seen 12 of 12",
+        "items": {
+         "type": "number",
+         "description": "seen 24 of 12; MIXED types {'int': 12, 'float': 12}",
+         "x-values": [
+          "0",
+          "3",
+          "2",
+          "1"
+         ]
+        }
+       },
+       "R": {
+        "type": "array",
+        "description": "seen 12 of 12",
+        "items": {
+         "type": "number",
+         "description": "seen 24 of 12; MIXED types {'int': 12, 'float': 12}",
+         "x-values": [
+          "7",
+          "9",
+          "1",
+          "0",
+          "19",
+          "6",
+          "4",
+          "28",
+          "11",
+          "10"
+         ]
+        }
+       },
+       "bill": {
+        "type": "string",
+        "description": "seen 12 of 12"
+       },
+       "called": {
+        "type": "boolean",
+        "description": "seen 12 of 12",
+        "x-values": [
+         "True"
+        ]
+       },
+       "carried": {
+        "type": "boolean",
+        "description": "seen 12 of 12",
+        "x-values": [
+         "False"
+        ]
+       },
+       "date": {
+        "type": "string",
+        "description": "seen 12 of 12"
+       },
+       "divided": {
+        "type": "boolean",
+        "description": "seen 12 of 12",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "expected_yea": {
+        "type": "number",
+        "description": "seen 12 of 12"
+       },
+       "first": {
+        "type": "boolean",
+        "description": "seen 12 of 12",
+        "x-values": [
+         "False",
+         "True"
+        ]
+       },
+       "session": {
+        "type": "string",
+        "description": "seen 12 of 12",
+        "x-values": [
+         "2023-2024 Regular Session",
+         "2021-2022",
+         "2025-2026",
+         "2019-2020"
+        ]
+       },
+       "src": {
+        "type": "string",
+        "description": "seen 12 of 12"
+       },
+       "u": {
+        "type": "string",
+        "description": "seen 12 of 12"
+       },
+       "vote": {
+        "type": "string",
+        "description": "seen 12 of 12"
+       },
+       "voting": {
+        "type": "integer",
+        "description": "seen 12 of 12"
+       },
+       "yea": {
+        "type": "integer",
+        "description": "seen 12 of 12"
+       }
+      },
+      "required": [
+       "D",
+       "R",
+       "bill",
+       "called",
+       "carried",
+       "date",
+       "divided",
+       "expected_yea",
+       "first",
+       "session",
+       "src",
+       "u",
+       "vote",
+       "voting",
+       "yea"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "mean_miss_share": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "mean_miss_share_divided": {
+     "type": "number",
+     "description": "seen 1 of 1"
+    },
+    "newest": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 40 of 1",
+      "properties": {
+       "D": {
+        "type": "array",
+        "description": "seen 40 of 40",
+        "items": {
+         "type": "number",
+         "description": "seen 80 of 40; MIXED types {'int': 40, 'float': 40}",
+         "x-values": [
+          "0",
+          "1",
+          "21",
+          "19",
+          "20",
+          "59",
+          "74",
+          "18",
+          "4",
+          "69",
+          "15",
+          "2",
+          "8",
+          "68",
+          "3",
+          "76",
+          "75",
+          "12"
+         ]
+        }
+       },
+       "R": {
+        "type": "array",
+        "description": "seen 40 of 40",
+        "items": {
+         "type": "number",
+         "description": "seen 80 of 40; MIXED types {'int': 40, 'float': 40}",
+         "x-values": [
+          "32",
+          "96",
+          "33",
+          "30",
+          "29",
+          "93",
+          "31",
+          "94",
+          "0",
+          "92",
+          "97",
+          "23",
+          "26"
+         ]
+        }
+       },
+       "bill": {
+        "type": "string",
+        "description": "seen 40 of 40"
+       },
+       "called": {
+        "type": "boolean",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "carried": {
+        "type": "boolean",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "date": {
+        "type": "string",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "2026-04-02",
+         "2026-04-03",
+         "2026-06-23",
+         "2026-06-20",
+         "2026-06-17"
+        ]
+       },
+       "divided": {
+        "type": "boolean",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "True",
+         "False"
+        ]
+       },
+       "expected_yea": {
+        "type": "number",
+        "description": "seen 40 of 40"
+       },
+       "first": {
+        "type": "boolean",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "False",
+         "True"
+        ]
+       },
+       "session": {
+        "type": "string",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "2025-2026",
+         "2026 special"
+        ]
+       },
+       "src": {
+        "type": "string",
+        "description": "seen 40 of 40"
+       },
+       "u": {
+        "type": "string",
+        "description": "seen 40 of 40"
+       },
+       "vote": {
+        "type": "string",
+        "description": "seen 40 of 40"
+       },
+       "voting": {
+        "type": "integer",
+        "description": "seen 40 of 40",
+        "x-values": [
+         "51",
+         "52",
+         "53",
+         "50",
+         "170",
+         "169",
+         "173",
+         "161",
+         "48",
+         "168",
+         "167",
+         "174",
+         "171"
+        ]
+       },
+       "yea": {
+        "type": "integer",
+        "description": "seen 40 of 40"
+       }
+      },
+      "required": [
+       "D",
+       "R",
+       "bill",
+       "called",
+       "carried",
+       "date",
+       "divided",
+       "expected_yea",
+       "first",
+       "session",
+       "src",
+       "u",
+       "vote",
+       "voting",
+       "yea"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "outcome_called_right": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "carried",
+    "failed",
+    "failed_called_right",
+    "largest_misses",
+    "mean_miss_share",
+    "mean_miss_share_divided",
+    "newest",
+    "outcome_called_right",
+    "roll_calls"
+   ],
+   "additionalProperties": false
+  },
+  "members": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 454 of 1",
+    "properties": {
+     "against_party": {
+      "type": "number",
+      "description": "seen 454 of 454"
+     },
+     "chamber": {
+      "type": "string",
+      "description": "seen 454 of 454",
+      "x-values": [
+       "House",
+       "Senate"
+      ]
+     },
+     "id": {
+      "type": "integer",
+      "description": "seen 454 of 454"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 454 of 454"
+     },
+     "party": {
+      "type": "string",
+      "description": "seen 454 of 454",
+      "x-values": [
+       "R",
+       "D"
+      ]
+     },
+     "position": {
+      "type": "number",
+      "description": "seen 454 of 454"
+     },
+     "votes_counted": {
+      "type": "integer",
+      "description": "seen 454 of 454"
+     }
+    },
+    "required": [
+     "against_party",
+     "chamber",
+     "id",
+     "name",
+     "party",
+     "position",
+     "votes_counted"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "sources": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "compared": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "credit": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "disagreements": {
+     "type": "array",
+     "description": "seen 1 of 1"
+    },
+    "filled_from_legiscan": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "legis_failed_check": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "legis_roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "legiscan_roll_calls": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "member_votes_agree": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "member_votes_agree_share": {
+     "description": "seen 1 of 1"
+    },
+    "member_votes_compared": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "replaced_by_legiscan": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "tallies_agree": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "tallies_agree_share": {
+     "description": "seen 1 of 1"
+    },
+    "used": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "integer",
+      "description": "seen 2 of 1; map with 2 distinct keys, e.g. ['legis.ga.gov', 'LegiScan']"
+     }
+    }
+   },
+   "required": [
+    "compared",
+    "credit",
+    "disagreements",
+    "filled_from_legiscan",
+    "legis_failed_check",
+    "legis_roll_calls",
+    "legiscan_roll_calls",
+    "member_votes_agree",
+    "member_votes_agree_share",
+    "member_votes_compared",
+    "replaced_by_legiscan",
+    "tallies_agree",
+    "tallies_agree_share",
+    "used"
+   ],
+   "additionalProperties": false
+  },
+  "status": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "test": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "against_party_votes": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "best_rule_right": {
+       "type": "number",
+       "description": "seen 1 of 1"
+      },
+      "model_right": {
+       "type": "number",
+       "description": "seen 1 of 1"
+      },
+      "n": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "best_rule_right",
+      "model_right",
+      "n"
+     ],
+     "additionalProperties": false
+    },
+    "all": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": [
+       "integer",
+       "object",
+       "string"
+      ],
+      "description": "seen 12 of 1; MIXED types {'int': 3, 'object': 7, 'str': 2}; map with 12 distinct keys, e.g. ['questions', 'roll_calls', 'no_votes', 'model']",
+      "x-values": [
+       "608278",
+       "5637",
+       "50589",
+       "their own earlier vote on the bill, else their party's",
+       "ahead of every rule, within the range chance allows"
+      ],
+      "properties": {
+       "best_rule": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       },
+       "best_rule_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "brier": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "model_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 6 of 7"
+       },
+       "range95": {
+        "type": "array",
+        "description": "seen 6 of 7",
+        "items": {
+         "type": "number",
+         "description": "seen 12 of 7"
+        }
+       },
+       "right": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_no_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_yes_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "verdict": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       }
+      },
+      "additionalProperties": false
+     }
+    },
+    "bands": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 6 of 1",
+      "properties": {
+       "happened": {
+        "type": "number",
+        "description": "seen 6 of 6"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 6 of 6"
+       },
+       "said": {
+        "type": "number",
+        "description": "seen 6 of 6"
+       }
+      },
+      "required": [
+       "happened",
+       "n",
+       "said"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "by_year": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "object",
+      "description": "seen 8 of 1; map with 8 distinct keys, e.g. ['2019', '2020', '2021', '2022']",
+      "properties": {
+       "best_rule": {
+        "type": "number",
+        "description": "seen 8 of 8"
+       },
+       "best_rule_brier": {
+        "type": "number",
+        "description": "seen 8 of 8"
+       },
+       "model": {
+        "type": "number",
+        "description": "seen 8 of 8"
+       },
+       "model_brier": {
+        "type": "number",
+        "description": "seen 8 of 8"
+       },
+       "roll_calls": {
+        "type": "integer",
+        "description": "seen 8 of 8"
+       }
+      },
+      "required": [
+       "best_rule",
+       "best_rule_brier",
+       "model",
+       "model_brier",
+       "roll_calls"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "first_vote_on_the_bill": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": [
+       "integer",
+       "object",
+       "string"
+      ],
+      "description": "seen 12 of 1; MIXED types {'int': 3, 'object': 7, 'str': 2}; map with 12 distinct keys, e.g. ['questions', 'roll_calls', 'no_votes', 'model']",
+      "x-values": [
+       "327799",
+       "2824",
+       "23954",
+       "always yes",
+       "ahead of every rule, within the range chance allows"
+      ],
+      "properties": {
+       "best_rule": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       },
+       "best_rule_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "brier": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "model_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 6 of 7"
+       },
+       "range95": {
+        "type": "array",
+        "description": "seen 6 of 7",
+        "items": {
+         "type": "number",
+         "description": "seen 12 of 7"
+        }
+       },
+       "right": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_no_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_yes_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "verdict": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       }
+      },
+      "additionalProperties": false
+     }
+    },
+    "later_vote_on_the_bill": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": [
+       "integer",
+       "object",
+       "string"
+      ],
+      "description": "seen 12 of 1; MIXED types {'int': 3, 'object': 7, 'str': 2}; map with 12 distinct keys, e.g. ['questions', 'roll_calls', 'no_votes', 'model']",
+      "x-values": [
+       "280479",
+       "2813",
+       "26635",
+       "their own earlier vote on the bill, else their party's",
+       "ahead of every rule, within the range chance allows"
+      ],
+      "properties": {
+       "best_rule": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       },
+       "best_rule_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "brier": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "model_brier": {
+        "type": "number",
+        "description": "seen 1 of 7"
+       },
+       "n": {
+        "type": "integer",
+        "description": "seen 6 of 7"
+       },
+       "range95": {
+        "type": "array",
+        "description": "seen 6 of 7",
+        "items": {
+         "type": "number",
+         "description": "seen 12 of 7"
+        }
+       },
+       "right": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_no_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "right_on_yes_votes": {
+        "type": "number",
+        "description": "seen 6 of 7"
+       },
+       "verdict": {
+        "type": "string",
+        "description": "seen 1 of 7"
+       }
+      },
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "against_party_votes",
+    "all",
+    "bands",
+    "by_year",
+    "first_vote_on_the_bill",
+    "later_vote_on_the_bill"
+   ],
+   "additionalProperties": false
+  },
+  "v": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "built",
+  "built_from",
+  "macro",
+  "members",
+  "note",
+  "sources",
+  "status",
+  "test",
+  "v"
+ ],
+ "additionalProperties": false
+}

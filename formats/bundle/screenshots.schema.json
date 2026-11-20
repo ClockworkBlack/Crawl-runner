@@ -1,0 +1,163 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/screenshots.json",
+ "description": "{note, boxes{ordinances,posts,text:[item]}}",
+ "x-area": "export_bundle",
+ "x-writer": "screens.Inbox.box_export",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "export.py docstring only",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "boxes": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "ordinances": {
+     "type": "array",
+     "description": "seen 1 of 1",
+     "items": {
+      "type": "object",
+      "description": "seen 1 of 1",
+      "properties": {
+       "box": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "candidates": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "dates_seen": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "files": {
+        "type": "array",
+        "description": "seen 1 of 1",
+        "items": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        }
+       },
+       "handles": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "id": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "jurisdictions": {
+        "type": "array",
+        "description": "seen 1 of 1",
+        "items": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        }
+       },
+       "mean_confidence": {
+        "type": "number",
+        "description": "seen 1 of 1"
+       },
+       "needs_review": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "note": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "platform": {
+        "description": "seen 1 of 1"
+       },
+       "posts_linked": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "received_at": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "sha256": {
+        "type": "array",
+        "description": "seen 1 of 1",
+        "items": {
+         "type": "string",
+         "description": "seen 1 of 1"
+        }
+       },
+       "status": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "text": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "title": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       },
+       "urls_seen": {
+        "type": "array",
+        "description": "seen 1 of 1"
+       },
+       "why": {
+        "type": "string",
+        "description": "seen 1 of 1"
+       }
+      },
+      "required": [
+       "box",
+       "candidates",
+       "dates_seen",
+       "files",
+       "handles",
+       "id",
+       "jurisdictions",
+       "mean_confidence",
+       "needs_review",
+       "note",
+       "platform",
+       "posts_linked",
+       "received_at",
+       "sha256",
+       "status",
+       "text",
+       "title",
+       "urls_seen",
+       "why"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "posts": {
+     "type": "array",
+     "description": "seen 1 of 1"
+    },
+    "text": {
+     "type": "array",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "ordinances",
+    "posts",
+    "text"
+   ],
+   "additionalProperties": false
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "boxes",
+  "note"
+ ],
+ "additionalProperties": false
+}

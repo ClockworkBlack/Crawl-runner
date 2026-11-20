@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legis:sessions",
+ "description": "JSON {at, sessions[]}",
+ "x-area": "kv",
+ "x-writer": "legis_sessions",
+ "x-readers": "legis_sessions.load",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "at": {
+   "type": "string"
+  },
+  "sessions": {
+   "type": "array"
+  }
+ },
+ "required": [
+  "at",
+  "sessions"
+ ]
+}

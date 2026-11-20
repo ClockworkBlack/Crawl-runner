@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "legiscan:read:{session_id}",
+ "description": "YYYY-MM-DD",
+ "x-area": "kv",
+ "x-writer": "sources/legiscan.py",
+ "x-readers": "legis_handoff",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

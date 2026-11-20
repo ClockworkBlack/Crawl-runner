@@ -1,0 +1,777 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/connections.json",
+ "description": "{note, counts, nodes[], edges[], patterns[]} (file is capped; counts.graph = full graph)",
+ "x-area": "export_bundle",
+ "x-writer": "connections.export_graph",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Connections'",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3); lists sampled to 3000 rows",
+ "x-issues": [
+  "undocumented keys vs schema.md section (35): amounts, candidates, counts, dates, donor, donor_name, donors, ein, employer, end, endorser, endorser_name, fec_id, filing, graph, is_candidate, jurisdiction, n, note, org_kind, organizations, organizations_gave_to, path, person, person_name, purpose, recipient, recipient_name, recipients, review, roles, self_reported, start, total, what"
+ ],
+ "type": "object",
+ "properties": {
+  "counts": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "edges": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "graph": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "properties": {
+      "edges": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "nodes": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      },
+      "patterns": {
+       "type": "integer",
+       "description": "seen 1 of 1"
+      }
+     },
+     "required": [
+      "edges",
+      "nodes",
+      "patterns"
+     ],
+     "additionalProperties": false
+    },
+    "nodes": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    },
+    "patterns": {
+     "type": "integer",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "edges",
+    "graph",
+    "nodes",
+    "patterns"
+   ],
+   "additionalProperties": false
+  },
+  "edges": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "a": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "amount": {
+      "type": "number",
+      "description": "seen 2192 of 3000"
+     },
+     "b": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "date": {
+      "type": "string",
+      "description": "seen 2205 of 3000"
+     },
+     "end": {
+      "type": "string",
+      "description": "seen 21 of 3000"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "primary"
+      ]
+     },
+     "filing": {
+      "type": "string",
+      "description": "seen 1961 of 3000",
+      "x-values": [
+       "Georgia State Ethics Commission",
+       "FEC"
+      ]
+     },
+     "first": {
+      "type": "string",
+      "description": "seen 1961 of 3000"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 1961 of 3000",
+      "x-values": [
+       "contribution",
+       "in_kind"
+      ]
+     },
+     "n": {
+      "type": "integer",
+      "description": "seen 1961 of 3000"
+     },
+     "purpose": {
+      "type": "string",
+      "description": "seen 196 of 3000"
+     },
+     "review": {
+      "type": "boolean",
+      "description": "seen 1961 of 3000",
+      "x-values": [
+       "False"
+      ]
+     },
+     "role": {
+      "type": "string",
+      "description": "seen 131 of 3000",
+      "x-values": [
+       "treasurer",
+       "chairperson",
+       "Commissioner",
+       "Board Member",
+       "Member",
+       "2nd Vice-Chair",
+       "Council Member",
+       "Consultant ",
+       "YC - Advisor",
+       "Chairperson",
+       "Chair"
+      ]
+     },
+     "self_reported": {
+      "type": "boolean",
+      "description": "seen 9 of 3000",
+      "x-values": [
+       "True"
+      ]
+     },
+     "src": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "start": {
+      "type": "string",
+      "description": "seen 22 of 3000"
+     },
+     "type": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "contributed",
+       "employed_by",
+       "funds",
+       "committee_of",
+       "officer_of",
+       "connected_to",
+       "serves",
+       "endorsed",
+       "sponsored",
+       "appointed_to"
+      ]
+     },
+     "by": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "a",
+     "b",
+     "evidence",
+     "src",
+     "type"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "nodes": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "attrs": {
+      "type": "object",
+      "description": "seen 3000 of 3000",
+      "properties": {
+       "ein": {
+        "type": "string",
+        "description": "seen 2 of 3000"
+       },
+       "fec_id": {
+        "type": "string",
+        "description": "seen 43 of 3000"
+       },
+       "jurisdiction": {
+        "type": "string",
+        "description": "seen 1 of 3000"
+       },
+       "org_kind": {
+        "type": "string",
+        "description": "seen 173 of 3000",
+        "x-values": [
+         "unknown",
+         "committee",
+         "nonprofit"
+        ]
+       },
+       "what": {
+        "type": "string",
+        "description": "seen 51 of 3000"
+       },
+       "website": {
+        "type": "string"
+       },
+       "status": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "person",
+       "org",
+       "committee",
+       "candidate",
+       "body"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     }
+    },
+    "required": [
+     "attrs",
+     "id",
+     "kind",
+     "name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "patterns": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 3000 of 1",
+    "properties": {
+     "amounts": {
+      "type": "array",
+      "description": "seen 635 of 3000",
+      "items": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "description": "seen 1270 of 3000"
+      }
+     },
+     "candidates": {
+      "type": "array",
+      "description": "seen 5 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 10 of 3000",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "seen 10 of 10"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 10 of 10"
+        }
+       },
+       "required": [
+        "id",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "dates": {
+      "type": "array",
+      "description": "seen 635 of 3000",
+      "items": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "seen 1270 of 3000"
+      }
+     },
+     "donor": {
+      "type": "string",
+      "description": "seen 1233 of 3000"
+     },
+     "donor_name": {
+      "type": "string",
+      "description": "seen 1233 of 3000"
+     },
+     "donors": {
+      "type": "array",
+      "description": "seen 704 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 25656 of 3000",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "seen 25656 of 25656"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 25656 of 25656"
+        }
+       },
+       "required": [
+        "id",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "employer": {
+      "type": "string",
+      "description": "seen 704 of 3000"
+     },
+     "endorser": {
+      "type": "string",
+      "description": "seen 5 of 3000",
+      "x-values": [
+       "p28582",
+       "o7265",
+       "p28580",
+       "o45853",
+       "p410215"
+      ]
+     },
+     "endorser_name": {
+      "type": "string",
+      "description": "seen 5 of 3000"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "primary"
+      ]
+     },
+     "is_candidate": {
+      "type": "boolean",
+      "description": "seen 988 of 3000",
+      "x-values": [
+       "True",
+       "False"
+      ]
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 3000 of 3000",
+      "x-values": [
+       "employer_cluster",
+       "shared_donor",
+       "org_chain",
+       "donor_official",
+       "officer_overlap",
+       "shared_endorser"
+      ]
+     },
+     "n": {
+      "type": "integer",
+      "description": "seen 668 of 3000"
+     },
+     "note": {
+      "type": "string",
+      "description": "seen 3000 of 3000"
+     },
+     "organizations": {
+      "type": "array",
+      "description": "seen 423 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 690 of 3000",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "seen 690 of 690"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 690 of 690"
+        },
+        "roles": {
+         "type": "array",
+         "description": "seen 690 of 690",
+         "items": {
+          "type": "string",
+          "description": "seen 693 of 690",
+          "x-values": [
+           "treasurer",
+           "chairperson"
+          ]
+         }
+        }
+       },
+       "required": [
+        "id",
+        "name",
+        "roles"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "organizations_gave_to": {
+      "type": "array",
+      "description": "seen 423 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 5402 of 3000",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "seen 5402 of 5402"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 5402 of 5402"
+        }
+       },
+       "required": [
+        "id",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "path": {
+      "type": "array",
+      "description": "seen 635 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 1905 of 3000",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "seen 1905 of 1905"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 1905 of 1905"
+        }
+       },
+       "required": [
+        "id",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "person": {
+      "type": "string",
+      "description": "seen 423 of 3000"
+     },
+     "person_name": {
+      "type": "string",
+      "description": "seen 423 of 3000"
+     },
+     "recipient": {
+      "type": "string",
+      "description": "seen 704 of 3000"
+     },
+     "recipient_name": {
+      "type": "string",
+      "description": "seen 704 of 3000"
+     },
+     "recipients": {
+      "type": "array",
+      "description": "seen 1233 of 3000",
+      "items": {
+       "type": "object",
+       "description": "seen 13709 of 3000",
+       "properties": {
+        "amount": {
+         "type": "number",
+         "description": "seen 4220 of 13709"
+        },
+        "date": {
+         "type": "string",
+         "description": "seen 4220 of 13709"
+        },
+        "id": {
+         "type": "string",
+         "description": "seen 13709 of 13709"
+        },
+        "name": {
+         "type": "string",
+         "description": "seen 13709 of 13709"
+        },
+        "total": {
+         "type": "number",
+         "description": "seen 9489 of 13709"
+        }
+       },
+       "required": [
+        "id",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "src": {
+      "type": "array",
+      "description": "seen 3000 of 3000",
+      "items": {
+       "type": "string",
+       "description": "seen 13598 of 3000"
+      }
+     },
+     "total": {
+      "type": "number",
+      "description": "seen 1372 of 3000"
+     }
+    },
+    "required": [
+     "evidence",
+     "kind",
+     "note",
+     "src"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "counts",
+  "edges",
+  "nodes",
+  "note",
+  "patterns"
+ ],
+ "additionalProperties": false,
+ "x-widened": [
+  "$.edges[101369]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101370]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101372]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101373]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101378]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101379]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101387]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101388]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101389]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101393]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101394]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101399]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101400]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101401]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101402]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101403]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101404]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101422]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101427]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101435]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101440]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101441]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101442]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.edges[101445]: keys ['by'] found in real data, not in the draft (connections.json)",
+  "$.nodes[114072].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[114805].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[129835].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[131596].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[149662].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[154696].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[156795].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[158805].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[177868].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[18308].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[18393].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[187153].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[196303].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[200570].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[203964].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[204165].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[204600].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[204662].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[214922].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[249083].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[298215].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[298782].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[298931].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[338222].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[338371].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[343268].attrs: keys ['website'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347084].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347086].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347088].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347090].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347091].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347092].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347094].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347096].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347097].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347099].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347100].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347101].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347102].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347103].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347105].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347106].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347107].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347108].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347109].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347110].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347111].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347112].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347114].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347115].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347116].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347117].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347118].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347119].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347120].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347121].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347122].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347123].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347124].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347125].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347126].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347127].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347129].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347130].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347131].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347132].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347133].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347134].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347135].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347136].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347137].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347138].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347139].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347140].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347141].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347142].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347143].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347144].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347145].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347146].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347147].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347148].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347149].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347150].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347151].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347152].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347153].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347154].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347155].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347156].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347157].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347158].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347159].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347160].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347162].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347163].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347164].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347165].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347166].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347167].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347168].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347169].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347170].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347171].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347172].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347173].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347174].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347175].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347176].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347177].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347178].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347179].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347180].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347181].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347182].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347183].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347189].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347190].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347191].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347192].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347193].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347194].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347195].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347196].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347197].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347198].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347199].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347200].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347201].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347202].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347203].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347204].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347205].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347206].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347207].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347208].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347209].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347210].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347211].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347212].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347213].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347214].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347215].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347216].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347217].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347218].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347219].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347220].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347221].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347222].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347223].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347224].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347225].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347226].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347227].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347228].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347229].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347230].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347231].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347232].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347233].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347234].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347235].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347236].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347237].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347238].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347239].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347240].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347241].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347242].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347243].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347244].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347245].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347246].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347247].attrs: keys ['status'] found in real data, not in the draft (connections.json)",
+  "$.nodes[347248].attrs: keys ['status'] found in real data, not in the draft (connections.json)"
+ ]
+}

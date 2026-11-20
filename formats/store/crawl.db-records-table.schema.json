@@ -1,0 +1,101 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "data/crawl.db: records table",
+ "description": "SQLite table (+ records_fts FTS5 over title,text; indexes source/jur/kind/changed/url)",
+ "x-area": "db_record_model",
+ "x-writer": "store.Store.add / add_many (and shard.merge_delta)",
+ "x-readers": "every gacrawl module via Store.read/query/iter_query/raw; export.py",
+ "x-version": "store.SCHEMA_VERSION 2 (kv 'schema')",
+ "x-documented-in": "store.py module docstring + DDL",
+ "x-observed": "data/crawl.db here is an empty schema-only copy (0 records)",
+ "x-issues": [
+  "I04 (two_versions): Three unrelated version numbers: store.SCHEMA_VERSION = 2 (kv 'schema'), export SCHEMA_VERSION '2.3' (manifest schema_version), agencies FMT = 2 (state_meetings 'format' and meta.fmt); codeacts parser 4; no other file carries a format number (DATA_FORMAT_PLAN rule 1)"
+ ],
+ "type": "object",
+ "properties": {
+  "rid": {
+   "type": "integer"
+  },
+  "key": {
+   "type": "string"
+  },
+  "id": {
+   "type": "string"
+  },
+  "hash": {
+   "type": "string"
+  },
+  "source_id": {
+   "type": "string"
+  },
+  "jurisdiction": {
+   "type": "string"
+  },
+  "kind": {
+   "type": "string"
+  },
+  "url": {
+   "type": "string"
+  },
+  "title": {
+   "type": "string"
+  },
+  "text": {
+   "type": "string"
+  },
+  "markdown": {
+   "type": "string"
+  },
+  "published": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "channel": {
+   "type": "string"
+  },
+  "evidence": {
+   "type": "string"
+  },
+  "meta": {
+   "x-type": "TEXT JSON NOT NULL DEFAULT '{}'"
+  },
+  "fetched_at": {
+   "type": "string"
+  },
+  "first_seen": {
+   "type": "string"
+  },
+  "changed_at": {
+   "type": "string"
+  },
+  "version": {
+   "x-type": "INTEGER NOT NULL DEFAULT 1"
+  },
+  "thash": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "rid",
+  "key",
+  "id",
+  "hash",
+  "source_id",
+  "jurisdiction",
+  "kind",
+  "url",
+  "title",
+  "text",
+  "markdown",
+  "channel",
+  "evidence",
+  "meta",
+  "fetched_at",
+  "first_seen",
+  "changed_at",
+  "version",
+  "thash"
+ ]
+}

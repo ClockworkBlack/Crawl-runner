@@ -1,0 +1,70 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/committee_links.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "donors.export_donors",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/committee_links.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "links": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 12 of 1",
+    "properties": {
+     "committee": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     },
+     "party": {
+      "type": "string",
+      "description": "seen 12 of 12",
+      "x-values": [
+       "R",
+       "D"
+      ]
+     },
+     "person": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     },
+     "relation": {
+      "type": "string",
+      "description": "seen 12 of 12",
+      "x-values": [
+       "campaign",
+       "leadership"
+      ]
+     },
+     "source": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     }
+    },
+    "required": [
+     "committee",
+     "name",
+     "party",
+     "person",
+     "relation",
+     "source"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "links"
+ ],
+ "additionalProperties": false
+}

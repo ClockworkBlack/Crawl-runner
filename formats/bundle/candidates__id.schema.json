@@ -1,0 +1,53 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/candidates/<id>.json",
+ "description": "{candidate, exported_at, records{kind:[slim Record]}, capped?{kind:{kept,of,note}}}",
+ "x-area": "export_bundle",
+ "x-writer": "export.candidate_file",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py (not pushed)",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Record' (file named in heading); capped only in export.py docstring",
+ "x-observed": "not observed; from code",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "candidate": {
+   "type": "object"
+  },
+  "exported_at": {
+   "type": "string"
+  },
+  "records": {
+   "type": "object",
+   "description": "slim Record: no rid/key/thash/snippet/score; updated & modified added"
+  },
+  "capped": {
+   "type": "object",
+   "description": "only for streamed kinds (contribution) over 500 lines",
+   "additionalProperties": {
+    "type": "object",
+    "properties": {
+     "kept": {
+      "type": "integer"
+     },
+     "of": {
+      "type": "integer"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kept",
+     "of",
+     "note"
+    ]
+   }
+  }
+ },
+ "required": [
+  "candidate",
+  "exported_at",
+  "records"
+ ]
+}

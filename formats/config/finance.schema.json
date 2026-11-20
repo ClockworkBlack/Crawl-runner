@@ -1,0 +1,110 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/finance.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "finance, coverage",
+ "x-version": "",
+ "x-documented-in": "comments",
+ "x-observed": "config/finance.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "fec": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "candidate_ids": {
+     "type": "object",
+     "description": "seen 1 of 1",
+     "additionalProperties": {
+      "type": "array",
+      "description": "seen 9 of 1; map with 9 distinct keys, e.g. ['john-lewis', 'tom-graves', 'paul-broun', 'derrick-grayson']",
+      "items": {
+       "type": "string",
+       "description": "seen 14 of 1"
+      }
+     }
+    },
+    "enabled": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "candidate_ids",
+    "enabled"
+   ],
+   "additionalProperties": false
+  },
+  "georgia_commission": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "confirmed": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    },
+    "home": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "search_url": {
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "confirmed",
+    "home",
+    "search_url"
+   ],
+   "additionalProperties": false
+  },
+  "opencorporates": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "enabled": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "enabled"
+   ],
+   "additionalProperties": false
+  },
+  "org_limit": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  },
+  "propublica": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "enabled": {
+     "type": "boolean",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "enabled"
+   ],
+   "additionalProperties": false
+  },
+  "recheck_days": {
+   "type": "integer",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "fec",
+  "georgia_commission",
+  "opencorporates",
+  "org_limit",
+  "propublica",
+  "recheck_days"
+ ],
+ "additionalProperties": false
+}

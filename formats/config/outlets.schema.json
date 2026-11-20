@@ -1,0 +1,135 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/outlets.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "candidates, newsdigest, websearch, webresearch, police, policing_news, bill_reasons, discover_ai, export",
+ "x-version": "",
+ "x-documented-in": "header comment",
+ "x-observed": "config/outlets.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "county_outlets": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "array",
+    "description": "seen 60 of 1; map with 60 distinct keys, e.g. ['cobb', 'gwinnett', 'dekalb', 'fulton']",
+    "items": {
+     "type": "string",
+     "description": "seen 79 of 1"
+    }
+   }
+  },
+  "exclude_domains": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 14 of 1"
+   }
+  },
+  "federal_outlets": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 6 of 1",
+    "x-values": [
+     "rollcall.com",
+     "scotusblog.com",
+     "govexec.com",
+     "fedscoop.com",
+     "19thnews.org",
+     "stateline.org"
+    ]
+   }
+  },
+  "federal_pages": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "string",
+    "description": "seen 10 of 1; map with 10 distinct keys, e.g. ['cbsnews.com', 'npr.org', 'pbs.org', 'propublica.org']"
+   }
+  },
+  "names": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "string",
+    "description": "seen 97 of 1; map with 97 distinct keys, e.g. ['pbs.org', 'npr.org', 'cbsnews.com', 'propublica.org']"
+   }
+  },
+  "outlets": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 180 of 1"
+   }
+  },
+  "regions": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {
+    "type": "object",
+    "description": "seen 12 of 1; map with 12 distinct keys, e.g. ['atlanta', 'athens', 'gainesville', 'rome']",
+    "properties": {
+     "anchor": {
+      "type": "array",
+      "description": "seen 12 of 12",
+      "items": {
+       "type": "number",
+       "description": "seen 24 of 12"
+      }
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 12 of 12"
+     },
+     "outlets": {
+      "type": "array",
+      "description": "seen 12 of 12",
+      "items": {
+       "type": "string",
+       "description": "seen 54 of 12"
+      }
+     }
+    },
+    "required": [
+     "anchor",
+     "name",
+     "outlets"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "statewide": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 3 of 1",
+    "x-values": [
+     "ajc.com",
+     "gpb.org",
+     "georgiarecorder.com"
+    ]
+   }
+  }
+ },
+ "required": [
+  "county_outlets",
+  "exclude_domains",
+  "federal_outlets",
+  "federal_pages",
+  "names",
+  "outlets",
+  "regions",
+  "statewide"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,91 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/blocked.json",
+ "description": "host -> entry (same as state/blocked.json)",
+ "x-area": "export_bundle",
+ "x-writer": "export.export() copy of BlockList(state/blocked.json).data",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py (not pushed)",
+ "x-version": "",
+ "x-documented-in": "export.py docstring one line",
+ "x-observed": "shape from state/blocked.json",
+ "x-issues": [],
+ "type": "object",
+ "additionalProperties": {
+  "type": "object",
+  "description": "seen 400 of 1; map with 200 distinct keys, e.g. ['www.cherokeega.com', 'www.atlantaga.gov', 'www.houstoncountyga.com', 'www.co.newton.ga.us']",
+  "properties": {
+   "alternatives": {
+    "type": "array",
+    "description": "seen 400 of 400",
+    "items": {
+     "type": "string",
+     "description": "seen 803 of 400"
+    }
+   },
+   "count": {
+    "type": "integer",
+    "description": "seen 400 of 400",
+    "x-values": [
+     "2",
+     "1",
+     "3",
+     "4",
+     "21"
+    ]
+   },
+   "first_seen": {
+    "type": "string",
+    "description": "seen 400 of 400"
+   },
+   "last_seen": {
+    "type": "string",
+    "description": "seen 400 of 400"
+   },
+   "reason": {
+    "type": "string",
+    "description": "seen 400 of 400",
+    "x-values": [
+     "HTTP 403 bot-protection challenge",
+     "robots.txt: HTTP 403 bot-protection challenge",
+     "robots.txt: HTTP 403 access denied",
+     "HTTP 403 access denied",
+     "HTTP 200 bot-protection challenge (Imperva)",
+     "HTTP 429 bot-protection challenge",
+     "robots.txt: HTTP 429 bot-protection challenge",
+     "robots.txt: HTTP 200 bot-protection challenge (Imperva)",
+     "HTTP 503 bot-protection challenge"
+    ]
+   },
+   "sources": {
+    "type": "array",
+    "description": "seen 400 of 400",
+    "items": {
+     "type": "string",
+     "description": "seen 148 of 400"
+    }
+   },
+   "ttl_days": {
+    "type": "number",
+    "description": "seen 1 of 400"
+   },
+   "urls": {
+    "type": "array",
+    "description": "seen 400 of 400",
+    "items": {
+     "type": "string",
+     "description": "seen 448 of 400"
+    }
+   }
+  },
+  "required": [
+   "alternatives",
+   "count",
+   "first_seen",
+   "last_seen",
+   "reason",
+   "sources",
+   "urls"
+  ],
+  "additionalProperties": false
+ }
+}

@@ -1,0 +1,178 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/jurisdictions.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "generated (scripts/build_registry.py)",
+ "x-readers": "registry, newsdigest, openrecords, ordinance_files, sources/legis",
+ "x-version": "",
+ "x-documented-in": "_about key",
+ "x-observed": "config/jurisdictions.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_about": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "counties": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 159 of 1",
+    "properties": {
+     "consolidated_with": {
+      "type": "string",
+      "description": "seen 6 of 159",
+      "x-values": [
+       "Macon",
+       "Cusseta",
+       "Athens",
+       "Columbus",
+       "Georgetown",
+       "Augusta"
+      ]
+     },
+     "fips": {
+      "type": "string",
+      "description": "seen 159 of 159"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 159 of 159"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 159 of 159",
+      "x-values": [
+       "county"
+      ]
+     },
+     "municode": {
+      "type": "string",
+      "description": "seen 24 of 159"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 159 of 159"
+     },
+     "population": {
+      "type": "integer",
+      "description": "seen 159 of 159"
+     },
+     "seat": {
+      "type": "string",
+      "description": "seen 159 of 159"
+     },
+     "unified_government": {
+      "type": "boolean",
+      "description": "seen 2 of 159"
+     },
+     "wikipedia": {
+      "type": "string",
+      "description": "seen 159 of 159"
+     }
+    },
+    "required": [
+     "fips",
+     "id",
+     "kind",
+     "name",
+     "population",
+     "seat",
+     "wikipedia"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "municipalities": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 537 of 1",
+    "properties": {
+     "consolidated_with": {
+      "type": "string",
+      "description": "seen 6 of 537",
+      "x-values": [
+       "Clarke County",
+       "Richmond County",
+       "Muscogee County",
+       "Chattahoochee County",
+       "Quitman County",
+       "Bibb County"
+      ]
+     },
+     "counties": {
+      "type": "array",
+      "description": "seen 537 of 537",
+      "items": {
+       "type": "string",
+       "description": "seen 595 of 537"
+      }
+     },
+     "county_seat": {
+      "type": "boolean",
+      "description": "seen 537 of 537",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "fips": {
+      "type": "string",
+      "description": "seen 537 of 537"
+     },
+     "id": {
+      "type": "string",
+      "description": "seen 537 of 537"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 537 of 537",
+      "x-values": [
+       "city",
+       "town",
+       "consolidated"
+      ]
+     },
+     "municode": {
+      "type": "string",
+      "description": "seen 62 of 537"
+     },
+     "name": {
+      "type": "string",
+      "description": "seen 537 of 537"
+     },
+     "population": {
+      "type": "integer",
+      "description": "seen 537 of 537"
+     },
+     "wikipedia": {
+      "type": "string",
+      "description": "seen 537 of 537"
+     }
+    },
+    "required": [
+     "counties",
+     "county_seat",
+     "fips",
+     "id",
+     "kind",
+     "name",
+     "population",
+     "wikipedia"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "_about",
+  "counties",
+  "municipalities"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,105 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/councils/<id>.json",
+ "description": "{jurisdiction, members[], votes_counted, pairs[{a,b,shared,agree,pct}]}",
+ "x-area": "export_bundle",
+ "x-writer": "export.council_alignment",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "schema.md 'Council alignment' (does not name the jurisdiction key)",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [
+  "undocumented keys vs schema.md section (1): jurisdiction"
+ ],
+ "type": "object",
+ "properties": {
+  "jurisdiction": {
+   "type": "string",
+   "description": "seen 64 of 64"
+  },
+  "members": {
+   "type": "array",
+   "description": "seen 64 of 64",
+   "items": {
+    "type": "string",
+    "description": "seen 816 of 64"
+   }
+  },
+  "pairs": {
+   "type": "array",
+   "description": "seen 64 of 64",
+   "items": {
+    "type": "object",
+    "description": "seen 785 of 64",
+    "properties": {
+     "a": {
+      "type": "string",
+      "description": "seen 785 of 785"
+     },
+     "agree": {
+      "type": "integer",
+      "description": "seen 785 of 785"
+     },
+     "b": {
+      "type": "string",
+      "description": "seen 785 of 785"
+     },
+     "pct": {
+      "type": "number",
+      "description": "seen 785 of 785"
+     },
+     "shared": {
+      "type": "integer",
+      "description": "seen 785 of 785"
+     }
+    },
+    "required": [
+     "a",
+     "agree",
+     "b",
+     "pct",
+     "shared"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "votes_counted": {
+   "type": "integer",
+   "description": "seen 64 of 64",
+   "x-values": [
+    "2",
+    "1",
+    "3",
+    "5",
+    "4",
+    "6",
+    "9",
+    "20",
+    "14",
+    "12",
+    "7",
+    "11",
+    "26",
+    "16",
+    "72",
+    "22",
+    "25",
+    "8",
+    "235",
+    "17",
+    "19",
+    "30",
+    "120",
+    "13",
+    "33"
+   ]
+  }
+ },
+ "required": [
+  "jurisdiction",
+  "members",
+  "pairs",
+  "votes_counted"
+ ],
+ "additionalProperties": false
+}

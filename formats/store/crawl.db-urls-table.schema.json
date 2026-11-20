@@ -1,0 +1,44 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "data/crawl.db: urls table",
+ "description": "SQLite table",
+ "x-area": "db_record_model",
+ "x-writer": "store.mark_url",
+ "x-readers": "store.url_seen / fresh",
+ "x-version": "2",
+ "x-documented-in": "DDL only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "url": {
+   "x-type": "TEXT PK"
+  },
+  "source_id": {
+   "type": "string"
+  },
+  "status": {
+   "x-type": "INTEGER"
+  },
+  "content_type": {
+   "type": "string"
+  },
+  "hash": {
+   "type": "string"
+  },
+  "fetched_at": {
+   "type": "string"
+  },
+  "changed_at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "url",
+  "source_id",
+  "content_type",
+  "hash",
+  "fetched_at",
+  "changed_at"
+ ]
+}

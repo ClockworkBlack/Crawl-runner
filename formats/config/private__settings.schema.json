@@ -1,0 +1,45 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/private/settings.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand (private)",
+ "x-readers": "config, openrecords",
+ "x-version": "",
+ "x-documented-in": "private overlay of settings.yaml",
+ "x-observed": "config/private/settings.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "openrecords": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "organization": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "requester": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "organization",
+    "requester"
+   ],
+   "additionalProperties": false
+  },
+  "requester": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "openrecords",
+  "requester"
+ ],
+ "additionalProperties": false,
+ "x-widened": [],
+ "x-private": "a private file: key names only, no values (config/private and data/openrecords never go to the public runner)"
+}

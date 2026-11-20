@@ -1,0 +1,76 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/private/openrecords.yaml",
+ "description": "YAML",
+ "x-area": "config",
+ "x-writer": "hand (private)",
+ "x-readers": "openrecords, police",
+ "x-version": "",
+ "x-documented-in": "private",
+ "x-observed": "config/private/openrecords.yaml",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "approved": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "additionalProperties": {}
+  },
+  "ask_anyway": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 1 of 1"
+   }
+  },
+  "portals": {
+   "type": "object",
+   "description": "seen 1 of 1",
+   "properties": {
+    "chatsworth": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "co-cobb": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "co-oconee": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    },
+    "co-tift": {
+     "type": "string",
+     "description": "seen 1 of 1"
+    }
+   },
+   "required": [
+    "chatsworth",
+    "co-cobb",
+    "co-oconee",
+    "co-tift"
+   ],
+   "additionalProperties": false
+  },
+  "skip": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 16 of 1"
+   }
+  }
+ },
+ "required": [
+  "approved",
+  "ask_anyway",
+  "portals",
+  "skip"
+ ],
+ "additionalProperties": false,
+ "x-widened": [
+  "$.approved: (widened to the real file; its values are private and not written here)"
+ ],
+ "x-private": "a private file: key names only, no values (config/private and data/openrecords never go to the public runner)"
+}

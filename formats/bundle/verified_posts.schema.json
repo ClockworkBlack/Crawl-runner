@@ -1,0 +1,133 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/verified_posts.json",
+ "description": "list of post rows",
+ "x-area": "export_bundle",
+ "x-writer": "verified_posts.Registry.posts (data/verified/posts.jsonl)",
+ "x-readers": "Electo (not pushed)",
+ "x-version": "",
+ "x-documented-in": "export.py docstring only",
+ "x-observed": "shape from data/verified/posts.jsonl (the registry it is built from)",
+ "x-issues": [],
+ "type": "array",
+ "items": {
+  "type": "object",
+  "description": "seen 201",
+  "properties": {
+   "account_id": {
+    "type": "string",
+    "description": "seen 201 of 201"
+   },
+   "added_at": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "2026-11-06T17:45:31+00:00",
+     "2026-11-06T17:45:32+00:00",
+     "2026-11-06T17:45:30+00:00"
+    ]
+   },
+   "candidate": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "Dar'shun Kendrick"
+    ]
+   },
+   "candidate_id": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "darshun-kendrick"
+    ]
+   },
+   "evidence": {
+    "type": "object",
+    "description": "seen 201 of 201"
+   },
+   "meta": {
+    "type": "object",
+    "description": "seen 201 of 201",
+    "properties": {
+     "likes": {
+      "type": "integer",
+      "description": "seen 200 of 201",
+      "x-values": [
+       "0",
+       "1",
+       "2",
+       "3",
+       "4",
+       "6",
+       "15",
+       "12"
+      ]
+     },
+     "uri": {
+      "type": "string",
+      "description": "seen 200 of 201"
+     },
+     "video_id": {
+      "type": "string",
+      "description": "seen 1 of 201"
+     }
+    },
+    "additionalProperties": false
+   },
+   "platform": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "bluesky",
+     "youtube"
+    ]
+   },
+   "post_url": {
+    "type": "string",
+    "description": "seen 201 of 201"
+   },
+   "posted_at": {
+    "type": "string",
+    "description": "seen 201 of 201"
+   },
+   "source": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "api"
+    ]
+   },
+   "status": {
+    "type": "string",
+    "description": "seen 201 of 201",
+    "x-values": [
+     "verified"
+    ]
+   },
+   "text": {
+    "type": "string",
+    "description": "seen 201 of 201"
+   },
+   "topics": {
+    "type": "array",
+    "description": "seen 201 of 201"
+   }
+  },
+  "required": [
+   "account_id",
+   "added_at",
+   "candidate",
+   "candidate_id",
+   "evidence",
+   "meta",
+   "platform",
+   "post_url",
+   "posted_at",
+   "source",
+   "status",
+   "text",
+   "topics"
+  ],
+  "additionalProperties": false
+ }
+}

@@ -1,0 +1,271 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/state_meetings.json",
+ "description": "{as_of, format: 2, not_read[{name,why,u}], note, bodies[body], legislature{source, meetings[]}}",
+ "x-area": "export_bundle",
+ "x-writer": "agencies.export_state_meetings (validate_body / validate_meeting)",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py (not pushed; read from the full bundle in crawl.yml import step)",
+ "x-version": "format 2 (agencies.FMT; meta.fmt 2 in records)",
+ "x-documented-in": "schema.md 'state_meetings.json (format 2)' = agencies.STATE_MEETINGS_SCHEMA",
+ "x-observed": "not observed from Crawl (Electo/ga/crawl/state_meetings.json is Electo's re-written copy: agencies[] not bodies[], links {t,u})",
+ "x-issues": [
+  "I04 (two_versions): Three unrelated version numbers: store.SCHEMA_VERSION = 2 (kv 'schema'), export SCHEMA_VERSION '2.3' (manifest schema_version), agencies FMT = 2 (state_meetings 'format' and meta.fmt); codeacts parser 4; no other file carries a format number (DATA_FORMAT_PLAN rule 1)",
+  "I05 (same_key_two_types): state_meetings.json: key x is a list of {l,u} files in bodies[].meetings[] but a bool (cancelled) in legislature.meetings[]; c (chamber) is not explained in schema.md; schema.md gives the top level as {as_of, format, note, not_read, ...} while the code writes as_of, format, not_read, note",
+  "I20 (downstream_reshape): Electo's ga/crawl/state_meetings.json and meeting_summaries.json are re-written by Electo (agencies[] not bodies[], links {t,u}, dropped, legislature.hearings; summaries keyed by url under by{}), so they are not Crawl's format and were not used as evidence of it"
+ ],
+ "type": "object",
+ "properties": {
+  "as_of": {
+   "type": "string"
+  },
+  "format": {
+   "type": "integer",
+   "x-values": [
+    2
+   ],
+   "const": 2
+  },
+  "not_read": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "description": "{name, why, u} from config agencies.yaml not_read"
+   }
+  },
+  "note": {
+   "type": "string"
+  },
+  "bodies": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string",
+      "x-values": [
+       "board",
+       "authority",
+       "transit"
+      ],
+      "enum": [
+       "board",
+       "authority",
+       "transit"
+      ]
+     },
+     "name": {
+      "type": "string"
+     },
+     "agency": {
+      "type": "string"
+     },
+     "pages": {
+      "type": "array"
+     },
+     "links": {
+      "type": "array",
+      "description": "absent when none"
+     },
+     "source": {
+      "type": "string",
+      "x-values": [
+       "live",
+       "archive"
+      ],
+      "enum": [
+       "live",
+       "archive"
+      ]
+     },
+     "archive_as_of": {
+      "type": "string",
+      "format": "date",
+      "description": "only with source archive"
+     },
+     "meetings": {
+      "type": "array",
+      "description": "keys strictly in MEETING_KEYS order; empty values absent",
+      "items": {
+       "type": "object",
+       "properties": {
+        "d": {
+         "type": "string",
+         "format": "date"
+        },
+        "t": {
+         "type": "string",
+         "pattern": "^\\d\\d:\\d\\d$"
+        },
+        "n": {
+         "type": "string"
+        },
+        "b": {
+         "type": "string"
+        },
+        "w": {
+         "type": "string"
+        },
+        "st": {
+         "type": "string",
+         "x-values": [
+          "scheduled",
+          "held",
+          "cancelled",
+          "tentative"
+         ],
+         "enum": [
+          "scheduled",
+          "held",
+          "cancelled",
+          "tentative"
+         ]
+        },
+        "a": {
+         "type": "string"
+        },
+        "m": {
+         "type": "string"
+        },
+        "s": {
+         "type": "string"
+        },
+        "v": {
+         "type": "string"
+        },
+        "x": {
+         "type": "array"
+        },
+        "p": {
+         "type": "string"
+        },
+        "pub": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "seen": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "upd": {
+         "type": "string",
+         "format": "date-time"
+        }
+       },
+       "required": [
+        "d",
+        "st",
+        "p",
+        "seen",
+        "upd"
+       ]
+      }
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "name",
+     "agency",
+     "pages",
+     "source",
+     "meetings"
+    ]
+   }
+  },
+  "legislature": {
+   "type": "object",
+   "properties": {
+    "source": {
+     "type": "string"
+    },
+    "meetings": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "d": {
+        "type": "string"
+       },
+       "t": {
+        "type": "string"
+       },
+       "c": {
+        "type": "string",
+        "description": "chamber; undocumented letter",
+        "x-values": [
+         "House",
+         "Senate"
+        ]
+       },
+       "b": {
+        "type": "string"
+       },
+       "w": {
+        "type": "string"
+       },
+       "a": {
+        "type": "string"
+       },
+       "v": {
+        "type": "string"
+       },
+       "n": {
+        "type": "string",
+        "description": "record text [:400]"
+       },
+       "x": {
+        "type": "boolean",
+        "description": "cancelled flag: SAME KEY as meeting x (list of files) with a different type"
+       }
+      },
+      "required": [
+       "d"
+      ]
+     }
+    }
+   },
+   "required": [
+    "source"
+   ]
+  }
+ },
+ "required": [
+  "as_of",
+  "format",
+  "note"
+ ],
+ "x-keys-in-order": {
+  "bodies[]": [
+   "id",
+   "kind",
+   "name",
+   "agency",
+   "pages",
+   "links",
+   "source",
+   "archive_as_of",
+   "meetings"
+  ],
+  "bodies[].meetings[]": [
+   "d",
+   "t",
+   "n",
+   "b",
+   "w",
+   "st",
+   "a",
+   "m",
+   "s",
+   "v",
+   "x",
+   "p",
+   "pub",
+   "seen",
+   "upd"
+  ]
+ },
+ "x-pinned": true
+}

@@ -1,0 +1,341 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/elections.json",
+ "description": "{note, elections[{eid,date,year,kind,title,u,official,jurisdiction,c[contest]}], qualifying[]}",
+ "x-area": "export_bundle",
+ "x-writer": "elections.electo_elections / electo_qualifying",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3 (Electo archive shape)",
+ "x-documented-in": "export.py docstring one line; no schema.md section",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "elections": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 105 of 1",
+    "properties": {
+     "c": {
+      "type": "array",
+      "description": "seen 105 of 105",
+      "items": {
+       "type": "object",
+       "description": "seen 2361 of 105",
+       "properties": {
+        "i": {
+         "type": "integer",
+         "description": "seen 2361 of 2361"
+        },
+        "j": {
+         "type": "string",
+         "description": "seen 2361 of 2361"
+        },
+        "key": {
+         "type": "string",
+         "description": "seen 2361 of 2361"
+        },
+        "keys": {
+         "type": "array",
+         "description": "seen 1877 of 2361",
+         "items": {
+          "type": "string",
+          "description": "seen 4097 of 2361"
+         }
+        },
+        "lvl": {
+         "type": "string",
+         "description": "seen 2361 of 2361",
+         "x-values": [
+          "local"
+         ]
+        },
+        "o": {
+         "type": "array",
+         "description": "seen 2361 of 2361",
+         "items": {
+          "type": "array",
+          "description": "seen 5065 of 2361",
+          "items": {
+           "type": [
+            "integer",
+            "string"
+           ],
+           "description": "seen 25325 of 2361; MIXED types {'str': 15195, 'int': 10130}"
+          }
+         }
+        },
+        "p": {
+         "type": "string",
+         "description": "seen 2361 of 2361",
+         "x-values": [
+          ""
+         ]
+        },
+        "q": {
+         "type": "string",
+         "description": "seen 484 of 2361"
+        },
+        "res": {
+         "type": "string",
+         "description": "seen 484 of 2361",
+         "x-values": [
+          "passed",
+          "failed"
+         ]
+        },
+        "sub": {
+         "type": "string",
+         "description": "seen 2361 of 2361",
+         "x-values": [
+          "",
+          "question"
+         ]
+        },
+        "t": {
+         "type": "string",
+         "description": "seen 2361 of 2361"
+        },
+        "tot": {
+         "type": "integer",
+         "description": "seen 2361 of 2361"
+        },
+        "type": {
+         "type": "string",
+         "description": "seen 484 of 2361",
+         "x-values": [
+          "Referendum",
+          "Constitutional amendment",
+          "Homestead exemption",
+          "SPLOST",
+          "Alcohol",
+          "ESPLOST",
+          "TSPLOST",
+          "Redevelopment powers / TAD",
+          "LOST",
+          "Millage / tax",
+          "Bond",
+          "Annexation / cityhood"
+         ]
+        },
+        "u": {
+         "type": "string",
+         "description": "seen 2361 of 2361"
+        },
+        "vf": {
+         "type": "integer",
+         "description": "seen 2361 of 2361",
+         "x-values": [
+          "1"
+         ]
+        }
+       },
+       "required": [
+        "i",
+        "j",
+        "key",
+        "lvl",
+        "o",
+        "p",
+        "sub",
+        "t",
+        "tot",
+        "u",
+        "vf"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "date": {
+      "type": "string",
+      "description": "seen 105 of 105",
+      "x-values": [
+       "2026-11-03",
+       "2026-05-19",
+       "2026-06-16",
+       "2025-11-04",
+       "2024-05-21",
+       "2024-03-12",
+       "2023-11-07",
+       "2025-06-17",
+       "2024-11-05",
+       "2022-11-08",
+       "2022-05-24",
+       "2025-03-18",
+       "2020-11-03",
+       "2022-06-21",
+       "2024-06-18",
+       "2025-11-05",
+       "2019-11-05",
+       "2021-01-05",
+       "2021-11-02",
+       "2024-12-03",
+       "2025-12-02",
+       "2026-03-04"
+      ]
+     },
+     "eid": {
+      "type": "string",
+      "description": "seen 105 of 105"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 105 of 105"
+     },
+     "kind": {
+      "type": "string",
+      "description": "seen 105 of 105",
+      "x-values": [
+       "municipal",
+       "municipal runoff"
+      ]
+     },
+     "official": {
+      "type": "boolean",
+      "description": "seen 105 of 105",
+      "x-values": [
+       "False",
+       "True"
+      ]
+     },
+     "title": {
+      "type": "string",
+      "description": "seen 105 of 105"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 105 of 105"
+     },
+     "year": {
+      "type": "string",
+      "description": "seen 105 of 105",
+      "x-values": [
+       "2026",
+       "2024",
+       "2025",
+       "2022",
+       "2023",
+       "2020",
+       "2021",
+       "2019"
+      ]
+     }
+    },
+    "required": [
+     "c",
+     "date",
+     "eid",
+     "jurisdiction",
+     "kind",
+     "official",
+     "title",
+     "u",
+     "year"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "qualifying": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "object",
+    "description": "seen 21 of 1",
+    "properties": {
+     "contests": {
+      "type": "array",
+      "description": "seen 21 of 21",
+      "items": {
+       "type": "object",
+       "description": "seen 34 of 21",
+       "properties": {
+        "candidates": {
+         "type": "array",
+         "description": "seen 34 of 34",
+         "items": {
+          "type": "object",
+          "description": "seen 176 of 34",
+          "properties": {
+           "incumbent": {
+            "type": "boolean",
+            "description": "seen 176 of 176",
+            "x-values": [
+             "False",
+             "True"
+            ]
+           },
+           "name": {
+            "type": "string",
+            "description": "seen 176 of 176"
+           },
+           "note": {
+            "type": "string",
+            "description": "seen 3 of 176"
+           },
+           "party": {
+            "type": "string",
+            "description": "seen 176 of 176",
+            "x-values": [
+             ""
+            ]
+           }
+          },
+          "required": [
+           "incumbent",
+           "name",
+           "party"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "office": {
+         "type": "string",
+         "description": "seen 34 of 34"
+        }
+       },
+       "required": [
+        "candidates",
+        "office"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "date": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "seen 21 of 21"
+     },
+     "jurisdiction": {
+      "type": "string",
+      "description": "seen 21 of 21"
+     },
+     "u": {
+      "type": "string",
+      "description": "seen 21 of 21"
+     }
+    },
+    "required": [
+     "contests",
+     "date",
+     "jurisdiction",
+     "u"
+    ],
+    "additionalProperties": false
+   }
+  }
+ },
+ "required": [
+  "elections",
+  "note",
+  "qualifying"
+ ],
+ "additionalProperties": false
+}

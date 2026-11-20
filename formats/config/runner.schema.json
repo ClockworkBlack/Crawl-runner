@@ -1,0 +1,38 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "config/runner.json",
+ "description": "JSON",
+ "x-area": "config",
+ "x-writer": "hand",
+ "x-readers": "ci_runner.sh, private_data.py, backfill.py, ai_handoff.sh, many workflows",
+ "x-version": "",
+ "x-documented-in": "_note key",
+ "x-observed": "config/runner.json",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "_note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "active": {
+   "type": "boolean",
+   "description": "seen 1 of 1"
+  },
+  "data_repo": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "runner_repo": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  }
+ },
+ "required": [
+  "_note",
+  "active",
+  "data_repo",
+  "runner_repo"
+ ],
+ "additionalProperties": false
+}

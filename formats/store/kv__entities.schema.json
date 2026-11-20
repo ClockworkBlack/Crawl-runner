@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "entities",
+ "description": "JSON {n, entities}",
+ "x-area": "kv",
+ "x-writer": "entities.Entities.flush",
+ "x-readers": "entities",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "n": {
+   "type": "integer"
+  },
+  "entities": {
+   "type": "object"
+  }
+ },
+ "required": [
+  "n",
+  "entities"
+ ]
+}

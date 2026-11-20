@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "derive:{name}:v",
+ "description": "deriver version",
+ "x-area": "kv",
+ "x-writer": "derive",
+ "x-readers": "derive",
+ "x-version": "",
+ "x-documented-in": "code comments only",
+ "x-observed": "",
+ "x-issues": []
+}

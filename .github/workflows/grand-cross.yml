@@ -65,7 +65,7 @@ jobs:
             # every module at the top of ga/ (the builder imports names, textfix, gc_audit...), not a list of them: from Nov 14
             # the builder needed ga/textfix.py, which the list lacked, and every run failed on the import
             git sparse-checkout set --no-cone '/ga/*.py' /ga/profiles.json /ga/news.json /ga/pipeline_civics/legislature.json \
-              /ga/pipeline_archive/ /ga/crawl/ /tools/data_audit.py
+              /ga/pipeline_archive/ /ga/crawl/ /tools/data_audit.py /formats/
             if [ ! -f ga/gc_build.py ]; then echo "no Grand Cross builder in this Electo"; exit 0; fi
             python3 -I ga/gc_build.py --no-bundle --only money,index $FORCE | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
             [ "$rc" = 0 ] || [ "$rc" = 3 ] || { echo "::error title=Grand Cross::the build failed (exit $rc)"; exit 1; }

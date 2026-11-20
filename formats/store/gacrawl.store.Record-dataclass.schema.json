@@ -1,0 +1,71 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "gacrawl.store.Record (dataclass)",
+ "description": "dataclass -> row",
+ "x-area": "db_record_model",
+ "x-writer": "every reader (91 Record( calls)",
+ "x-readers": "Store.add",
+ "x-version": "",
+ "x-documented-in": "inline comments in store.py",
+ "x-observed": "",
+ "x-issues": [
+  "I02 (undocumented): channel: 10 values documented (api, wp_json, feed, sitemap, html, browser, pdf, ocr, import, store); 7 more written: archive (5 writers), derived (12 derive passes), docx, text, file, vimeo, listed (boarddocs agenda_item), plus a platform name (legis_video, candidates posts)",
+  "I03 (undocumented): evidence: documented primary|reported|unverified|lead; bill_reasons writes 'official' (veto statements) and 34 of the 91 Record() calls leave it unset ('')"
+ ],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string"
+  },
+  "kind": {
+   "type": "string",
+   "description": "comment lists 17 kinds"
+  },
+  "url": {
+   "type": "string"
+  },
+  "title": {
+   "type": "string"
+  },
+  "text": {
+   "type": "string"
+  },
+  "markdown": {
+   "type": "string"
+  },
+  "published": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "normalized by norm_published to ISO 8601"
+  },
+  "channel": {
+   "type": "string",
+   "description": "comment: api|wp_json|feed|sitemap|html|browser|pdf|ocr|import|store"
+  },
+  "fetched_at": {
+   "type": "string",
+   "description": "default utcnow()"
+  },
+  "meta": {
+   "x-type": "dict"
+  },
+  "jurisdiction": {
+   "type": "string"
+  },
+  "evidence": {
+   "type": "string",
+   "description": "comment: primary|reported|unverified|lead"
+  },
+  "key": {
+   "type": "string",
+   "description": "natural key; computed source_id|kind|url|<first ID_FIELDS value or h:<content hash> for CONTENT_KEYED>"
+  }
+ },
+ "required": [
+  "source_id",
+  "kind",
+  "url"
+ ]
+}

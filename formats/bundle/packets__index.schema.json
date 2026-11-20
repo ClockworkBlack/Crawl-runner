@@ -1,0 +1,32 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/packets/index.json",
+ "description": "{packets: [file stem], note}",
+ "x-area": "export_bundle",
+ "x-writer": "electo.write_packet_index",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "2.3",
+ "x-documented-in": "none",
+ "x-observed": "Electo/data/crawl (the subset Crawl's crawl.yml pushes to Electo; manifest generated_at 2026-11-20T19:25:49Z, schema_version 2.3)",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "note": {
+   "type": "string",
+   "description": "seen 1 of 1"
+  },
+  "packets": {
+   "type": "array",
+   "description": "seen 1 of 1",
+   "items": {
+    "type": "string",
+    "description": "seen 3000 of 1"
+   }
+  }
+ },
+ "required": [
+  "note",
+  "packets"
+ ],
+ "additionalProperties": false
+}

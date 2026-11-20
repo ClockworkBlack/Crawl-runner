@@ -1,0 +1,97 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "vote",
+ "description": "records row of this kind; meta keys as written by the Record() calls (static scan)",
+ "x-area": "db_record_kind",
+ "x-writer": "candidates.py:772 _votes; minutes.py:341 _derive; sources/legis.py:230 roll_calls; sources/legiscan.py:196 records_from; sources/legistar.py:191 _vote_record",
+ "x-readers": "export (jurisdictions/<id>.json, candidates/<id>.json, kind-specific exports), derive passes",
+ "x-version": "",
+ "x-documented-in": "listed in store.Record / schema.md kind list",
+ "x-observed": "",
+ "x-issues": [],
+ "type": "object",
+ "properties": {
+  "source_id": {
+   "type": "string",
+   "x-values": [
+    "(set by caller: cand:<id>)",
+    "<expr:SOURCE>",
+    "<expr:self.client>",
+    "<expr:src[\"source_id\"]>"
+   ]
+  },
+  "channel": {
+   "type": "string",
+   "description": "undocumented: derived",
+   "x-values": [
+    "api",
+    "derived",
+    "store"
+   ]
+  },
+  "evidence": {
+   "type": "string",
+   "x-values": [
+    "(unset)",
+    "primary"
+   ]
+  },
+  "meta": {
+   "type": "object",
+   "properties": {
+    "EventBodyName": {},
+    "EventId": {},
+    "EventItemId": {},
+    "MatterFile": {},
+    "MatterId": {},
+    "VoteId": {},
+    "action": {},
+    "basis": {},
+    "bill": {},
+    "body": {},
+    "caption": {},
+    "chamber": {},
+    "check": {},
+    "credit": {},
+    "date": {},
+    "excused": {},
+    "from": {},
+    "legiscan_bill_id": {},
+    "legiscan_session_id": {},
+    "legislation_id": {},
+    "matter_file": {},
+    "mover": {},
+    "nay": {},
+    "not_voting": {},
+    "opened": {},
+    "opened_url": {},
+    "opened_urls": {},
+    "ordinance_ref": {},
+    "page_title": {},
+    "procedural": {},
+    "provider": {},
+    "record_id": {},
+    "result": {},
+    "role": {},
+    "roll_call_id": {},
+    "seconder": {},
+    "session": {},
+    "session_name": {},
+    "substantive": {},
+    "tally": {},
+    "topics": {},
+    "unanimous": {},
+    "vote": {},
+    "vote_caption": {},
+    "vote_name": {},
+    "votes": {},
+    "yea": {}
+   }
+  }
+ },
+ "required": [
+  "source_id",
+  "channel",
+  "evidence"
+ ]
+}

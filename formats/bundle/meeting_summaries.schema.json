@@ -1,0 +1,97 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "dist/electo/meeting_summaries.json",
+ "description": "{as_of, note, summaries[{j,k,d,t,u,s,i,by,m,at,cov?,c?}]}",
+ "x-area": "export_bundle",
+ "x-writer": "meeting_summaries.export_summaries",
+ "x-readers": "Electo ga/crawl_import.py (reads data/crawl_bundle/electo/ or data/crawl/), gc_build.py, councils.py",
+ "x-version": "",
+ "x-documented-in": "export_summaries docstring (lists j,k,d,t,u,s,i,by,m,at,cov); no schema.md section",
+ "x-observed": "not observed from Crawl (Electo/ga/crawl copy is Electo's: by{url:row})",
+ "x-issues": [
+  "I06 (undocumented): meeting_summaries.json rows carry c (committee), written by the code but absent from export_summaries' docstring key list; the file has no schema.md section",
+  "I20 (downstream_reshape): Electo's ga/crawl/state_meetings.json and meeting_summaries.json are re-written by Electo (agencies[] not bodies[], links {t,u}, dropped, legislature.hearings; summaries keyed by url under by{}), so they are not Crawl's format and were not used as evidence of it"
+ ],
+ "type": "object",
+ "properties": {
+  "as_of": {
+   "type": "string"
+  },
+  "note": {
+   "type": "string"
+  },
+  "summaries": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "j": {
+      "type": "string",
+      "description": "jurisdiction id"
+     },
+     "k": {
+      "type": "string",
+      "x-values": [
+       "minutes",
+       "recording",
+       "hearing"
+      ]
+     },
+     "d": {
+      "type": "string"
+     },
+     "t": {
+      "type": "string"
+     },
+     "u": {
+      "type": "string"
+     },
+     "s": {
+      "type": "string",
+      "description": "'' when none"
+     },
+     "i": {
+      "type": "array"
+     },
+     "by": {
+      "type": "string",
+      "x-values": [
+       "model",
+       "parser"
+      ]
+     },
+     "m": {
+      "type": "string"
+     },
+     "at": {
+      "type": "string"
+     },
+     "cov": {
+      "type": "number",
+      "description": "share of a long text read"
+     },
+     "c": {
+      "type": "string",
+      "description": "committee; NOT in the docstring's key list"
+     }
+    },
+    "required": [
+     "j",
+     "k",
+     "d",
+     "t",
+     "u",
+     "s",
+     "i",
+     "by",
+     "m",
+     "at"
+    ]
+   }
+  }
+ },
+ "required": [
+  "as_of",
+  "note"
+ ]
+}
