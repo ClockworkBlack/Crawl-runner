@@ -53,6 +53,8 @@ RETRY_GAIN_S = 60.0         # a scan read only partly is read again only when th
 DOC_EXT = {".pdf", ".docx", ".html", ".htm", ".txt", ".md"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
 SKIP_NAMES = {"readme.md", "sources.csv", ".gitkeep"}
+SPLIT_PART = re.compile(r"^(.+)\.part(\d+)of(\d+)$", re.I)              # big.pdf.part01of03: one piece of a split upload
+DROP_REPORT = re.compile(r"^report \d{4}-\d{2}-\d{2} \d{4}\.txt$", re.I)  # the downloader's own report, not a document
 KINDS = ("code", "zoning", "charter", "ordinance", "resolution", "other")
 SECTION_TARGET = 6000       # characters: text with no headings of its own is cut into parts about this long
 CODE_HOSTS = re.compile(r"(^|\.)(library\.municode\.com|municode\.com|codelibrary\.amlegal\.com|ecode360\.com|"
@@ -632,9 +634,37 @@ def inbox_units(inbox: Path, scratch: Path | None = None) -> tuple[list[tuple[st
             dirs.sort()
             for f in sorted(files):
                 fp = dp / f
-                if f.lower() in SKIP_NAMES or f.startswith(".") or fp.suffix.lower() not in DOC_EXT | IMAGE_EXT:
+                if f.lower() in SKIP_NAMES or DROP_REPORT.match(f) or f.startswith(".") or fp.suffix.lower() not in DOC_EXT | IMAGE_EXT:
                     continue
                 units.append(("file", fp, "/".join(x for x in (label, f) if x)))
+    # A file too big for a web upload arrives split, as <name>.part01of03 ... <name>.part03of03: join each complete
+    # set into one file (in scratch) and read it under <folder>/<name>, as if it had been uploaded whole.
+    sets: dict[tuple[Path, str], dict] = {}
+    for base, prefix in roots:
+        for fp in base.rglob("*"):
+            m = SPLIT_PART.match(fp.name)
+            if not m or not fp.is_file() or any(x.startswith(".") for x in fp.relative_to(base).parts):
+                continue
+            s = sets.setdefault((fp.parent, m.group(1)), {"of": int(m.group(3)), "parts": {}, "base": base, "prefix": prefix})
+            s["parts"][int(m.group(2))] = fp
+    for i, ((folder, name), s) in enumerate(sorted(sets.items(), key=lambda kv: str(kv[0]))):
+        rel = folder.relative_to(s["base"]).as_posix()
+        label = "/".join(x for x in (s["prefix"], "" if rel == "." else rel, name) if x)
+        if sorted(s["parts"]) != list(range(1, s["of"] + 1)):
+            have = ", ".join(str(n) for n in sorted(s["parts"]))
+            problems.append(f"{label}: split into {s['of']} parts but only part(s) {have} are here; not read")
+            continue
+        if Path(name).suffix.lower() not in DOC_EXT | IMAGE_EXT:
+            continue
+        scratch = scratch or Path(tempfile.mkdtemp(prefix="ordzip-"))
+        out = scratch / f"j{i}" / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "wb") as fh:
+            for n in range(1, s["of"] + 1):
+                with open(s["parts"][n], "rb") as part:
+                    while chunk := part.read(1 << 20):
+                        fh.write(chunk)
+        units.append(("file", out, label))
     return units, problems
 
 

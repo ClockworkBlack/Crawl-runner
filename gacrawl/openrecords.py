@@ -64,23 +64,23 @@ available online in full, a link to that copy will satisfy this request.
 If there will be any cost for this request, please send an estimate before proceeding; no charges are
 approved in advance.
 
-The Act asks for a response within three business days. Thank you for your help.
+The Act asks for a response within three business days. Thank You for Your help.
 
 {signature}
 {reply_line}"""
 WITHDRAW = """To the Records Custodian, {name}:
 
 Regarding the Open Records Act request below, sent {sent_on}, for the Code of Ordinances of {name}: we have since
-obtained a copy, so I am withdrawing the request. No further work or response is needed. Thank you for your time.
+obtained a copy, so I am withdrawing the request. No further work or response is needed. Thank You for Your time.
 
 {signature}
 """
 FOLLOW_UP = """To the Records Custodian, {name}:
 
 I am following up on the Open Records Act request below, sent {sent_on}, for an electronic copy of the current
-Code of Ordinances of {name}. I have not yet received a response. Could you let me know its status?
+Code of Ordinances of {name}. I have not yet received a response. Could You let me know its status?
 
-Thank you,
+Thank You,
 {signature}
 """
 STATUSES = ("planned", "sent", "acknowledged", "cost_estimate", "fulfilled", "partial", "denied", "bounced",
@@ -203,7 +203,7 @@ def vet(j: dict, approved: dict | None = None, portals: dict | None = None) -> d
 
 def load_contacts(root: Path) -> dict:
     """config/private/openrecords.yaml (kept only in the private repository; contacts are people's addresses):
-    approved: {jid: address}, portals: {jid: url}, skip: [jid, ...]. config/openrecords.yaml is read if present."""
+    approved: {jid: address}, portals: {jid: url}, skip: [jid, ...], ask_anyway: [jid, ...]. config/openrecords.yaml is read if present."""
     p = root / "config" / "private" / "openrecords.yaml"
     if not p.exists():
         p = root / "config" / "openrecords.yaml"
@@ -214,7 +214,7 @@ def load_contacts(root: Path) -> dict:
     d = yaml.safe_load(p.read_text()) or {}
     return {"approved": {k: _clean(v) for k, v in (d.get("approved") or {}).items() if _clean(v)},
             "portals": {k: str(v).strip() for k, v in (d.get("portals") or {}).items() if str(v).startswith("http")},
-            "skip": list(d.get("skip") or [])}
+            "skip": list(d.get("skip") or []), "ask_anyway": list(d.get("ask_anyway") or [])}
 
 
 def write_review(root: Path, reviews: list[dict]) -> Path:
@@ -328,9 +328,17 @@ def downloaded_places(root: Path, places=None) -> set[str]:
     # with a few individual ordinances from its site, and nothing else, is still without its code
     from .codefinder import load_found
 
+    # A file someone added by hand to the same folder (not one the finder saved) counts as a code.
+    files_in: dict[str, set[str]] = {}
+    for rel in _inbox_paths(root):
+        top, _, rest = rel.partition("/")
+        if rest and Path(rest).name.lower() != "sources.csv":
+            files_in.setdefault(top, set()).add(rel)
     for jid, f in load_found(root).items():
         if f.get("saved") and not f.get("complete") and roots.get(jid) == {jid}:
-            have.discard(jid)
+            by_finder = {s["file"] for s in f["saved"]}
+            if files_in.get(jid, set()) <= by_finder:
+                have.discard(jid)
     # a consolidated government's code is its county's too (macon-bibb -> co-bibb), and the reverse
     for j in places.places:
         if j.get("kind") == "consolidated" and "-" in j["id"]:
@@ -1698,6 +1706,8 @@ class Requests:
             except Exception as exc:  # noqa: BLE001 — a bad folder must not stop the mailbox
                 self.log(f"downloaded codes not read: {type(exc).__name__}: {exc}")
                 self._have = set()
+            # a place with only a stray ordinance on file (one golf-cart ordinance) is still asked for its code
+            self._have -= set(self.contacts.get("ask_anyway") or [])
         return self._have
 
     @property
@@ -2299,7 +2309,8 @@ def _gh_api(method: str, path: str, body: dict | None = None):
 
 
 def send_letter(path: Path, mailbox: "Mailbox | None" = None, env: dict | None = None, smtp_factory=None) -> dict:
-    """One letter from config/private/outbox/ (headers To: and Subject:, a blank line, then the body), sent from the project mailbox;
+    """One letter from config/private/outbox/ (headers To: and Subject:, optionally In-Reply-To: and References: to answer
+    in an existing thread, a blank line, then the body), sent from the project mailbox;
     a <letter>.sent file beside it records the sending, and a letter with one is never sent again. {FEC_KEY_LINE} in
     the body becomes the project's FEC key (FEC_API_KEY) or, without one here, an offer to send it."""
     e = env if env is not None else os.environ
@@ -2319,6 +2330,9 @@ def send_letter(path: Path, mailbox: "Mailbox | None" = None, env: dict | None =
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = mb.sender, h["to"], h["subject"]
     msg["Reply-To"] = mb.sender
+    if h.get("in-reply-to"):   # an answer in an existing thread (the clerk's reply's Message-ID)
+        msg["In-Reply-To"] = h["in-reply-to"]
+        msg["References"] = h.get("references") or h["in-reply-to"]
     msg.set_content(body.strip() + "\n")
     mb.send(msg, smtp_factory=smtp_factory)
     at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")

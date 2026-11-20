@@ -34,3 +34,12 @@ def test_letter_without_key_offers_it(tmp_path):
     p.write_text("To: api@example.test\nSubject: S\n\n{FEC_KEY_LINE}\n")
     send_letter(p, Mailbox(env), env, smtp_factory=FakeSMTP)
     assert "reply to this message and we will send it" in FakeSMTP.sent[-1].get_content()
+
+
+def test_letter_answers_in_its_thread(tmp_path):
+    env = {"ORR_SMTP_HOST": "smtp.example.test", "ORR_USER": "u", "ORR_PASSWORD": "p", "ORR_FROM": "project@example.test"}
+    p = tmp_path / "t.txt"
+    p.write_text("To: clerk@example.test\nSubject: Re: A request [ORR-x]\nIn-Reply-To: <abc@example.test>\n\nThank You.\n")
+    send_letter(p, Mailbox(env), env, smtp_factory=FakeSMTP)
+    m = FakeSMTP.sent[-1]
+    assert m["In-Reply-To"] == m["References"] == "<abc@example.test>"

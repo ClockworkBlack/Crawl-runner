@@ -666,12 +666,20 @@ def cmd_records(cfg, args):
         return
     if args.action == "letter":
         # one letter from config/private/outbox/ (the mail-send workflow): not a records request, so not in the tracker
+        # a folder sends each of its letters (*.txt, in name order) not yet sent, stopping at the first failure
+        import time as _time
+
         from .openrecords import send_letter
 
-        r = send_letter(config.ROOT / (args.letter or ""))
-        print(json.dumps(r, indent=1))
-        if not r["sent"] and not str(r.get("why", "")).startswith("already sent"):
-            raise SystemExit(1)
+        target = config.ROOT / (args.letter or "")
+        letters = sorted(target.glob("*.txt")) if target.is_dir() else [target]
+        for i, path in enumerate(letters):
+            r = send_letter(path)
+            print(json.dumps({"letter": path.name, **r}, indent=1))
+            if not r["sent"] and not str(r.get("why", "")).startswith("already sent"):
+                raise SystemExit(1)
+            if r["sent"] and i < len(letters) - 1:
+                _time.sleep(5)   # a gentle pace for the mailbox
         return
     if args.action == "status":
         print(json.dumps({"sending_enabled": reqs.enabled, "why_not": reqs.why_not() or None, **reqs.summary()}, indent=1))

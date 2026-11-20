@@ -443,3 +443,34 @@ def test_a_bounced_request_to_a_place_with_a_downloaded_code_is_closed_without_m
     out = r.withdraw(smtp_factory=FakeSMTP)
     assert out["closed"] == 1 and FakeSMTP.sent == []
     assert r.tracker.data["co-small"]["status"] == "withdrawn"
+
+
+def test_a_file_added_by_hand_beside_the_finders_counts(tmp_path):
+    # Nov 20: Barwick's chapters were dropped into the folder where the code finder had saved one stray PDF
+    import json as _json
+    from gacrawl.openrecords import downloaded_places
+    _registry(tmp_path)
+    inbox = tmp_path / "imports" / "ordinances" / "big"
+    inbox.mkdir(parents=True)
+    for n in ["Code10.pdf", "sources.csv"]:
+        (inbox / n).write_text("x")
+    found = tmp_path / "data" / "openrecords" / "found.json"
+    found.parent.mkdir(parents=True, exist_ok=True)
+    found.write_text(_json.dumps({"big": {"saved": [{"file": "big/Code10.pdf", "url": "u"}], "complete": False}}))
+    assert "big" not in downloaded_places(tmp_path)        # only the finder's file: not the code yet
+    (inbox / "Chapter_1.pdf").write_text("x")
+    assert "big" in downloaded_places(tmp_path)            # someone added the code by hand
+
+
+def test_ask_anyway_keeps_asking_a_place_with_a_stray_ordinance(tmp_path):
+    # Nov 20: Swainsboro's only file on hand was its golf-cart ordinance
+    _registry(tmp_path)
+    inbox = tmp_path / "imports" / "ordinances" / "big"
+    inbox.mkdir(parents=True)
+    (inbox / "Golf-Cart-Ordinance.pdf").write_text("x")
+    r = orr.Requests(tmp_path, CFG, orr.Mailbox(ENV), log=lambda *_: None)
+    assert "big" in r.have
+    (tmp_path / "config" / "private").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "private" / "openrecords.yaml").write_text("ask_anyway:\n  - big\n")
+    r = orr.Requests(tmp_path, CFG, orr.Mailbox(ENV), log=lambda *_: None)
+    assert "big" not in r.have
