@@ -164,10 +164,21 @@ class RefusedArchive:
         tier = {"a": 0, "b": 1, "c": 2}
         todo = [s for s in sources if not last(s) or (today - dt.date.fromisoformat(last(s))).days >= RECHECK_DAYS]
         todo.sort(key=lambda s: (bool(last(s)), tier.get(s.get("tier") or "c", 3), last(s)))
+        from .fetch import OutOfTime
+
         for s in todo[:max_sources]:
             if self.wb.off or (deadline and time.monotonic() > deadline):
                 break
-            n = self.source(s)
+            try:
+                n = self.source(s)
+            except OutOfTime:
+                # the run's time is up in the middle of a source (the fetcher takes no turn that ends after it). What
+                # was read of the source is kept: each page is stored as it is read and is not asked for twice. The
+                # source is not stamped, so the next run carries on with it. (Nov. 20, 2026, the first run with the
+                # Archive read again: this ended the step with a traceback and exit 1 instead of its count.)
+                self.stats["stopped"] = f"out of time in {s['id']}"
+                self.log(f"archive (refused): {s['id']}: out of time; the next run carries on with it")
+                break
             self.stats["sources"] += 1
             if self.wb.off:
                 break                                # not stamped: asked again next run

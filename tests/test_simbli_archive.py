@@ -112,6 +112,28 @@ def test_the_archive_refusing_stops_the_run_and_leaves_the_district_due(tmp_path
     store.close()
 
 
+def test_time_running_out_in_the_middle_of_a_district_stops_the_step_cleanly(tmp_path):
+    from gacrawl.fetch import OutOfTime
+
+    caps, pages = fixtures()
+
+    class Slow(Archive):
+        def get(self, url, params=None, **kw):
+            if "/web/" in url:
+                self.asked.append(url)
+                raise OutOfTime("https://web.archive.org: next turn at +4s is past the deadline (the run's time budget)")
+            return super().get(url, params=params, **kw)
+
+    store, said = Store(tmp_path / "data"), []
+    out = sa.SimbliArchive(Slow(caps, pages), store, log=said.append).run({"sd-baldwin": "4007", "sd-banks": "4008"})
+    assert out["stopped"] == "out of time in sd-baldwin" and out["districts"] == 0 and not out["archive_off"]
+    assert said[-1] == "simbli archive: sd-baldwin (S=4007): out of time; the next run reads it"
+    assert not store.kv_get("simbli:archive:4007") and not store.kv_get("simbli:archive:4008")       # neither stamped: both are due
+    out = sa.SimbliArchive(Archive(caps, pages), store, log=lambda *a: None).run({"sd-baldwin": "4007"})
+    assert out["districts"] == 1 and "stopped" not in out and len(store.read("sd-baldwin:simbli", "meeting")) == 3
+    store.close()
+
+
 def test_site_numbers_come_from_the_registrys_simbli_links():
     J = [{"id": "sd-baldwin", "kind": "school_district", "portals": {"simbli": "https://simbli.eboardsolutions.com/SB_Meetings/SB_MeetingListing.aspx?S=4007"}},
          {"id": "sd-appling", "kind": "school_district", "portals": {"simbli": "https://simbli.eboardsolutions.com/index.aspx?s=4002"}},

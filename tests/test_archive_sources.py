@@ -66,6 +66,37 @@ def test_a_refusing_site_is_read_from_its_archived_copies(tmp_path):
     store.close()
 
 
+def test_time_running_out_in_the_middle_of_a_source_stops_the_step_cleanly(tmp_path):
+    """Nov. 20, 2026, the first run with the Archive read again: the fetcher raised OutOfTime at a host's next turn,
+    nothing caught it, and the step ended with a traceback and exit 1 after seven sources, its count never printed."""
+    from gacrawl.fetch import OutOfTime
+
+    class Slow(Archive):
+        def get(self, url, params=None, **kw):
+            if url != ar.CDX and sum(1 for u in self.asked if u != ar.CDX) >= 1:
+                self.asked.append(url)
+                raise OutOfTime("https://web.archive.org: next turn at +4s is past the deadline (the run's time budget)")
+            return super().get(url, params=params, **kw)
+
+    store = Store(tmp_path / "data")
+    arc, said = Slow(), []
+    src = {"id": "smyrna:site", "url": SITE, "kind": "page", "jurisdiction": "smyrna", "tier": "a"}
+    other = {"id": "other:site", "url": "https://other.example.gov/", "kind": "page", "jurisdiction": "other", "tier": "b"}
+    out = ar.RefusedArchive(arc, store, log=said.append).run([src, other])
+    assert out["stopped"] == "out of time in smyrna:site" and out["sources"] == 0
+    assert said == ["archive (refused): smyrna:site: out of time; the next run carries on with it"]
+    # what was read before the time ran out is kept; the source is not stamped, and the one after it was not begun
+    first = [r["meta"]["original"] for r in store.query("source_id='smyrna:site'")]
+    assert len(first) == 1 and not store.kv_get("archive_src:smyrna:site") and not store.kv_get("archive_src:other:site")
+    # the next run carries on: the page already read is not asked for again, the rest is read, the source is stamped
+    arc2 = Archive()
+    out = ar.RefusedArchive(arc2, store, log=lambda *a: None).run([src])
+    assert out["sources"] == 1 and "stopped" not in out and store.kv_get("archive_src:smyrna:site")
+    assert {r["meta"]["original"] for r in store.query("source_id='smyrna:site'")} == {PAGE, PDF}
+    assert not any(first[0] in u for u in arc2.asked if u != ar.CDX)
+    store.close()
+
+
 def test_which_sources_count_as_refused():
     srcs = [{"id": "a:site", "url": "https://a.gov/"}, {"id": "b:site", "url": "https://b.gov/"},
             {"id": "c:site", "url": "https://c.gov/"}, {"id": "d:policies", "url": "https://simbli.eboardsolutions.com/x?S=1"},

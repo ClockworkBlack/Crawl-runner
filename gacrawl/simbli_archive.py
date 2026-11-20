@@ -33,6 +33,7 @@ import json
 import re
 import time
 
+from .fetch import OutOfTime
 from .store import Record
 from .wayback import CDX, RAW, SHOW, Wayback, day
 
@@ -293,7 +294,15 @@ class SimbliArchive:
             if not ok:
                 continue
             n += 1
-            got = self.district(did, s)
+            try:
+                got = self.district(did, s)
+            except OutOfTime:
+                # the run's time is up in the middle of a district (the fetcher takes no turn that ends after it): the
+                # district is not stamped, so the next run reads it; the step ends with its count, not a traceback
+                # (the same end the refused sources' reader came to on Nov. 20, 2026, the Archive read again)
+                self.stats["stopped"] = f"out of time in {did}"
+                self.log(f"simbli archive: {did} (S={s}): out of time; the next run reads it")
+                break
             self.stats["districts"] += 1
             self.stats["meetings"] += got["meetings"]
             self.stats["policies"] += got["policies"]
