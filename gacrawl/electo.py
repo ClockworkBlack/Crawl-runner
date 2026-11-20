@@ -316,7 +316,10 @@ def build_packet(c: dict, records: dict[str, list], rumors: list[dict], profile_
         sources.append({"t": (r.get("title") or "").strip()[:200] or u, "u": u, "d": _d10({"published": r.get("published") or ""}),
                         "kind": r["kind"], "evidence": r.get("evidence") or "primary",
                         "opened_at": (r.get("fetched_at") or "")[:10], "excerpt": excerpt[:600],
-                        "in_profile": k in profile_urls})
+                        "in_profile": k in profile_urls,
+                        # when the record first arrived here and last changed (ISO 8601 UTC), as in the record files
+                        **({"first_seen": r["first_seen"]} if r.get("first_seen") else {}),
+                        **({"updated": r.get("updated") or r["changed_at"]} if (r.get("updated") or r.get("changed_at")) else {})})
         return index[ik]
 
     d10 = _d10        # ISO dates, also for a feed's "Wed, 21 Oct 2026 …"

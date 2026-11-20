@@ -41,6 +41,8 @@ def utcnow() -> str:
 # meta fields that identify a record when several records share one URL
 ID_FIELDS = ("EventItemId", "VoteId", "MatterId", "EventId", "OfficeRecordId", "event_item_id", "file_id", "event_id",
              "guid", "wp_id", "record_id", "tweet_id", "video_id", "uri", "account_id", "person_id")
+# meta fields that say something about a record without being its content: left out of its hash (Record.content_hash)
+SOFT_META = ("http_last_modified", "date_from")
 # kinds where many distinct records legitimately share a URL and carry no id: keyed by content
 CONTENT_KEYED = {"connection", "ocr"}
 
@@ -87,14 +89,28 @@ class Record:
         self.published = norm_published(self.published)
         self.title, self.text, self.markdown = fix_text(self.title), fix_text(self.text), fix_text(self.markdown)
 
-    @property
-    def content_hash(self) -> str:
+    def _hash(self, meta: dict) -> str:
         h = hashlib.sha256()
         for part in (self.source_id, self.kind, self.url, self.title, self.text or self.markdown,
-                     json.dumps(self.meta, sort_keys=True, default=str)):
+                     json.dumps(meta, sort_keys=True, default=str)):
             h.update((part or "").encode())
             h.update(b"\0")
         return h.hexdigest()
+
+    @property
+    def content_hash(self) -> str:
+        """The hash of the record's content. What is known *about* the content without being part of it (SOFT_META:
+        the server's Last-Modified, where a page's date was read) is left out, so a record that gains or changes one
+        of these is the same content: its `changed_at` (the bundle's `updated`) and version stay."""
+        if any(k in self.meta for k in SOFT_META):
+            return self._hash({k: v for k, v in self.meta.items() if k not in SOFT_META})
+        return self._hash(self.meta)
+
+    @property
+    def legacy_hash(self) -> str:
+        """The hash as it was computed until Nov. 20, 2026 (every meta field in it): rows stored before then carry it,
+        and a record equal to one of them under this hash is unchanged."""
+        return self._hash(self.meta)
 
     def natural_key(self) -> str:
         if self.key:
@@ -261,13 +277,23 @@ class Store:
     # ---------------------------------------------------------------- records
     def add(self, rec: Record) -> bool:
         """Insert, or update when the content changed. True if new or changed."""
+        # a date set after the record was made (a reader that takes the feed's date over the page's) is in one form too
+        rec.published = norm_published(rec.published)
         key, h = rec.natural_key(), rec.content_hash[:24]
         th = text_hash(rec.title, rec.text)
         now = utcnow()
         with self._lock:
             self._begin()
-            cur = self.db.execute("SELECT rid, hash, thash, published, jurisdiction, evidence FROM records WHERE key=?", (key,)).fetchone()
-            if cur and cur["hash"] == h:
+            cur = self.db.execute("SELECT rid, hash, thash, published, jurisdiction, evidence, meta FROM records WHERE key=?", (key,)).fetchone()
+            soft = bool(cur) and any(k in rec.meta for k in SOFT_META)
+            if cur and (cur["hash"] == h or (soft and cur["hash"] == rec.legacy_hash[:24])):
+                # The same content. What is known about it (SOFT_META) may be new: stored, with the row's fetched_at
+                # (which carries it to the main database, shard.write_delta), but changed_at and the version stay:
+                # `updated` means the content changed. A row stored under the older hash gets the new one the same way.
+                meta_json = json.dumps(rec.meta, ensure_ascii=False, default=str)
+                quiet = (cur["hash"] != h or (soft and (cur["meta"] or "{}") != meta_json))
+                if quiet:
+                    self.db.execute("UPDATE records SET meta=?, hash=?, fetched_at=? WHERE rid=?", (meta_json, h, now, cur["rid"]))
                 # the hash covers the source, kind, address, title, text and meta, not these three columns: a record
                 # sent again with a date it lacked, or a corrected one (the minutes deriver's "the heading's date
                 # when the document has none"), or with its place or evidence filled in, was dropped as unchanged

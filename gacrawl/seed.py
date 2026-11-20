@@ -43,6 +43,8 @@ WIKI_API = "https://en.wikipedia.org/w/api.php"
 GMA_BASE = "https://www.gacities.com/gma-cities-districts/"
 SEED_VERSION = 3        # bump when discovery changes: records from an older seed are due at once, like the readers'
 GMA_PARSER = 2          # bump when parse_gma changes: the GMA entry is re-read even inside its 180-day cadence
+GMA_DAYS = 180          # a city's GMA entry (officials, meeting day) is read again this often, counted from when the
+                        # entry itself was last read (gma_checked_at), not from the record's last look
 RETRY_DAYS = 7          # a record with no website or a site error is re-checked this often (hosts come back, overrides get added)
 MAX_CANDIDATES = 5      # sites tried per jurisdiction in one pass (directory listings plus scheme/www variants)
 NON_OFFICIAL = ("gacities.com", "cloudinary.com", "facebook.com", "twitter.com", "x.com", "instagram.com",
@@ -407,14 +409,48 @@ def due(rec: dict | None, j: dict, max_age_days: float | None, refresh: bool = F
     site error after RETRY_DAYS at most (hosts come back, listings get fixed, overrides get added)."""
     if refresh or not rec or rec.get("seed_version") != SEED_VERSION or override_pending(rec, j):
         return True
-    if j.get("kind") in ("city", "town", "consolidated") and gma_url(j) and rec.get("gma_parser") != GMA_PARSER:
-        # the city directory read with an older parser (first names only, every other official dropped): the
-        # council view lists these officials, so they are read again now rather than at the next monthly look
+    if gma_due(rec, j):
         return True
     failed = not rec.get("website") or bool(rec.get("site_error"))
     if failed:
         return _stale(rec, RETRY_DAYS if max_age_days is None else min(max_age_days, RETRY_DAYS))
     return _stale(rec, max_age_days)
+
+
+def gma_due(rec: dict, j: dict) -> bool:
+    """Is the city's GMA directory entry due on its own account? When it was read with an older parser (first names
+    only, every other official dropped: the council view lists these officials, so they are read again now rather
+    than at the next monthly look), or GMA_DAYS after it was last read. A reading that failed (the directory has no
+    such page, or did not answer) is tried again after RETRY_DAYS, not on every run."""
+    if j.get("kind") not in ("city", "town", "consolidated") or not gma_url(j):
+        return False
+    if rec.get("gma_tried") and not _stale({"checked_at": rec["gma_tried"]}, RETRY_DAYS):
+        return False
+    if rec.get("gma_parser") != GMA_PARSER:
+        return True
+    return _stale({"checked_at": rec.get("gma_checked_at") or rec.get("checked_at", "")}, GMA_DAYS)
+
+
+def read_gma(fetcher: Fetcher, gurl: str) -> dict:
+    """The GMA entry's fields for a record (the directory's website under gma_website: a candidate, not the answer).
+    One request to gacities.com through the fetcher: robots.txt, the host's own spacing (settings: 2 s) and the block
+    list apply. A failure comes back as gma_error with gma_tried, never as an exception."""
+    now = _now()
+    try:
+        r = fetcher.get(gurl)
+    except OutOfTime:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)[:200] if isinstance(exc, (Disallowed, Blocked)) else f"{type(exc).__name__}: {exc}"[:200]
+        return {"gma_error": msg, "gma_tried": now}
+    if r.status != 200:
+        return {"gma_error": f"HTTP {r.status}", "gma_tried": now}
+    g = parse_gma(r.text, gurl)
+    out = {k: v for k, v in g.items() if k != "website"}
+    if g.get("website"):
+        out["gma_website"] = g["website"]
+    out["gma_checked_at"] = now
+    return out
 
 
 def override_pending(rec: dict, j: dict) -> bool:
@@ -560,11 +596,23 @@ def seed(fetcher: Fetcher, jurisdictions: list[dict], state_path: Path, workers:
         log(f"wikidata unavailable ({exc}); falling back to GMA + Wikipedia")
 
     GMA_KEYS = ("gma_url", "council_meets", "regional_commission", "incorporated", "officials", "phone", "address",
-                "gma_error", "gma_parser", "gma_website")
+                "gma_error", "gma_parser", "gma_website", "gma_checked_at", "gma_tried")
 
     def one(j: dict):
         if deadline is not None and _time.monotonic() > deadline:
             return j["id"], None
+        prev = discovered.get(j["id"])
+        if prev and not refresh and gma_due(prev, j) and not due({**prev, "gma_parser": GMA_PARSER, "gma_checked_at": _now()},
+                                                                  j, max_age_days):
+            # Only the directory entry is due (a new parser, or its half-year): one request to the directory, and the
+            # rest of the record stands. It used to cost the whole look (the city's site, its portals and feeds, a
+            # dozen requests to other hosts), so a parser change took 537 full looks out of the seed's weekly minutes.
+            got = read_gma(fetcher, gma_url(j))
+            rec = {k: v for k, v in prev.items() if k not in ("gma_error", "gma_tried")}
+            rec.update(got)
+            with lock:
+                discovered[j["id"]] = rec
+            return j["id"], rec
         rec: dict = {"checked_at": _now(), "seed_version": SEED_VERSION, "portals": {}, "feeds": []}
         cands: list[tuple[str, str]] = []
         if hand_website(j):
@@ -575,23 +623,15 @@ def seed(fetcher: Fetcher, jurisdictions: list[dict], state_path: Path, workers:
         gurl = gma_url(j)
         # the GMA directory entry (meeting day, officials, website) changes rarely: re-read it twice a year,
         # unless the parser has changed since it was read
-        if gurl and not refresh and old.get("gma_url") and old.get("gma_parser") == GMA_PARSER and not _stale(old, 180):
+        if gurl and not refresh and old.get("gma_url") and not gma_due(old, j):
             rec.update({k: old[k] for k in GMA_KEYS if k in old})
+            rec.setdefault("gma_checked_at", old.get("checked_at"))     # read before the entry had its own stamp
+            gurl = None
+        elif gurl and not refresh and not gma_due(old, j) and old.get("gma_tried"):
+            rec.update({k: old[k] for k in GMA_KEYS if k in old})       # it failed a few days ago: not asked again yet
             gurl = None
         if gurl:
-            try:
-                r = fetcher.get(gurl)
-                if r.status == 200:
-                    g = parse_gma(r.text, gurl)
-                    if g.get("website"):
-                        rec["gma_website"] = g["website"]
-                    rec.update({k: v for k, v in g.items() if k != "website"})
-                else:
-                    rec["gma_error"] = f"HTTP {r.status}"
-            except (Disallowed, Blocked) as exc:
-                rec["gma_error"] = str(exc)[:200]
-            except Exception as exc:  # noqa: BLE001
-                rec["gma_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            rec.update(read_gma(fetcher, gurl))
         if rec.get("gma_website"):
             cands.append((rec["gma_website"], "gma"))
         if j.get("website_hint"):

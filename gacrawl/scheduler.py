@@ -11,6 +11,9 @@
 - A part-read source whose shares keep ending the same way (nothing new stored,
   no cursor moved, no more records seen than before) is not resumed first and
   gets no spare shares; it waits between tries, longer each time (STALL_SHARES).
+- A page pass (HTML, browser, sitemap) that does not fit one share keeps what is
+  left of it as a cursor (channels.FRONTIER) and carries on from there, so its
+  cursor moves on every share that reads a page: that is progress, not a stall.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import channels, topics, transcripts  # noqa: F401 — transcripts registers its page hook
-from .blocked import Blocked
+from .blocked import Blocked, not_a_refusal
 from .fetch import Disallowed, Fetcher, OutOfTime
 from .polite import Schedule
 from .registry import TIER_CADENCE_DAYS
@@ -166,6 +169,10 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
         last_try = dt.datetime.fromisoformat(p["last_run"]) if p.get("last_run") else None
         status = p.get("status", "") or ""
         failed = status.startswith(("error", "blocked", "stopped")) and not ran_out_of_time(status)
+        if status.startswith("blocked") and not_a_refusal(status.split(": ", 2)[-1]):
+            # "blocked: <host>: robots.txt: HTTP 403 access denied": a rule since withdrawn (blocked.not_a_refusal).
+            # The source is tried now rather than after its cadence (a month for a small town)
+            status, failed = "error: " + status, False
         held = stuck(p)
         if not force:
             if last_ok and now - last_ok < cad:
@@ -174,7 +181,12 @@ def due(sources: list[dict], progress: Progress, cadence_days: dict | None = Non
             if last_try and not last_ok and failed and now - last_try < max(dt.timedelta(hours=6), cad / 4):
                 continue
             # a blocked or refused host is left alone for a full cadence even after it once worked
-            if last_try and status.startswith(("blocked", "stopped")) and now - last_try < cad:
+            # (not one filed "stopped" because its robots.txt could not be fetched: a timeout is not a refusal. Six
+            # sources carried such a status from before Nov. 19, 2026 and waited out a whole cadence for it)
+            # A block that is not a challenge (plain 401/403 answers, counted) is looked at again after a day: the block
+            # list itself decides whether the host is asked (it holds a counted block one day, a refused front door 7)
+            wait = cad if ("challenge" in status or status.startswith("stopped")) else min(cad, dt.timedelta(days=1))
+            if last_try and status.startswith(("blocked", "stopped")) and "unreachable" not in status and now - last_try < wait:
                 continue
             # a part-read source stuck on the same pages backs off too, longer after every share that changes nothing
             if last_try and held and now - last_try < stall_wait(cad, int(p.get("stalled") or 0)):
@@ -200,7 +212,9 @@ def _made_progress(msg: str, p: dict | None = None) -> bool:
     import re
 
     m = re.search(r"(\d+) new / (\d+) seen", msg)
-    return bool(m) and int(m.group(2)) > 0 and not stuck(p)
+    # a share that moved its cursor got further even when it yielded nothing (a page pass working through pages that
+    # give no record: file listings, pages without text)
+    return bool(m) and (int(m.group(2)) > 0 or bool((p or {}).get("moved"))) and not stuck(p)
 
 
 def owned_endpoints(sources: list[dict]) -> dict[str, str]:
@@ -238,6 +252,7 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
     limits = cfg.get("limits", {})
     fr = cfg.get("frontier", {})
     summary: dict[str, str] = {}
+    restarted: set[str] = set()             # sources whose cursors this run has cleared (full)
     stop = threading.Event()
     fetcher.set_pool(max(16, workers * 2))  # one hot keep-alive connection per concurrent worker, with headroom
     fetcher.stop_at = deadline              # a source mid-way stops at its next request once the budget is spent
@@ -333,8 +348,20 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
         p0 = progress.get(sid)
         old_reader = stale_reader(src, p0, cache.get(sid))
         modified_since = None if (full or old_reader) else (p0.get("last_ok") or None)
-        if full:
-            store.clear_cursors(sid)
+        if full and sid not in restarted:
+            # once a run: a later share of the same run carries on from the first one's cursors (it used to clear them
+            # again, so a --full reading of a site larger than one share began at the home page on every share).
+            # A page pass's cursor is emptied, not deleted: a runner's delta carries rows, not deletions, and the main
+            # database would keep the old queue for the next run to carry on from.
+            restarted.add(sid)
+            had = store.cursors(sid)
+            store.clear_cursors(sid, keep=channels.PASS_STREAMS)
+            for stream in channels.PASS_STREAMS:
+                if had.get(stream):
+                    store.set_cursor(sid, stream, "")
+            if p0.get("stalled"):
+                p0 = {**p0, "stalled": 0, "stall_seen": 0}  # read from the start on purpose: an earlier stall says nothing
+                progress.update(sid, stalled=0, stall_seen=0)
         if not pages_ok(src):
             # by day only a source already known to have an API or feed runs; the rest are not even probed (a
             # probe is page traffic too), they wait for the window
@@ -362,15 +389,27 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             return sid, f"waiting for off-peak window ({chosen['channel']})"
         ctx = channels.CrawlContext(frontier=store, cursors=store.cursors(sid), pages_ok=pages_ok(src), probes=probes,
                                     leaf_ttl_days=float(fr.get("document_ttl_days", 3650)),
-                                    page_revisit_days=float(fr.get("page_revisit_days", 7)))
+                                    page_revisit_days=float(fr.get("page_revisit_days", 7)),
+                                    resume=True)        # a page pass marks what is left of it (channels.FRONTIER)
         new = total = 0
-        mode = "delta" if modified_since else ("resume" if ctx.cursors else "full")
-        at_start, moved = dict(ctx.cursors), False      # a cursor that changes is progress (stall_after)
+        # an emptied cursor (a page pass that completed, channels.PASS_STREAMS) is no place to resume from
+        mode = "delta" if modified_since else ("resume" if any(ctx.cursors.values()) else "full")
+        at_start, cursor_moved = dict(ctx.cursors), False      # a cursor that changes is progress (stall_after)
+
+        def got_further() -> bool:
+            """A cursor moved, and not only by crossing off addresses that did not answer: a share whose every request
+            was refused (403, 404, 500) is not progress, however far its queue shrank."""
+            return cursor_moved and not (ctx.stats.get("fetched") and not ctx.stats.get("ok"))
+
+        def keep(cp) -> bool:
+            """Store a Checkpoint as the source's cursor; True when it moved."""
+            store.set_cursor(sid, cp.stream, cp.value)
+            was, at_start[cp.stream] = at_start.get(cp.stream), cp.value
+            return was != cp.value
         try:
             for item in channels.crawl(fetcher, src, chosen, limits, modified_since=modified_since, ctx=ctx):
                 if isinstance(item, channels.Checkpoint):
-                    store.set_cursor(sid, item.stream, item.value)
-                    moved = moved or at_start.get(item.stream) != item.value
+                    cursor_moved = keep(item) or cursor_moved
                     continue
                 item.jurisdiction = item.jurisdiction or src.get("jurisdiction", "")
                 item.evidence = item.evidence or "primary"
@@ -383,20 +422,31 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
                 total += 1
                 new += store.add(item)
                 if stop.is_set() or time.monotonic() > deadline or not may_run(structured, src):
+                    # the page pass under way says what is left of it, so the next share carries on from here
+                    cp = ctx.left() if callable(ctx.left) else None
+                    if cp is not None:
+                        cursor_moved = keep(cp) or cursor_moved
                     store.flush()
                     progress.update(sid, status=f"partial ({chosen['channel']} {mode}): {new} new / {total} seen",
                                     new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"],
-                                    **stall_after(p0, new, total, moved, whole_share=False))
+                                    moved=got_further(), **stall_after(p0, new, total, got_further(), whole_share=False))
                     return sid, f"partial ({chosen['channel']} {mode}): {new} new / {total} seen"
             store.flush()
+            if ctx.notes:
+                log(f"{sid}: {len(ctx.notes)} addresses skipped: " + "; ".join(ctx.notes[:3]) + (" ..." if len(ctx.notes) > 3 else ""))
             if not modified_since:
                 # backfill complete; later runs are deltas (the reader's "full pass done" marker stays, and the
                 # sitemap's "whole list read")
-                store.clear_cursors(sid, keep=("full", "sitemap_read"))
+                # and a page pass's emptied cursor: deleted here, the main database would keep the old queue (a
+                # runner's delta carries rows, not deletions) and the next pass would begin in the middle of it
+                store.clear_cursors(sid, keep=("full", "sitemap_read") + channels.PASS_STREAMS)
             done = {"reader": READER_VERSIONS[reader_of(src, {"chosen": chosen})]} if reader_of(src, {"chosen": chosen}) in READER_VERSIONS else {}
             if p0.get("stalled"):
                 done["stalled"] = 0
-            progress.update(sid, status="ok", last_ok=started, channel=chosen["channel"], mode=mode, new=new, seen=total,
+            # a reading carried on from an earlier share began then (ctx.pass_started): what changed at the source
+            # since that moment is the next run's to ask for, not only what changed since this last share began
+            ok_at = min(started, ctx.pass_started) if ctx.pass_started else started
+            progress.update(sid, status="ok", last_ok=ok_at, channel=chosen["channel"], mode=mode, new=new, seen=total,
                             fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"], **done)
             return sid, f"{chosen['channel']} {mode}: {new} new / {total} seen ({ctx.stats['fetched']} fetched, " \
                         f"{ctx.stats['skipped_fresh']} skipped as unchanged)"
@@ -405,7 +455,7 @@ def run_sources(cfg: dict, sources: list[dict], fetcher: Fetcher, store: Store, 
             why = "time slice" if "slice" in str(exc) else "time budget"
             progress.update(sid, status=f"partial ({chosen['channel']} {mode}): {new} new / {total} seen ({why})",
                             new=new, seen=total, fetched=ctx.stats["fetched"], skipped=ctx.stats["skipped_fresh"],
-                            **stall_after(p0, new, total, moved, whole_share=why == "time slice"))
+                            moved=got_further(), **stall_after(p0, new, total, got_further(), whole_share=why == "time slice"))
             return sid, f"partial ({chosen['channel']} {mode}): {new} new / {total} seen ({why})"
         except Blocked as exc:
             store.flush()

@@ -101,10 +101,11 @@ def test_disallowed_names_the_reason(fetcher, dead, robots403):
         fetcher.get(dead + "/")
     assert e.value.reason.startswith("unreachable")
     assert seed.error_kind(e.value) == "unreachable"
-    with pytest.raises(Disallowed) as e:
-        fetcher.get(robots403 + "/")
-    assert "robots.txt HTTP 403" in e.value.reason
-    assert seed.error_kind(e.value) == "robots"
+    # a plain 403 for robots.txt alone, on a site that serves its pages: no robots.txt to obey (RFC 9309 2.3.1.3),
+    # the site is read. Until Nov. 20, 2026 this was "robots.txt HTTP 403 (treated as disallowed)"
+    assert fetcher.get(robots403 + "/").status == 200
+    from gacrawl.fetch import Disallowed as D
+    assert seed.error_kind(D("http://x/", "robots.txt disallows this path for our user agent")) == "robots"
 
 
 def test_inspect_site_records_the_kind(fetcher, dead, challenge, live):

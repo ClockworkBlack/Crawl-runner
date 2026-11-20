@@ -28,8 +28,9 @@ from urllib.parse import urlsplit
 CHALLENGE_MARKERS = (
     "cf-chl", "challenge-platform", "cf-browser-verification", "Access blocked",
     "Just a moment...", "__cf_chl", "Attention Required! | Cloudflare", "px-captcha", "_Incapsula_Resource",
-    "distil_r_captcha", "Request unsuccessful. Incapsula", "awswaf", "DataDome",
+    "distil_r_captcha", "Request unsuccessful. Incapsula", "awswaf", "DataDome", "Sorry, you have been blocked",
 )
+CLOUDFLARE_CODE = re.compile(r"error code: 10\d\d\b")     # Cloudflare's bare refusals ("error code: 1020": access denied by a rule)
 
 # where else the same records live, by blocked host
 ALTERNATIVES = {
@@ -78,13 +79,20 @@ def looks_blocked(status: int, body: bytes | str) -> str | None:
     """Reason string if this response is a bot-protection challenge, else None."""
     text = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else body
     head = text[:6000]
-    if status in (401, 403, 429, 503) and any(m in head for m in CHALLENGE_MARKERS):
+    if status in (401, 403, 429, 503) and (any(m in head for m in CHALLENGE_MARKERS) or CLOUDFLARE_CODE.search(head)):
         return f"HTTP {status} bot-protection challenge"
     if status == 200 and len(text) < 4000 and ("_Incapsula_Resource" in head or "Request unsuccessful. Incapsula" in head):
         return "HTTP 200 bot-protection challenge (Imperva)"   # a short challenge shell served as a normal page
     if status == 403 and len(head) < 2000 and re.search(r"access (denied|blocked)|forbidden", head, re.I):
         return "HTTP 403 access denied"
     return None
+
+
+def not_a_refusal(reason: str) -> bool:
+    """A block filed for a plain 401/403 on robots.txt alone ("robots.txt: HTTP 403 access denied"). That is a server
+    that does not serve the file, not one that refuses the crawler (RFC 9309: no robots.txt, the site is open); such
+    entries were written until Nov. 20, 2026 and are not honoured any more. A challenge page on robots.txt is one."""
+    return reason.startswith("robots.txt:") and "challenge" not in reason
 
 
 class BlockList:
@@ -103,16 +111,25 @@ class BlockList:
         rec = self.data.get(h)
         if not rec:
             return None
-        if dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(rec["last_seen"]) > self.ttl:
+        ttl = dt.timedelta(days=float(rec["ttl_days"])) if rec.get("ttl_days") else self.ttl
+        if dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(rec["last_seen"]) > ttl:
             return None  # expired: try again
+        if not_a_refusal(rec.get("reason") or ""):
+            return None  # filed under a rule since withdrawn: asked again now
         return rec
 
-    def add(self, url: str, reason: str, source_id: str | None = None) -> dict:
+    def add(self, url: str, reason: str, source_id: str | None = None, ttl_days: float | None = None) -> dict:
+        """`ttl_days`: how long this entry holds when not the list's own time (a block worked out by counting plain
+        refusals is tried again after a day; a challenge or a refused front door keeps the list's 7)."""
         h = self.host(url)
         now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
         with self._lock:
             rec = self.data.setdefault(h, {"first_seen": now, "count": 0, "urls": [], "sources": []})
             rec.update(reason=reason, last_seen=now, count=rec["count"] + 1)
+            if ttl_days:
+                rec["ttl_days"] = ttl_days
+            else:
+                rec.pop("ttl_days", None)
             if url not in rec["urls"]:
                 rec["urls"] = (rec["urls"] + [url])[-20:]
             if source_id and source_id not in rec["sources"]:

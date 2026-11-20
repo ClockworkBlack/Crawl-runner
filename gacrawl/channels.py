@@ -38,7 +38,7 @@ from . import extract
 from .blocked import Blocked
 from .feeds import looks_like_feed, parse_feed
 from .fetch import Disallowed, Fetcher
-from .store import Record
+from .store import Record, norm_published
 
 STRUCTURED = ("api", "wp_json", "feed")
 PRIORITY = {"api": 0, "wp_json": 1, "feed": 2, "sitemap": 3, "html": 4, "browser": 5}
@@ -51,10 +51,16 @@ HOT = re.compile(r"agenda|minute|ordinance|resolution|council|commission|meeting
                  r"municipal-code|zoning|public-hearing|budget|election|result|qualif|candidate|runoff|referendum|splost|"
                  r"ballot|board-of-ed|school-board|appoint|press|news|transcript|video|AgendaCenter|DocumentCenter|Archive|"
                  r"campaign|disclosure|ccdr|contribution|ethics|financial-disclosure", re.I)
-COLD = re.compile(r"calendar|event|parks?-and-rec|facility|login|search|sitemap|privacy|accessib|employment|jobs|"
+# "event" and "search" as words: "prevention", "research" and "eventide" are not calendars or search forms
+COLD = re.compile(r"calendar|(?<![a-z])events?(?![a-z])|parks?-and-rec|facility|login|(?<![a-z])search|sitemap|privacy|accessib|employment|jobs|"
                   r"pay-|bill-pay|translate|facebook|twitter|instagram|youtube|mailto:|tel:|\.(jpg|jpeg|png|gif|svg|mp4|zip)$",
                   re.I)
 
+
+
+# hosts a government's address can move to that are not its website
+NOT_A_SITE = re.compile(r"(^|\.)(facebook|fb|instagram|twitter|x|youtube|youtu|linkedin|google|godaddy|sedo|parkingcrew|"
+                        r"bodis|hugedomains|dan|afternic|wixsite|squarespace|archive)\.(com|org|be|me|net)$", re.I)
 
 
 class ChannelDown(Exception):
@@ -70,6 +76,227 @@ class Checkpoint:
     value: str
 
 
+# What is left of a page pass that did not fit one share of a run, kept as a cursor (the scheduler stores every
+# Checkpoint). From Nov. 14 to 19, 2026 a hundred page sources were "partial" on every run: each share began again at
+# the home page with an empty queue, read the same listing pages, and ran out of time before the pages below them
+# (Duluth: "0 new / 41 seen", six shares a run). FRONTIER: the queue of an HTML or browser crawl. SITEMAP_LEFT: the
+# addresses of a sitemap not yet read. An empty value means "no pass under way": it is written when a pass completes,
+# because a cursor deleted on one runner is not deleted in the main database (shard.merge_delta only upserts).
+FRONTIER, SITEMAP_LEFT, WP_PAGE = "frontier", "sitemap_left", "wp_page"
+PASS_STREAMS = (FRONTIER, SITEMAP_LEFT, WP_PAGE)
+PASS_MAX_URLS = 2500          # addresses kept in one cursor (about 200 KB); past it the deepest are dropped
+SITEMAP_CHILDREN = 50         # child sitemaps of an index read in one pass
+PASS_MAX_AGE_DAYS = 14        # a pass left unfinished this long starts over: its queue describes an older site
+NON_200_IN_A_ROW = 5          # see _Streak
+PASS_EXTRA_REQUESTS = 100     # requests a pass may make beyond max_pages (listing re-reads, pages that do not answer)
+CHECKPOINT_PAGES = 10         # the cursor is written every so many pages read, and at least
+CHECKPOINT_SECONDS = 45       # this often (a run killed outright loses no more than this)
+
+
+def _pass_value(url: str, started: str, n: int, items: list, **extra) -> str:
+    """The cursor's value: the pass's own address, when it began, the pages it has counted, and what is left. The same
+    state gives the same text, so a share that got nowhere leaves the cursor as it was (scheduler.stall_after)."""
+    cut = len(items) > PASS_MAX_URLS
+    d = {"v": 1, "url": url, "start": started, "n": n, "q": items[:PASS_MAX_URLS], **({"cut": 1} if cut else {}), **extra}
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _pass_load(ctx: "CrawlContext | None", stream: str, url: str) -> dict | None:
+    """The pass left unfinished by an earlier share, or None: nothing kept, a pass of another address (the source's
+    website changed), one too old to carry on (or dated ahead of now), or a value that does not read. A value whose
+    parts are not what this code writes (an entry that is not [address, depth, hot], a count that is not a number)
+    is not carried on from: the pass starts over, where it used to end the source with an error on every share."""
+    raw = ((ctx.cursors if ctx else None) or {}).get(stream)
+    if not raw or not getattr(ctx, "resume", False):
+        return None
+    try:
+        d = json.loads(raw)
+        if not isinstance(d, dict) or d.get("url") != url or not isinstance(d.get("q"), list) or not d["q"]:
+            return None
+        started = dt.datetime.fromisoformat(d["start"])
+        if started.tzinfo is None:
+            return None
+        age = dt.datetime.now(dt.timezone.utc) - started
+        if age > dt.timedelta(days=PASS_MAX_AGE_DAYS) or age < dt.timedelta(minutes=-5):
+            return None
+        d["n"] = int(d.get("n") or 0)
+        d["a"] = int(d.get("a") or d["n"])
+        if d["n"] < 0 or d["a"] < 0:
+            return None
+        q = []
+        for e in d["q"][:PASS_MAX_URLS]:
+            if stream == SITEMAP_LEFT:
+                if not (isinstance(e, str) and e.startswith(("http://", "https://"))):
+                    return None
+                q.append(e)
+            else:
+                if not (isinstance(e, list) and len(e) == 3 and isinstance(e[0], str) and e[0].startswith(("http://", "https://"))
+                        and isinstance(e[1], int) and not isinstance(e[1], bool) and 0 <= e[1] <= 50):
+                    return None
+                q.append([e[0], e[1], 1 if e[2] else 0])
+        d["q"] = q
+        hosts = d.get("hosts") or []
+        d["hosts"] = [h for h in hosts if isinstance(h, str)] if isinstance(hosts, list) else []
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    if getattr(ctx, "pass_started", None) is None or d["start"] < ctx.pass_started:
+        ctx.pass_started = d["start"]       # the scheduler stamps the source's last good run with the pass's beginning
+    return d
+
+
+# ----------------------------------------------------------------------------- one site, several hosts
+# Endings under which anyone can register a name. Besides the plain ones, the sub-domain platforms towns and schools
+# rent a site from (town.govoffice.com is the town's; www.govoffice.com is the vendor's and somebody else's town is
+# othertown.govoffice.com): treated as endings too, so two names under one platform are never "the same site".
+_PLAIN_ENDINGS = ("com", "org", "net", "gov", "us", "info", "biz", "edu", "co", "ga.gov", "ga.us", "k12.ga.us")
+_PLATFORM_ENDINGS = (
+    "govoffice.com", "govoffice2.com", "govoffice3.com", "wixsite.com", "wordpress.com", "weebly.com", "squarespace.com",
+    "godaddysites.com", "municipalimpact.com", "municipalone.com", "civicplus.com", "civicplus.pro", "revize.com",
+    "egovlink.com", "municode.com", "municodeweb.com", "ecode360.com", "boarddocs.com", "legistar.com", "granicus.com",
+    "civicclerk.com", "civicweb.net", "iqm2.com", "novusagenda.com", "schoolinsites.com", "schoolwires.net", "finalsite.com",
+    "sharpschool.com", "schoolblocks.com", "edlio.com", "apptegy.net", "thrillshare.com", "google.com", "github.io",
+    "azurewebsites.net", "cloudfront.net", "amazonaws.com", "blogspot.com", "wpengine.com", "wpenginepowered.com",
+    "site123.me", "webs.com", "tripod.com", "myfreesites.net", "netlify.app", "herokuapp.com", "pages.dev", "web.app",
+    "townweb.com", "catalis.com", "gov1.com", "hosted.civiclive.com", "specialdistrict.org")
+_ENDINGS = tuple(sorted(_PLAIN_ENDINGS + _PLATFORM_ENDINGS, key=lambda e: -len(e)))
+
+
+def registered(host: str) -> tuple[str, str]:
+    """(name, ending) a host is registered as: ("cityofx", "com") for www.cityofx.com and agendas.cityofx.com,
+    ("town", "govoffice.com") for town.govoffice.com. ("", "") when it cannot be told: an IP address, an ending not
+    listed, or an ending on its own (govoffice.com is nobody's site but the vendor's)."""
+    h = (host or "").lower().rstrip(".")
+    if ":" in h or re.fullmatch(r"[\d.]+", h):
+        return "", ""
+    h = h.removeprefix("www.")
+    if h in _PLATFORM_ENDINGS:
+        return "", ""                           # the platform's own host
+    for ending in _ENDINGS:
+        if h.endswith("." + ending):
+            name = h[: -len(ending) - 1].rsplit(".", 1)[-1]
+            return (name, ending) if name and name != "www" else ("", "")
+    return "", ""
+
+
+def site_name(host: str) -> str:
+    return registered(host)[0]
+
+
+def same_site(src: dict, host: str, landed: str, redirected: bool = True) -> bool:
+    """May the host an address moved to be read as this source's site? Only when it is
+      - the same registered domain (www.cityofx.com, agendas.cityofx.com for cityofx.com); or
+      - the same name under another plain ending (cityofx.com -> cityofx.gov, .org, .us), and only when the source's
+        own configured address was answered with a redirect to it (`redirected`): the site's own word that it moved.
+        Never between platform sub-domains (town.govoffice.com is not www.govoffice.com nor other.govoffice.com); or
+      - a host the source's own configuration names (hosts, website, website_alt, endpoint, feeds: what the seed or a
+        person recorded for it).
+    Anything else is someone else's site: a code publisher (Municode, eCode360), a meeting portal, a link shortener,
+    a parked or resold domain. Until this was an allow-list, a town address that redirected to one was crawled there
+    and its pages stored under the town."""
+    host, landed = host.lower().removeprefix("www."), (landed or "").lower().removeprefix("www.")
+    if not landed or NOT_A_SITE.search(landed):
+        return False
+    if landed == host:
+        return True
+    (a, a_end), (b, b_end) = registered(host), registered(landed)
+    if a and a == b and a_end == b_end:
+        return True                             # one registered domain
+    if (redirected and a and len(a) >= 4 and a == b and a_end in _PLAIN_ENDINGS and b_end in _PLAIN_ENDINGS):
+        return True                             # the same name, moved to another ending
+    listed = set()
+    for key in ("hosts", "website", "website_alt", "endpoint", "feeds"):
+        v = src.get(key)
+        for item in (v if isinstance(v, (list, tuple)) else [v]):
+            if isinstance(item, str) and item:
+                listed.add((urlsplit(item).netloc if "//" in item else item).lower().split("/")[0].removeprefix("www."))
+    return landed in listed
+
+
+class _Streak:
+    """Pages in a row that did not answer. After NON_200_IN_A_ROW the pass stops where it is (its cursor stays): a host
+    answering 403 or 500 to everything was asked for every address in the queue, 301 requests in one share. Pages
+    that are gone (404, 410) are not counted: a stale sitemap or an old listing of dead links is worked through (the
+    pass's own request ceiling bounds it), not an error. When the share had read nothing at all before it stopped, the
+    host is remembered for the run (fetcher.quiet_hosts) and later shares of the run do not ask it again."""
+
+    def __init__(self, fetcher=None, start: str = "", ctx: "CrawlContext | None" = None):
+        self.n, self.last = 0, 0
+        self.fetcher, self.host, self.ctx = fetcher, _bare_host(start), ctx
+        quiet = getattr(fetcher, "quiet_hosts", None)
+        if isinstance(quiet, dict) and self.host and self.host in quiet:
+            raise ChannelDown(f"not asked again this run: {quiet[self.host]}")
+
+    def note(self, status: int) -> None:
+        if status == 200:
+            self.n = 0
+            return
+        if status in (404, 410):
+            return
+        self.n, self.last = self.n + 1, status
+        if self.n >= NON_200_IN_A_ROW:
+            why = f"{self.n} pages in a row did not answer (the last: HTTP {self.last}); the pass waits where it is"
+            quiet = getattr(self.fetcher, "quiet_hosts", None)
+            if isinstance(quiet, dict) and self.host and self.ctx is not None and not self.ctx.stats.get("ok"):
+                quiet[self.host] = why
+            raise ChannelDown(why)
+
+
+def _read_in_pass(ctx: "CrawlContext | None", sid: str, url: str, started: str) -> bool:
+    """This source fetched the address since the pass began (in an earlier share: the queue in memory only knows this
+    share's). Without it a link found again on a later page would be read a second time."""
+    seen = getattr(ctx.frontier, "url_seen", None) if ctx and ctx.frontier else None
+    row = seen(url) if seen else None
+    return bool(row) and row.get("source_id") == sid and (row.get("fetched_at") or "") >= started
+
+
+def _read_before(ctx: "CrawlContext", url: str) -> bool:
+    """The frontier has this address as read (HTTP 200), at any time."""
+    seen = getattr(ctx.frontier, "url_seen", None)
+    row = seen(url) if seen else None
+    return bool(row) and row.get("status") == 200
+
+
+class _PassMarks:
+    """Decides when a pass writes its cursor: every CHECKPOINT_PAGES pages or CHECKPOINT_SECONDS, when the share ends,
+    and (empty) when the pass completes. `value` is a callable giving the cursor's text for the state as it stands."""
+
+    def __init__(self, ctx: "CrawlContext | None", stream: str, value):
+        self.on = bool(ctx and getattr(ctx, "resume", False))
+        self.stream, self.value = stream, value
+        self.had = bool(((ctx.cursors if ctx else None) or {}).get(stream))     # a cursor is stored already
+        # the state the share begins in: a share that reads nothing writes nothing (and so moves no cursor, whatever
+        # form an earlier version wrote the stored one in)
+        self.last = value() if self.on else None
+        self.pages, self.at = 0, time.monotonic()
+        if self.on:
+            ctx.left = self.now             # a caller that stops between two records asks for the cursor itself
+
+    def page(self) -> None:
+        self.pages += 1
+
+    def due(self) -> bool:
+        return self.on and (self.pages >= CHECKPOINT_PAGES or (self.pages and time.monotonic() - self.at > CHECKPOINT_SECONDS))
+
+    def now(self) -> "Checkpoint | None":
+        """The cursor, if the state changed since it was last written."""
+        if not self.on:
+            return None
+        self.pages, self.at = 0, time.monotonic()
+        v = self.value()
+        if v == self.last:
+            return None
+        self.last = v
+        self.had = True
+        return Checkpoint(self.stream, v)
+
+    def done(self) -> "Checkpoint | None":
+        """The pass is complete: the stored cursor is emptied (nothing stored: nothing to say)."""
+        if not self.on or not self.had or self.last == "":
+            return None
+        self.last = ""
+        return Checkpoint(self.stream, "")
+
+
 @dataclass
 class CrawlContext:
     frontier: object | None = None          # Store (url_seen / fresh / mark_url); None = fetch everything
@@ -78,8 +305,13 @@ class CrawlContext:
     leaf_ttl_days: float = 3650             # documents: effectively once
     page_revisit_days: float = 7            # HTML pages deeper than depth 1
     probes: list = field(default_factory=list)   # cached probes for this source (for the coverage crawl)
-    stats: dict = field(default_factory=lambda: {"fetched": 0, "skipped_fresh": 0})
+    stats: dict = field(default_factory=lambda: {"fetched": 0, "skipped_fresh": 0, "ok": 0})
     conn_errors: int = 0                    # dropped connections this source (5 in a row: the host is down)
+    notes: list = field(default_factory=list)    # addresses passed over and why (the scheduler logs them)
+    pass_started: str | None = None         # when the pass now being carried on began (an earlier share's start)
+    left: object | None = None              # callable -> Checkpoint | None: the pass under way, as it stands (set by it)
+    resume: bool = False                    # the caller stores Checkpoints as cursors (the scheduler): a page pass that
+                                            # does not fit one share marks what is left of it and carries on from there
 
 
 @dataclass
@@ -95,6 +327,17 @@ class Probe:
     def per_item(self) -> float:
         return self.latency / max(1, self.items)
 
+
+
+def not_future(published: str | None) -> str | None:
+    """`published`, unless it is a day after today (tomorrow allowed, for time zones): a page, post or feed item was
+    not published in the future, whatever its markup or its feed says (an event's day, a scheduled post)."""
+    if not published or not isinstance(published, str):
+        return published
+    day = norm_published(published)
+    if isinstance(day, str) and day[:4].isdigit() and day[:10] > (dt.date.today() + dt.timedelta(days=1)).isoformat():
+        return None
+    return published
 
 
 def date_meta(di: dict) -> dict:
@@ -273,7 +516,7 @@ def probe_source(fetcher: Fetcher, src: dict) -> list[Probe]:
 
     sitemaps = fetcher.robots.sitemaps(src["url"]) or [base + "/sitemap.xml"]
     res, lat, err = _timed(lambda: fetcher.get(sitemaps[0]))
-    if res is not None and res.status == 200 and b"<loc" in res.content[:200000]:
+    if res is not None and res.status == 200 and b"<loc" in _gunzip(res.content)[:200000]:
         n = len(_sitemap_entries(res.content))
         probes.append(Probe("sitemap", n > 0, lat, n, sitemaps[0]))
 
@@ -299,12 +542,56 @@ def _date10(value: str | None) -> str | None:
         return None
 
 
+def _wp_load(ctx: CrawlContext, endpoint: str) -> tuple[int, str] | None:
+    """(page, when the reading began) of a first reading of a posts API left unfinished, or None: nothing kept, a
+    value that does not read, another address's, or a reading begun more than PASS_MAX_AGE_DAYS ago (or ahead of
+    now): the list has moved on, it starts over."""
+    raw = (ctx.cursors or {}).get(WP_PAGE)
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        if not isinstance(d, dict) or d.get("url") != endpoint:
+            return None
+        page = d["page"]
+        started = dt.datetime.fromisoformat(d["start"])
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1 or started.tzinfo is None:
+            return None
+        age = dt.datetime.now(dt.timezone.utc) - started
+        if age > dt.timedelta(days=PASS_MAX_AGE_DAYS) or age < dt.timedelta(minutes=-5):
+            return None
+    except (ValueError, TypeError, KeyError):
+        return None
+    return page, d["start"]
+
+
+def _iso_naive(value) -> bool:
+    """A date and time without a zone, as WordPress writes its *_gmt fields ("2026-11-02T19:00:00")."""
+    return isinstance(value, str) and bool(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", value))
+
+
+def _gunzip(content: bytes) -> bytes:
+    """A sitemap sent as a .gz file (sitemap.xml.gz, as WordPress plugins and large sites write them): unpacked. It
+    was parsed as it came and listed nothing."""
+    if content and content[:2] == b"\x1f\x8b":
+        import gzip
+        import io
+
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(content)) as fh:
+                return fh.read(60_000_000)
+        except (OSError, EOFError):
+            return b""
+    return content
+
+
 def _sitemap_urls(content: bytes) -> list[str]:
     return [loc for loc, _ in _sitemap_entries(content)]
 
 
 def _sitemap_entries(content: bytes) -> list[tuple[str, str | None]]:
     """(loc, lastmod) for each <url>/<sitemap> entry; lastmod is None when absent."""
+    content = _gunzip(content)
     if not content or not content.strip():
         return []        # an empty sitemap (Gwinnett serves one) lists nothing; it is not an error
     try:
@@ -375,12 +662,54 @@ def _skip_fresh(ctx: CrawlContext | None, url: str, depth: int | None = None) ->
     return False
 
 
+def _utcnow() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def http_modified(r, min_age_hours: float = 24.0) -> str | None:
+    """The server's own Last-Modified for this answer as ISO 8601 UTC, or None: no header, one that does not read, a
+    time ahead of now, or one within `min_age_hours` of now (a page built on request is stamped with the moment it
+    was asked for, which says nothing and would change the record on every read)."""
+    raw = (getattr(r, "headers", None) or {}).get("last-modified")
+    if not raw:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(str(raw).strip())
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    when = when.astimezone(dt.timezone.utc).replace(microsecond=0)
+    now = dt.datetime.now(dt.timezone.utc)
+    if when > now or now - when < dt.timedelta(hours=min_age_hours) or when.year < 1995:
+        return None
+    return when.isoformat()
+
+
+def _modified_meta(r, min_age_hours: float = 24.0) -> dict:
+    """meta.http_last_modified, when the server states it. Kept beside `published`, never as it: a file's upload time
+    is not the date of the meeting it records (the minutes deriver dates motions by the document's `published`)."""
+    when = http_modified(r, min_age_hours)
+    return {"http_last_modified": when} if when else {}
+
+
+def _stamp_modified(doc: Record, r) -> None:
+    """A document's Last-Modified (files are stamped when they are posted; any age counts)."""
+    doc.meta.update(_modified_meta(r, min_age_hours=0.0))
+
+
 def _mark(ctx: CrawlContext | None, sid: str, r, asked: str = "") -> None:
     """The frontier's note that this address was fetched. `asked`: the address as it was requested, noted as well when
     the answer came from another one (http to https, a moved file): the frontier is asked about links as they are
     written, so a link that redirects was never "fresh" and was downloaded again on every run."""
     if ctx:
         ctx.stats["fetched"] += 1
+        ctx.stats["ok"] = ctx.stats.get("ok", 0) + (1 if r.status == 200 else 0)
+        ctx.stats["last_status"] = r.status
         if ctx.frontier:
             ctx.frontier.mark_url(r.url, r.status, sid, r.content_type, r.content if r.status == 200 else None)
             if asked and asked != r.url:
@@ -407,6 +736,26 @@ def _doc_record(r, sid: str, src: dict, title: str = "", stop_at: float | None =
         rec.meta["doc_type"] = doc_type(r.url, rec.title)
         rec.meta["opened"] = True
         return rec
+    # Word (.docx) and plain-text files: clerks post minutes and agendas this way too. They were downloaded, no record
+    # was made, and the frontier called them read for ten years.
+    ctype, path = r.content_type, urlsplit(r.url).path.lower()
+    kind = "ordinance" if src.get("kind") == "ordinance" else "document"
+    name = title or r.url.rsplit("/", 1)[-1]
+    if "wordprocessingml" in ctype or (path.endswith(".docx") and r.content[:2] == b"PK"):
+        try:
+            from .ordinance_files import _docx_lines, _lines_md
+
+            text, md = _lines_md(_docx_lines(r.content))
+        except Exception as exc:  # noqa: BLE001 — one unreadable file must not end the source
+            return Record(sid, kind, r.url, title=name, text="", channel="docx",
+                          meta={"opened": True, "doc_type": doc_type(r.url, title), "unreadable": f"{type(exc).__name__}: {exc}"[:200]})
+        return Record(sid, kind, r.url, title=name, text=text, markdown=md, channel="docx",
+                      meta={"opened": True, "doc_type": doc_type(r.url, title)}) if text.strip() else None
+    if ctype == "text/plain" and path.endswith(".txt") and not path.endswith("robots.txt"):
+        text = r.text.strip()
+        if text and "\x00" not in text[:2000]:
+            return Record(sid, kind, r.url, title=name, text=text, markdown=text, channel="text",
+                          meta={"opened": True, "doc_type": doc_type(r.url, title)})
     return None
 
 
@@ -423,6 +772,10 @@ def page_extras(fetcher: Fetcher, sid: str, src: dict, r, html: str):
             continue
 
 
+def _bare_host(url_or_host: str) -> str:
+    return (urlsplit(url_or_host).netloc or url_or_host).lower().removeprefix("www.")
+
+
 def _try_get(fetcher: Fetcher, url: str, ctx: CrawlContext | None, sid: str):
     """One page: None when it is too large or its server dropped the connection (that page is skipped and noted;
     the rest of the source goes on). Refusals (robots, bot protection) still stop the source, as before."""
@@ -431,6 +784,18 @@ def _try_get(fetcher: Fetcher, url: str, ctx: CrawlContext | None, sid: str):
     try:
         return fetcher.get(url)
     except Disallowed:
+        return None
+    except Blocked as exc:
+        # The refusal is another host's (the address redirects to a site on the block list, or to one that answered
+        # with a challenge): that is this one address, not the source. It is noted as asked for and passed over, and
+        # the crawl goes on. Raised on, as it was, a town's "Code of Ordinances" link to a blocked code publisher
+        # stopped the town's whole site, on every share. A refusal by the address's own host still stops the source.
+        if _bare_host(getattr(exc, "host", "")) == _bare_host(url):
+            raise
+        if ctx is not None:
+            ctx.notes.append(f"{url} leads to {exc.host}, which refuses the crawler ({exc.reason})"[:200])
+            if ctx.frontier:
+                ctx.frontier.mark_url(url, 403, sid, "leads to a refusing host")
         return None
     except TooLarge:
         if ctx and ctx.frontier:
@@ -463,13 +828,18 @@ def _page_record(fetcher: Fetcher, sid: str, url: str, src: dict, ctx: CrawlCont
     doc = _doc_record(r, sid, src, stop_at=_deadline(fetcher))
     _mark(ctx, sid, r, url)
     if doc or "html" not in r.content_type:
+        if doc:
+            _stamp_modified(doc, r)
         return doc
     title, md = extract.html_to_markdown(r.text, r.url)
     if not md:
         return None
     di = extract.page_date_info(r.text, md)
+    if di.get("date") and di["date"][:10] > (dt.date.today() + dt.timedelta(days=1)).isoformat():
+        # a day after today is not when the page was published (an event's day in its markup): set aside
+        di = {"date": None, "from": "", "set_aside": di["date"]}
     rec = Record(sid, src.get("kind", "page"), r.url, title=title, text=md, markdown=md, channel="html",
-                 meta={"opened": True, **date_meta(di)}, published=di["date"])
+                 meta={"opened": True, **date_meta(di), **_modified_meta(r)}, published=di["date"])
     rec.extras = list(page_extras(fetcher, sid, src, r, r.text))  # transcripts etc. linked from this page
     return rec
 
@@ -561,15 +931,33 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
         return
 
     if ch == "wp_json":
-        page = 1
+        # a first reading that does not fit one share carries on at the page of posts it had reached (WP_PAGE), and so
+        # gets to the site's own pages (_coverage) at last: Butts County's elections site read the same 998 posts on
+        # every share, Nov. 14-19, 2026
+        # The cursor also keeps when the reading began: the scheduler stamps the source's last good run with that
+        # time (ctx.pass_started), not with the last share's, so the next run asks for everything modified since the
+        # first page was read. Stamped with the last share's start, a post published or edited after page 1 was read
+        # and before the reading ended was never asked for again.
+        page, first = 1, True
+        marks = None
+        if not modified_since and ctx.resume:
+            wp_started = _utcnow()
+            had = _wp_load(ctx, endpoint)
+            if had:
+                page, wp_started = had
+                if ctx.pass_started is None or wp_started < ctx.pass_started:
+                    ctx.pass_started = wp_started
+            marks = _PassMarks(ctx, WP_PAGE, lambda: json.dumps({"page": page, "start": wp_started, "url": endpoint},
+                                                                separators=(",", ":"), sort_keys=True))
         while page <= max_pages:
             params = {"per_page": 50, "page": page, "orderby": "modified", "order": "desc"}
             params["modified_after" if modified_since else "after"] = (modified_since or since + "T00:00:00")
             r = fetcher.get(endpoint, params=params, use_cache=not modified_since)
             if r.status != 200:
-                if page == 1:
+                if first and (page == 1 or r.status != 400):
                     raise ChannelDown(f"the posts API answered HTTP {r.status}")
                 break               # past the last page (WordPress answers 400 there)
+            first = False
             rows = r.json()
             if not rows:
                 break
@@ -577,13 +965,22 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                 _, md = extract.html_to_markdown(p.get("content", {}).get("rendered", ""), p.get("link", ""))
                 yield Record(sid, "post" if src.get("kind") == "campaign" else src.get("kind", "page"), p.get("link", ""),
                              title=extract.soup_of(p.get("title", {}).get("rendered", "")).get_text(),
-                             text=md, markdown=md, published=p.get("date"), channel="wp_json",
+                             text=md, markdown=md, published=not_future(p.get("date")), channel="wp_json",
                              # the post's id under a name the record's key does not take (store.ID_FIELDS): the same
                              # address read by the coverage crawl is the same record, not a second one; a post with no
                              # address keeps the id in its key
-                             meta={("wp_post_id" if p.get("link") else "wp_id"): p.get("id"), "opened": True})
+                             meta={("wp_post_id" if p.get("link") else "wp_id"): p.get("id"), "opened": True,
+                                   **({"modified": p["modified_gmt"] + "+00:00"} if _iso_naive(p.get("modified_gmt")) else {})})
             page += 1
+            if marks:
+                cp = marks.now()        # this page of posts is stored: the next share begins at the next one
+                if cp:
+                    yield cp
         yield from _coverage(fetcher, src, ctx, max_pages)
+        if marks:
+            cp = marks.done()
+            if cp:
+                yield cp
         return
 
     if ch == "feed":
@@ -601,8 +998,8 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                     page.channel = "feed"
                     # the feed's own date first: the page's is read from its text, where the first date is often
                     # one the story mentions (a release of Nov. 17 announcing a Dec. 15 hearing was dated Dec. 15)
-                    if item["published"]:
-                        page.published = item["published"]
+                    if not_future(item["published"]):
+                        page.published = norm_published(item["published"])
                         page.meta = {**{k: v for k, v in page.meta.items() if k != "date_set_aside"}, "date_from": "feed"}
                     # not "guid", which store.ID_FIELDS puts in the key: the coverage crawl reads the same page with
                     # none, and each run stored it twice (news/budget-hearing under "g-1" and under no id)
@@ -610,7 +1007,7 @@ def crawl(fetcher: Fetcher, src: dict, chosen: dict, limits: dict, modified_sinc
                     yield from with_extras(page)
                     continue
             yield Record(sid, "feed_item", item["link"], title=item["title"], text=item["summary"],
-                         published=item["published"], channel="feed", meta={"feed": endpoint, "guid": item["id"]})
+                         published=not_future(item["published"]), channel="feed", meta={"feed": endpoint, "guid": item["id"]})
         yield from _coverage(fetcher, src, ctx, max_pages)
         return
 
@@ -637,94 +1034,229 @@ def _coverage(fetcher: Fetcher, src: dict, ctx: CrawlContext, max_pages: int) ->
         except ChannelDown:
             return          # the feed or posts API was read; the site's own pages wait for the next run
     else:
-        yield from _html_crawl(fetcher, src, max_pages, ctx)
+        try:
+            yield from _html_crawl(fetcher, src, max_pages, ctx)
+        except ChannelDown:
+            return          # as above: the feed was read; the pages (their cursor kept) wait for another time
 
 
 def _sitemap_crawl(fetcher: Fetcher, src: dict, endpoint: str, ctx: CrawlContext, max_pages: int, cutoff: str | None,
-                   use_cache: bool = True) -> Iterator[Record]:
+                   use_cache: bool = True) -> Iterator[Record | Checkpoint]:
     sid = src["id"]
-    r = fetcher.get(endpoint, use_cache=use_cache)
-    if r.status != 200:
-        raise ChannelDown(f"the sitemap answered HTTP {r.status}")
-    # "Unchanged since the last run" is a reason to skip a page only if the page has been read. A run reads at most
-    # max_pages of the list (40 to 150), was marked complete, and every later run then dropped the pages it never
-    # reached, their dates being older than the last run: Cobb County's site, 120 of 807 pages read and the other
-    # 687 skipped for good; 240 sources are read this way. So the cut-off applies to pages the frontier has seen,
-    # never to one it has not; and a child sitemap is skipped as unchanged only once a run has got through the whole
-    # list without reaching max_pages (the "sitemap_read" mark).
     store = ctx.frontier if ctx else None
     whole = bool(store is not None and (ctx.cursors or {}).get("sitemap_read"))
-    entries = _sitemap_entries(r.content)
-    if entries and all(loc.endswith(".xml") or "sitemap" in loc.lower() for loc, _ in entries[:5]):
-        nested = []
-        for loc, lastmod in entries[:50]:
-            if whole and cutoff and lastmod and lastmod[:10] < cutoff:
-                continue  # whole child sitemap unchanged since last run
-            try:
-                nested += _sitemap_entries(fetcher.get(loc, use_cache=use_cache).content)
-            except (Disallowed, Blocked):
-                pass
-        entries = nested
-    seen = getattr(store, "url_seen", None)
-    entries = [(loc, lm) for loc, lm in entries if not (cutoff and lm and lm[:10] < cutoff and (seen is None or seen(loc)))]
-    # relevant pages first, so max_pages is spent where the records are
-    urls = sorted(_filter_urls([loc for loc, _ in entries], src), key=lambda u: (not HOT.search(u), bool(COLD.search(u))))
-    n = 0
-    for u in urls:
+    # A pass that did not fit one share carries on from the addresses it had left (SITEMAP_LEFT) without reading the
+    # sitemap and its children again: up to 51 requests before the first page, every share (Clayton County, Nov. 19,
+    # 2026: "partial (sitemap delta): 0 new / 0 seen", share after share).
+    left = _pass_load(ctx, SITEMAP_LEFT, endpoint)
+    if left:
+        started, n, urls, cut = left["start"], left["n"], list(left["q"]), bool(left.get("cut"))
+    else:
+        started, n, cut = _utcnow(), 0, False
+        r = fetcher.get(endpoint, use_cache=use_cache)
+        if r.status != 200:
+            raise ChannelDown(f"the sitemap answered HTTP {r.status}")
+        # "Unchanged since the last run" is a reason to skip a page only if the page has been read. A run reads at most
+        # max_pages of the list (40 to 150), was marked complete, and every later run then dropped the pages it never
+        # reached, their dates being older than the last run: Cobb County's site, 120 of 807 pages read and the other
+        # 687 skipped for good; 240 sources are read this way. So the cut-off applies to pages the frontier has seen,
+        # never to one it has not; and a child sitemap is skipped as unchanged only once a run has got through the whole
+        # list without reaching max_pages (the "sitemap_read" mark).
+        entries = _sitemap_entries(r.content)
+        if entries and all(loc.endswith((".xml", ".xml.gz")) or "sitemap" in loc.lower() for loc, _ in entries[:5]):
+            nested = []
+            for loc, lastmod in entries[:SITEMAP_CHILDREN]:
+                if whole and cutoff and lastmod and lastmod[:10] < cutoff:
+                    continue  # whole child sitemap unchanged since last run
+                try:
+                    nested += _sitemap_entries(fetcher.get(loc, use_cache=use_cache).content)
+                except (Disallowed, Blocked):
+                    pass
+            cut = len(entries) > SITEMAP_CHILDREN       # more children than are read: never "the whole list"
+            entries = nested
+        seen = getattr(store, "url_seen", None)
+        entries = [(loc, lm) for loc, lm in entries if not (cutoff and lm and lm[:10] < cutoff and (seen is None or seen(loc)))]
+        # relevant pages first, so max_pages is spent where the records are
+        urls = sorted(_filter_urls([loc for loc, _ in entries], src), key=lambda u: (not HOT.search(u), bool(COLD.search(u))))
+    i = 0
+    streak = _Streak(fetcher, src.get("url") or endpoint, ctx)
+    marks = _PassMarks(ctx, SITEMAP_LEFT, lambda: _pass_value(endpoint, started, n, urls[i:], **({"cut": 1} if cut else {})))
+    while i < len(urls):
         if n >= max_pages:
-            return              # more of the list is left for the next run: no "whole list read" mark
+            break               # more of the list is left for the next pass: no "whole list read" mark
+        if marks.due():
+            cp = marks.now()
+            if cp:
+                yield cp
+        u = urls[i]
         if _skip_fresh(ctx, u, depth=2):
+            i += 1
             continue
-        rec = _page_record(fetcher, sid, u, src, ctx)
+        before = (ctx.stats["fetched"], ctx.stats.get("ok", 0))
+        try:
+            rec = _page_record(fetcher, sid, u, src, ctx)
+        except Exception:
+            cp = marks.now()        # the share's time is up: this page and the rest are still to be read
+            if cp:
+                yield cp
+            raise
+        i += 1
         n += 1
+        marks.page()
+        if ctx.stats["fetched"] > before[0]:
+            try:
+                streak.note(200 if ctx.stats.get("ok", 0) > before[1] else int(ctx.stats.get("last_status") or 0))
+            except ChannelDown:
+                cp = marks.now()    # the cursor stays: the pass carries on from here another time
+                if cp:
+                    yield cp
+                raise
         yield from with_extras(rec)
-    if store is not None and not whole:
+    cp = marks.done()
+    if cp:
+        yield cp
+    if i >= len(urls) and not cut and store is not None and not whole:
         yield Checkpoint("sitemap_read", dt.date.today().isoformat())
 
 
-def _html_crawl(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext | None = None) -> Iterator[Record]:
-    """Polite breadth-first crawl inside the site, hot links (agendas, minutes, ordinances...) first."""
+ARTICLE_PAGE = re.compile(r'''property=["']og:type["'][^>]*content=["']article|content=["']article["'][^>]*property=["']og:type|'''
+                          r'''<article[\s>]|"@type"\s*:\s*"(?:News|Blog)?(?:Article|Posting|Report)"|article:published_time''', re.I)
+
+
+def stated_date(html: str, md: str, depth: int | None = None) -> tuple[str | None, str]:
+    """(date, where from) for a page read by the page crawls, only when the page is an article or post and its markup
+    states when it was published: a date meta tag or JSON-LD datePublished. Not a <time> element (a home page's
+    "upcoming events" box dated the city's home page Dec. 12, a parade's day), not the first date among its words
+    (on a council page, the next meeting's), not the source's own address (depth 0), and never a day after today."""
+    if depth == 0 or not ARTICLE_PAGE.search(html[:300000]):
+        return None, ""
+    di = extract.page_date_info(html, md)
+    d = di.get("date")
+    if not d or di.get("from") not in ("meta", "jsonld"):
+        return None, ""
+    if d[:10] > (dt.date.today() + dt.timedelta(days=1)).isoformat():
+        return None, ""
+    return d, di["from"]
+
+
+def _html_crawl(fetcher: Fetcher, src: dict, max_pages: int, ctx: CrawlContext | None = None) -> Iterator[Record | Checkpoint]:
+    """Polite breadth-first crawl inside the site, hot links (agendas, minutes, ordinances...) first. A pass that does
+    not fit one share of a run carries on where it stopped (ctx.resume: the FRONTIER cursor holds the queue), so every
+    page is read once in a pass and the pass ends: at the last page, at max_pages counted over all its shares, or at
+    max_pages + PASS_EXTRA_REQUESTS requests of any kind."""
     ctx = ctx or CrawlContext()
+    sid = src["id"]
     start = src["url"]
     host = urlsplit(start).netloc.lower().removeprefix("www.")
-    hot, cold = deque([(start, 0)]), deque()
-    queued = {start}
+    hosts = {host}                          # and the host the source's own address moves to, when it is the same site
     depth_max = src.get("depth", 3)
     hot_rx = src.get("hot") or HOT          # a source can name its own hot links (campaign sites: issues, about, endorsements)
-    count = 0
-    while (hot or cold) and count < max_pages:
-        url, depth = (hot or cold).popleft()
+    left = _pass_load(ctx, FRONTIER, start)
+    if left:
+        started, count, asked = left["start"], left["n"], left["a"]
+        hosts |= {h for h in left["hosts"] if same_site(src, host, h)}      # checked again: the cursor is data
+        mine = [e for e in left["q"] if urlsplit(e[0]).netloc.lower().removeprefix("www.") in hosts]
+        hot = deque((u, d) for u, d, h in mine if h)
+        cold = deque((u, d) for u, d, h in mine if not h)
+    else:
+        started, count, asked = _utcnow(), 0, 0
+        hot, cold = deque([(start, 0)]), deque()
+    queued = {u for u, _ in hot} | {u for u, _ in cold}
+    streak = _Streak(fetcher, start, ctx)
+    marks = _PassMarks(ctx, FRONTIER, lambda: _pass_value(
+        start, started, count, [[u, d, 1] for u, d in hot] + [[u, d, 0] for u, d in cold], a=asked,
+        **({"hosts": sorted(hosts - {host})} if len(hosts) > 1 else {})))
+    while (hot or cold) and count < max_pages and asked < max_pages + PASS_EXTRA_REQUESTS:
+        if marks.due():
+            cp = marks.now()
+            if cp:
+                yield cp
+        q = hot if hot else cold
+        url, depth = q.popleft()
         if _skip_fresh(ctx, url, depth):
             continue
-        r = _try_get(fetcher, url, ctx, src["id"])
+        # A listing page (the home page and the pages it links to) is read again on every pass, for its new links. Such
+        # a re-read does not use up the pass's page count: a town's site is given 40 to 80 pages a pass, its home page
+        # links to as many, and counted, the listing pages alone were the whole pass, every pass (the pages below them
+        # were never reached). The count is of pages not read before (whenever that was: a small town's site is read
+        # once a month). Every request, re-reads and pages that do not answer included, counts toward the pass's
+        # ceiling of max_pages + PASS_EXTRA_REQUESTS.
+        again = bool(depth <= 1 and ctx.frontier and _read_before(ctx, url))
+        try:
+            r = _try_get(fetcher, url, ctx, sid)
+        except Exception:
+            # the share's time is up (or the host refused, or went down): this page is still to be read
+            q.appendleft((url, depth))
+            cp = marks.now()
+            if cp:
+                yield cp
+            raise
+        marks.page()
         if r is None:
             continue
+        asked += 1
         if r.status != 200:
-            _mark(ctx, src["id"], r, url)
+            _mark(ctx, sid, r, url)
+            try:
+                streak.note(r.status)
+            except ChannelDown:
+                cp = marks.now()        # the cursor stays: the pass carries on from here another time
+                if cp:
+                    yield cp
+                raise
             continue
-        count += 1
-        doc = _doc_record(r, src["id"], src, stop_at=_deadline(fetcher))
-        _mark(ctx, src["id"], r, url)   # after the document is read (see _page_record)
+        streak.note(200)
+        landed = getattr(r, "final_url", "") or ""
+        landed_host = urlsplit(landed).netloc.lower().removeprefix("www.") if landed else ""
+        if landed_host and landed_host not in hosts:
+            if depth == 0 and url == start and same_site(src, host, landed_host):
+                # the source's own address answered from another host of the same name (cityofx.com moved to
+                # cityofx.gov) or one its configuration lists: that host is the site. Its links used to be dropped
+                # as "another site", and the crawl ended at the home page.
+                hosts.add(landed_host)
+            elif depth == 0 and url == start:
+                # ... from a host that is not this source's (a code publisher, a portal, a parked domain): nothing of
+                # it is read or stored under this source
+                q.appendleft((url, depth))
+                raise ChannelDown(f"the source's address now answers from {landed_host}, which is not listed for it "
+                                  f"(same name under another ending, or hosts/website in its configuration); not read")
+            else:
+                _mark(ctx, sid, r, url)
+                continue                    # a page of the site that sends the reader elsewhere: not this site's page
+        if not again:
+            count += 1
+        # a page that answered from another host of the site: its links are read from where it is
+        base = landed if landed_host and landed_host != urlsplit(r.url).netloc.lower().removeprefix("www.") else r.url
+        doc = _doc_record(r, sid, src, stop_at=_deadline(fetcher))
+        _mark(ctx, sid, r, url)   # after the document is read (see _page_record)
         if doc:
+            _stamp_modified(doc, r)
             yield doc
             continue
         if "html" not in r.content_type:
             continue
+        # the page's links are queued before its record is handed over: wherever the caller stops, the queue is whole
+        if depth < depth_max:
+            for link in extract.links(r.text, base):
+                lh = urlsplit(link).netloc.lower().removeprefix("www.")
+                if lh not in hosts or link in queued or not _filter_urls([link], {"exclude": src.get("exclude", [])}):
+                    continue
+                if COLD.search(link) and not is_document_url(link):
+                    continue
+                queued.add(link)
+                if left and _read_in_pass(ctx, sid, link, started):
+                    continue                # read in an earlier share of this pass
+                (hot if hot_rx.search(link) or is_document_url(link) else cold).append((link, depth + 1))
         title, md = extract.html_to_markdown(r.text, r.url)
         if md and (not src.get("include") or _filter_urls([r.url], {"include": src["include"]})):
-            yield Record(src["id"], src.get("kind", "page"), r.url, title=title, text=md, markdown=md, channel="html",
-                         meta={"opened": True})
-            yield from page_extras(fetcher, src["id"], src, r, r.text)
-        if depth >= depth_max:
-            continue
-        for link in extract.links(r.text, r.url):
-            lh = urlsplit(link).netloc.lower().removeprefix("www.")
-            if lh != host or link in queued or not _filter_urls([link], {"exclude": src.get("exclude", [])}):
-                continue
-            if COLD.search(link) and not is_document_url(link):
-                continue
-            queued.add(link)
-            (hot if hot_rx.search(link) or is_document_url(link) else cold).append((link, depth + 1))
+            stated, how = stated_date(r.text, md, depth)
+            yield Record(sid, src.get("kind", "page"), r.url, title=title, text=md, markdown=md, channel="html",
+                         meta={"opened": True, **({"date_from": how} if stated else {}), **_modified_meta(r)},
+                         published=stated)
+            yield from page_extras(fetcher, sid, src, r, r.text)
+    cp = marks.done()
+    if cp:
+        yield cp
 
 
 POLICY_CODE_RX = re.compile(r"\b([A-Z]{2,5}(?:\(\d+\))?(?:-[A-Z]{1,3})?)\b\s*[-:–—]\s*(.{4,120})")
@@ -760,23 +1292,74 @@ def _browser_crawl_locked(fetcher: Fetcher, src: dict, max_pages: int, ctx: Craw
     from .fetch import launch_browser
 
     ctx = ctx or CrawlContext()
+    sid = src["id"]
     start = src["url"]
     host = urlsplit(start).netloc
     selector = src.get("content_selector")
     link_pattern = src.get("follow")  # substring a link must contain to be followed
-    seen, queue, count = set(), deque([(start, 0)]), 0
+    # a pass that does not fit one share carries on from its queue (FRONTIER), as _html_crawl does: Haralson County
+    # Schools' site was "partial (browser full): 0 new / 22 seen" on every share, Nov. 14-19, 2026
+    base_host = host.lower().removeprefix("www.")
+    # www.x and x are one site, and so is the host the source's own address lands on when it is the same site (as in
+    # _html_crawl): the links of a site whose address is written without "www." were all dropped as another site's
+    hosts = {base_host}
+    left = _pass_load(ctx, FRONTIER, start)
+    if left:
+        started, count, asked = left["start"], left["n"], left["a"]
+        hosts |= {h for h in left["hosts"] if same_site(src, base_host, h)}
+        queue = deque((u, d) for u, d, _ in left["q"] if urlsplit(u).netloc.lower().removeprefix("www.") in hosts)
+    else:
+        started, count, asked = _utcnow(), 0, 0
+        queue = deque([(start, 0)])
+    seen = set()
+
+    def value() -> str:
+        items, had = [], set()
+        for u, d in queue:
+            if u not in had and u not in seen:
+                had.add(u)
+                items.append([u, d, 1])
+        extra = sorted(hosts - {base_host})
+        return _pass_value(start, started, count, items, a=asked, **({"hosts": extra} if extra else {}))
+
+    marks = _PassMarks(ctx, FRONTIER, value)
+    streak = _Streak(fetcher, start, ctx)
+    stop: Exception | None = None           # why the pass ended early: raised once the browser is closed
     with sync_playwright() as p:
         browser = launch_browser(p)
         page = browser.new_page(user_agent=fetcher.user_agent)
-        while queue and count < max_pages:
+        while queue and count < max_pages and asked < max_pages + PASS_EXTRA_REQUESTS:
+            if marks.due():
+                cp = marks.now()
+                if cp:
+                    yield cp
             url, depth = queue.popleft()
             if url in seen:
                 continue
-            seen.add(url)
-            if not fetcher.allowed(url) or _skip_fresh(ctx, url, depth):
+            if left and _read_in_pass(ctx, sid, url, started):
+                seen.add(url)               # read in an earlier share of this pass
                 continue
-            fetcher._check_time()                       # the browser does not go through fetcher.get: check here
-            fetcher._turn(url, fetcher.robots.crawl_delay(url))
+            held = fetcher.blocklist.is_blocked(url)
+            if held:
+                # the browser does not go through fetcher.get, where the block list is consulted: asked here
+                queue.appendleft((url, depth))
+                stop = Blocked(fetcher.host(url), held["reason"])
+                break
+            if not fetcher.allowed(url) or _skip_fresh(ctx, url, depth):
+                seen.add(url)
+                continue
+            try:
+                fetcher._check_time()                       # the browser does not go through fetcher.get: check here
+                fetcher._turn(url, fetcher.robots.crawl_delay(url))
+            except Exception:
+                queue.appendleft((url, depth))              # the share's time is up: this page is still to be read
+                cp = marks.now()
+                if cp:
+                    yield cp
+                raise
+            seen.add(url)
+            marks.page()
+            asked += 1
             t0 = time.monotonic()
             try:
                 resp = page.goto(url, wait_until="load", timeout=60000)
@@ -789,27 +1372,68 @@ def _browser_crawl_locked(fetcher: Fetcher, src: dict, max_pages: int, ctx: Craw
                 continue
             status = resp.status if resp else 0
             fetcher.limiter.record(url, status, time.monotonic() - t0)
+            ctx.stats["fetched"] += 1
+            ctx.stats["ok"] = ctx.stats.get("ok", 0) + (1 if status == 200 else 0)
             from .blocked import looks_blocked
 
             why = looks_blocked(status, page.content().encode("utf-8", "ignore"))
             if why:
-                fetcher.blocklist.add(url, why, src["id"])
-                break                      # a challenge page: leave the site alone (never worked around)
+                # a challenge page: the site is left alone (never worked around), and the source is filed as refused,
+                # not as read ("ok", as it used to end)
+                at = str(getattr(page, "url", "") or url)
+                at = at if at.startswith("http") else url
+                fetcher.blocklist.add(at, why, sid)         # filed against the host that served it
+                if _bare_host(at) not in hosts:
+                    # ... which is not this site: the address led elsewhere. Passed over; the crawl goes on
+                    ctx.notes.append(f"{url} leads to {_bare_host(at)}, which refuses the crawler ({why})"[:200])
+                    continue
+                queue.appendleft((url, depth))
+                stop = Blocked(fetcher.host(at), why)
+                break
+            landed = urlsplit(str(getattr(page, "url", "") or "")).netloc.lower().removeprefix("www.")
+            if landed and landed not in hosts:
+                if url == start and depth == 0 and same_site(src, base_host, landed) and fetcher.allowed(page.url) \
+                        and not fetcher.blocklist.is_blocked(page.url):
+                    hosts.add(landed)       # the same site under another ending (see same_site)
+                elif url == start and depth == 0:
+                    queue.appendleft((url, depth))
+                    stop = ChannelDown(f"the source's address now answers from {landed}, which is not listed for it; not read")
+                    break
+                else:
+                    continue                # a page that sends the reader to someone else's site: not this site's page
             if ctx.frontier:
-                ctx.frontier.mark_url(url, status, src["id"], "text/html", page.content().encode() if status == 200 else None)
+                ctx.frontier.mark_url(url, status, sid, "text/html", page.content().encode() if status == 200 else None)
             if status != 200:
+                try:
+                    streak.note(status)
+                except ChannelDown as exc:
+                    stop = exc
+                    break
                 continue
+            streak.note(200)
             count += 1
             html = page.inner_html(selector) if selector and page.query_selector(selector) else page.content()
             title, md = extract.html_to_markdown(f"<html><head><title>{page.title()}</title></head><body>{html}</body></html>", url)
+            for link in extract.links(page.content(), url):
+                if urlsplit(link).netloc.lower().removeprefix("www.") in hosts and (not link_pattern or link_pattern in link) and link not in seen \
+                        and not any(x in link for x in (src.get("exclude") or [])):
+                    queue.append((link, depth + 1))
             if md:
                 kind = next((k for sub, k in (src.get("kind_by_url") or []) if sub in url), src.get("kind", "page"))
                 meta = {"opened": True}
                 if kind == "policy":
                     meta.update(policy_meta(title, md))
-                yield Record(src["id"], kind, url, title=title, text=md, markdown=md, channel="browser", meta=meta)
-            for link in extract.links(page.content(), url):
-                if urlsplit(link).netloc == host and (not link_pattern or link_pattern in link) and link not in seen \
-                        and not any(x in link for x in (src.get("exclude") or [])):
-                    queue.append((link, depth + 1))
+                stated, how = stated_date(page.content(), md, depth)     # as _html_crawl: an article's own stated date
+                if stated:
+                    meta["date_from"] = how
+                yield Record(sid, kind, url, title=title, text=md, markdown=md, channel="browser", meta=meta, published=stated)
+        else:
+            cp = marks.done()               # the pass ended at its last page (or its page count), not at a refusal
+            if cp:
+                yield cp
         browser.close()
+    if stop is not None:
+        cp = marks.now()                    # the cursor stays as it is: the pass carries on from here another time
+        if cp:
+            yield cp
+        raise stop

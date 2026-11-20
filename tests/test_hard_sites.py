@@ -102,8 +102,10 @@ def test_imperva_challenge_shell_is_recognized():
 
 
 def test_deep_403_does_not_block_the_host(tmp_path):
-    """A members-only document answers 403 'Access denied': the page is skipped, the host stays open; the third
-    such refusal on one host in a run, or a refusal at the front door, blocks it."""
+    """A members-only document answers 403 'Access denied': the page is skipped and the host stays open, however many
+    such pages there are, once the host has answered a page this run (it is serving the crawler). A host that has
+    served nothing and answers 403 again and again (Fetcher.REFUSALS_IN_A_ROW), or refuses its front door, is left
+    alone (tests/test_review2_nov20.py has the rest)."""
     import http.server
 
     class H2(http.server.BaseHTTPRequestHandler):
@@ -124,10 +126,16 @@ def test_deep_403_does_not_block_the_host(tmp_path):
         f = fetcher(tmp_path)
         assert f.get(base + "/private/1.pdf").status == 403
         assert f.get(base + "/page").status == 200           # host still open
-        assert f.get(base + "/private/2.pdf").status == 403
+        for i in range(2, 12):
+            assert f.get(base + f"/private/{i}.pdf").status == 403      # it was blocked at the third of a whole run
+        assert not f.blocklist.data
         from gacrawl.blocked import Blocked
+        g = fetcher(tmp_path / "g")                          # a run in which the host serves nothing
+        for i in range(g.REFUSALS_IN_A_ROW - 1):
+            assert g.get(base + f"/private/again-{i}.pdf").status == 403
         with pytest.raises(Blocked):
-            f.get(base + "/private/3.pdf")                   # third refusal: the host is left alone
+            g.get(base + "/private/last.pdf")                # nothing but refusals: the host is left alone, for a day
+        assert g.blocklist.data[base.split("//")[1]]["ttl_days"] == 1.0
     finally:
         srv.shutdown()
 
@@ -193,7 +201,7 @@ def test_slow_services_get_their_timeout_for_the_connection_too(monkeypatch, tmp
         def iter_content(self, n):
             yield b"{}"
 
-    monkeypatch.setattr(f.session, "get", lambda url, headers=None, timeout=None, stream=None: seen.append(timeout) or R())
+    monkeypatch.setattr(f.session, "get", lambda url, headers=None, timeout=None, stream=None, **kw: seen.append(timeout) or R())
     monkeypatch.setattr(f.robots, "allowed", lambda url: True)
     monkeypatch.setattr(f.robots, "crawl_delay", lambda url: None)
     f.get("https://api.gdeltproject.org/api/v2/doc/doc?query=x", use_cache=False)

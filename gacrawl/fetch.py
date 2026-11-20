@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 import requests
 
 from .blocked import Blocked, BlockList, looks_blocked
-from .polite import RateLimiter, RobotsCache, SlotPastDeadline, host_of, parse_retry_after
+from .polite import RateLimiter, RobotsCache, SlotPastDeadline, decode_robots, host_of, parse_retry_after
 
 
 # A connection that fails: refused, timed out, or dropped while the body was being read. requests raises the last as
@@ -37,7 +37,7 @@ class TooLarge(ValueError):
 
 class Disallowed(Exception):
     """robots.txt (or the site's response to it) says this URL is off-limits. `reason` says why: the host could
-    not be reached, robots.txt answered 401/403 or 5xx, or its rules disallow the path (see RobotsCache.why)."""
+    not be reached, robots.txt answered 429 or 5xx, or its rules disallow the path (see RobotsCache.why)."""
 
     def __init__(self, url: str, reason: str = ""):
         super().__init__(f"{url} ({reason})" if reason else url)
@@ -55,6 +55,7 @@ class FetchResult:
     content: bytes
     elapsed: float
     not_modified: bool = False
+    final_url: str = ""          # where the answer came from when the address redirected (else empty)
 
     @property
     def text(self) -> str:
@@ -116,6 +117,9 @@ class Fetcher:
         self._refusals: dict[str, int] = {}
         self._refusal_lock = threading.Lock()
         self._dead: dict[str, str] = {}            # host -> why it could not be reached (this run only)
+        self.quiet_hosts: dict[str, str] = {}      # host -> why a page pass gave up on it this run (channels._Streak)
+        self._served: set[str] = set()             # hosts that have answered a page with 200 this run (_host_refused)
+        self._https: set[str] = set()              # hosts whose http addresses redirect to https (see _upgraded)
         self.connect_timeout = min(10.0, timeout)
         self._memo: dict = {}                 # (url, headers) -> (monotonic time, FetchResult), see get()
         self._memo_lock = threading.Lock()
@@ -185,10 +189,16 @@ class Fetcher:
         self.limiter.record(url, r.status_code, r.elapsed.total_seconds() if getattr(r, "elapsed", None) is not None
                             else time.monotonic() - t0)
         reason = looks_blocked(r.status_code, r.content)
-        if reason:
+        if reason and "challenge" in reason:
+            # a bot-protection challenge in place of robots.txt: the site refuses the crawler (never worked around)
             self.blocklist.add(url, f"robots.txt: {reason}", self.source_id)
             raise Blocked(host_of(url), reason)
-        return r.status_code, r.text
+        # A plain 401/403 for this one file is not that: RFC 9309 calls the file "unavailable" and the site open
+        # (RobotsCache). Many servers forbid /robots.txt and serve their pages; until Nov. 20, 2026 the short
+        # "403 Forbidden" page put the whole host on the block list (57 hosts in state/blocked.json, 15 sources).
+        # If the site does refuse the crawler, its front page says so on the next request and the host is blocked then.
+        # decoded from its bytes as UTF-8 (polite.decode_robots), not by the charset the server names or leaves out
+        return r.status_code, decode_robots(r.content)
 
     def allowed(self, url: str) -> bool:
         return self.robots.allowed(url)
@@ -213,7 +223,7 @@ class Fetcher:
             hit = self._memo.get(memo_key)
             if hit and time.monotonic() - hit[0] < self.MEMO_TTL:
                 return dataclasses.replace(hit[1], not_modified=True, elapsed=0.0)   # same content as earlier this run
-        res = self._get(full, headers, use_cache, kind)
+        res = self._follow(full, headers, use_cache, kind)
         if use_cache and res.status == 200 and len(res.content) <= self.MEMO_MAX_BYTES:
             with self._memo_lock:
                 if len(self._memo) >= 2000:
@@ -221,6 +231,70 @@ class Fetcher:
                         self._memo.pop(k, None)
                 self._memo[memo_key] = (time.monotonic(), res)
         return res
+
+    MAX_HOPS = 10
+
+    def _follow(self, full: str, headers: dict | None, use_cache: bool, kind: str | None) -> FetchResult:
+        """The answer to `full`, following redirects one hop at a time. Each hop to another host is a request of its
+        own: the block list, robots.txt, that host's spacing and Crawl-delay apply before it is asked. (`requests`
+        used to follow redirects itself: a page on another host was requested before that host's robots.txt had been
+        read, whatever its block-list entry said.) A hop within one host (a trailing slash, http to https, the
+        Wayback Machine's hop to a capture's own timestamp) passes the block list and robots.txt too; it waits the
+        host's Crawl-delay when one is stated and is otherwise asked at once and charged to the host's spacing. The result keeps the address asked for
+        as `url`; `final_url` is where the answer came from. A loop, or more than MAX_HOPS hops, is an error
+        ("gave up on ...": a page the callers skip), not a string of requests."""
+        from urllib.parse import urldefrag, urljoin
+
+        at = self._upgraded(full)
+        res = self._get(at, headers, use_cache, kind)
+        seen = {at}
+        while res.status in (301, 302, 303, 307, 308) and res.headers.get("location"):
+            # the header's bytes are UTF-8 (http.client hands them over as Latin-1): read as `requests` reads them, or
+            # a redirect to "/café minutes.pdf" asks for an address that is not there
+            loc = res.headers["location"].strip()
+            try:
+                loc = loc.encode("latin-1").decode("utf-8", "replace")
+            except UnicodeEncodeError:
+                pass
+            nxt = urldefrag(urljoin(at, loc))[0]
+            if not nxt.startswith(("http://", "https://")):
+                break
+            if nxt in seen or len(seen) > self.MAX_HOPS:
+                raise RuntimeError(f"gave up on {full}: its redirects " + ("go round in a circle" if nxt in seen else f"do not end ({self.MAX_HOPS} followed)"))
+            seen.add(nxt)
+            blocked = self.blocklist.is_blocked(nxt)
+            if blocked:
+                raise Blocked(host_of(nxt), blocked["reason"])
+            if not self._is_api_endpoint(nxt) and not self.robots.allowed(nxt):
+                raise Disallowed(nxt, self.robots.why(nxt))
+            a, b = urlsplit(at), urlsplit(nxt)
+            same_host = a.netloc.lower() == b.netloc.lower()
+            if a.scheme == "http" and b.scheme == "https" and same_host:
+                self._https.add(a.netloc.lower())       # the host's http addresses are asked for as https from now on
+            if not same_host and headers:
+                # what was sent for the first host is not the next one's to see (bearer tokens, cookies)
+                headers = {k: v for k, v in headers.items() if k.lower() not in ("authorization", "cookie", "proxy-authorization")}
+            at = nxt
+            # A hop within the host is the same page under its other address and is asked without waiting for a turn,
+            # but not for free: when the host states a Crawl-delay, that delay is waited before every request, hops
+            # included; otherwise the hop is charged to the host's spacing (its next turn moves one interval on), so
+            # the rate over a string of redirects is what it is over pages.
+            wait = not same_host or bool(self.robots.crawl_delay(at))
+            if not wait:
+                self.limiter.charge(at)
+            res = self._get(at, headers, use_cache, kind, spaced=wait)
+        if at != full:
+            res = dataclasses.replace(res, url=full, final_url=at)
+        return res
+
+    def _upgraded(self, url: str) -> str:
+        """http://host/... as https://host/... once the host has answered an http address with a redirect to the same
+        address under https: one request a page instead of two."""
+        if url.startswith("http://") and urlsplit(url).netloc.lower() in self._https:
+            https = "https://" + url[len("http://"):]
+            if not self.blocklist.is_blocked(https) and (self._is_api_endpoint(https) or self.robots.allowed(https)):
+                return https
+        return url
 
     stop_at: float | None = None   # monotonic time; set by the scheduler for the run's budget
     _local = threading.local()     # a per-thread earlier deadline: one source's share of the run (scheduler.run_sources)
@@ -233,18 +307,62 @@ class Fetcher:
     def thread_stop_at(self, value: float | None) -> None:
         self._local.stop_at = value
 
-    def _host_refused(self, url: str, reason: str) -> bool:
-        """Is this refusal the whole host's doing? A challenge page (Cloudflare, Imperva...) or a refusal of the
-        site's front door or robots.txt is; a plain 403 on one deep page (a members-only document, a mis-set
-        folder) only counts, and the host is left alone after the third in a run."""
+    def _host_refused(self, url: str, reason: str, status: int = 0, is_doc: bool = False, api: bool = False) -> float | None:
+        """Is this refusal the whole host's doing? -> the days the host is left alone for (0: the block list's own
+        time, 7 days), None when it is not.
+
+          - A challenge page (Cloudflare, Imperva...), wherever it is met: the block list's time.
+          - A refusal of the host's front door: the block list's time, or COUNTED_BLOCK_DAYS (1) when the host has
+            served a page this run (it may be a passing ban).
+          - The first 401/403 on a page of a host whose robots.txt answered 401/403 too, while the host has served
+            nothing this run (that file's refusal alone leaves the site open, RFC 9309; with a page refused as well
+            and nothing served, the host is refusing the crawler: a site behind a login costs two requests a run): 1 day.
+          - 401/403 answers one after another with no 200 between them, for every caller (pages, files, data
+            services): 1 day after REFUSALS_IN_A_ROW (5) from a host that has served nothing this run,
+            SERVED_REFUSALS_IN_A_ROW (12) from one that has (or a data service), SHARED_REFUSALS_IN_A_ROW (20) from a
+            file store or archive many sources' links point into (SHARED_HOSTS).
+        A 401/403 among pages that answer is that page's own (a staff-only folder, a members' document, a file gone
+        from a file store): any 200 from the host starts the count again. Counted without that, one staff-only link
+        blocked a healthy site for a week; not counted at all once a host had served a page, a host that served three
+        pages and then refused everything (a rate ban) was asked for all 300 files of a list (Nov. 20, 2026)."""
         if "challenge" in reason:
-            return True
+            return self.BLOCK_DAYS
+        host = host_of(url)
+        netloc = urlsplit(url).netloc.lower()
+        served = host in self._served
+        shared = any(netloc == h or netloc.endswith("." + h) for h in self.SHARED_HOSTS)
         path = urlsplit(url).path or "/"
         if path in ("/", "/robots.txt"):
-            return True
+            return self.COUNTED_BLOCK_DAYS if served else self.BLOCK_DAYS
+        if status in (401, 403) and not (served or shared or is_doc or api) and self.robots.unavailable.get(host) in (401, 403):
+            return self.COUNTED_BLOCK_DAYS
         with self._refusal_lock:
-            n = self._refusals[host_of(url)] = self._refusals.get(host_of(url), 0) + 1
-        return n >= 3
+            n = self._refusals[host] = self._refusals.get(host, 0) + 1
+        bar = (self.SHARED_REFUSALS_IN_A_ROW if shared else self.SERVED_REFUSALS_IN_A_ROW if (served or api)
+               else self.REFUSALS_IN_A_ROW)
+        return self.COUNTED_BLOCK_DAYS if n >= bar else None
+
+    # It was three refusals in a whole run, however many pages answered between them: three forbidden links on a site
+    # of hundreds of pages (a staff-only folder, a calendar's JSON address, a mistyped mail link) put
+    # www.clarkstonga.gov, www.waverlyhallga.gov, www.woodstockga.gov and www.habershamschools.com on the block list
+    # for a week each (state/blocked.json, Nov. 2026).
+    REFUSALS_IN_A_ROW = 5
+    SERVED_REFUSALS_IN_A_ROW = 12
+    SHARED_REFUSALS_IN_A_ROW = 20
+    BLOCK_DAYS = 0.0                # 0: the block list's own time (blocked_ttl_days)
+    COUNTED_BLOCK_DAYS = 1.0        # a block worked out by counting plain refusals is tried again the next day
+    # archives and file stores that many sites' links point into: their refusals are mostly of single files
+    SHARED_HOSTS = ("archive.org", "amazonaws.com", "cloudfront.net", "wixstatic.com", "googleusercontent.com",
+                    "googleapis.com", "windows.net", "azureedge.net", "akamaihd.net", "dropboxusercontent.com")
+
+    def _answered(self, url: str) -> None:
+        """This host answered 200 with a real page (not a challenge shell; a 304 does not come here): it serves the
+        crawler, and its run of refusals, if any, is over."""
+        host = host_of(url)
+        if host not in self._served or self._refusals.get(host):
+            with self._refusal_lock:
+                self._served.add(host)
+                self._refusals[host] = 0
 
     def deadline(self) -> float | None:
         """The earlier of the run's and this thread's deadlines."""
@@ -278,7 +396,7 @@ class Fetcher:
         if t is not None and now > t:
             raise OutOfTime("this source's time slice used up")
 
-    def _get(self, full: str, headers: dict | None, use_cache: bool, kind: str | None = None) -> FetchResult:
+    def _get(self, full: str, headers: dict | None, use_cache: bool, kind: str | None = None, spaced: bool = True) -> FetchResult:
         self._check_time()
         meta_p, body_p = self._cache_paths(full)
         req_headers = dict(headers or {})
@@ -296,14 +414,15 @@ class Fetcher:
         if dead:
             raise requests.ConnectionError(f"{host_of(full)} could not be reached earlier this run ({dead})")
         for attempt in range(self.max_retries + 1):
-            self._turn(full, delay)
+            if spaced or attempt:
+                self._turn(full, delay)     # (a redirect's hop within one host is asked at once: see _follow)
             t0 = time.monotonic()
             try:
                 # a slow service (host_timeouts) gets its time for the connection too: the TLS handshake is bounded by
                 # the connect timeout, and urllib3 reports a slow handshake as "Read timed out (read timeout=10)"
                 slow = self.host_timeouts.get(urlsplit(full).netloc.lower())
                 tmo = (slow, slow) if slow else (self.connect_timeout, self.timeout)
-                r = self.session.get(full, headers=req_headers, timeout=tmo, stream=True)
+                r = self.session.get(full, headers=req_headers, timeout=tmo, stream=True, allow_redirects=False)
                 ctype = (r.headers.get("Content-Type") or "").lower()
                 # documents and data files (agenda packets, minutes books, statistics CSVs) get the larger ceiling
                 is_doc = ("pdf" in ctype or "msword" in ctype or "officedocument" in ctype or "octet-stream" in ctype
@@ -337,14 +456,24 @@ class Fetcher:
             hdrs = {k.lower(): v for k, v in r.headers.items()}
 
             reason = looks_blocked(r.status_code, body)
-            if reason and self._host_refused(full, reason):
-                self.blocklist.add(full, reason, self.source_id)
+            api = self.latency_kind(full, headers, is_doc, kind) not in ("page", "doc")
+            if not reason and r.status_code in (401, 403):
+                # any 401 or 403 is a refusal of that page, whatever its body says ("error code: 1020", a long branded
+                # page, a login prompt): counted, so a host that answers so to everything is left alone after a few
+                reason = f"HTTP {r.status_code} refused"
+            days = self._host_refused(full, reason, r.status_code, is_doc, api) if reason else None
+            if days is not None:
+                self.blocklist.add(full, reason, self.source_id, ttl_days=days or None)
                 raise Blocked(host_of(full), reason)
             if r.status_code in (429, 503) and attempt < self.host_retries.get(urlsplit(full).netloc.lower(), self.max_retries):
                 self._sleep(min(600, retry_after or 2 ** attempt * 10))
                 continue
+            if r.status_code == 200 and not reason:
+                self._answered(full)
             if r.status_code == 304 and cached:
-                return FetchResult(full, 200, cached.get("headers", {}), body_p.read_bytes(), elapsed, not_modified=True)
+                # the cached answer's own Last-Modified goes with it (channels.http_modified reads it)
+                kept = {**cached.get("headers", {}), **({"last-modified": cached["last_modified"]} if cached.get("last_modified") else {})}
+                return FetchResult(full, 200, kept, body_p.read_bytes(), elapsed, not_modified=True)
             if r.status_code == 200 and use_cache and (hdrs.get("etag") or hdrs.get("last-modified")):
                 meta_p.write_text(json.dumps({
                     "etag": hdrs.get("etag"),

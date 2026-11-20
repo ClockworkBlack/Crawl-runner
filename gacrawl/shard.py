@@ -67,7 +67,9 @@ def write_delta(store: Store, since: str, out: Path, key_like: str | None = None
                 n_url = n_cur = 0
             else:
                 n_rec = db.execute(f"INSERT INTO d.records({','.join(COLS)}) SELECT {','.join(COLS)} FROM main.records "
-                                   "WHERE changed_at >= ?", (since,)).rowcount
+                                   # fetched_at: a row whose content is unchanged but about which something new
+                                   # is known (store.SOFT_META) keeps its changed_at and moves only this
+                                   "WHERE changed_at >= ? OR fetched_at >= ?", (since, since)).rowcount
                 n_url = db.execute("INSERT INTO d.urls SELECT * FROM main.urls WHERE fetched_at >= ?", (since,)).rowcount
                 n_cur = db.execute("INSERT INTO d.cursors SELECT * FROM main.cursors WHERE updated_at >= ?", (since,)).rowcount
             db.execute("COMMIT")
@@ -92,7 +94,8 @@ def merge_delta(store: Store, delta: Path) -> dict:
                 f"WHERE excluded.changed_at >= records.changed_at AND (excluded.hash <> records.hash "
                 # the columns the hash does not cover (Store.add stores a new date, place or evidence under the same hash)
                 f"OR coalesce(excluded.published, '') <> coalesce(records.published, '') "
-                f"OR excluded.jurisdiction <> records.jurisdiction OR excluded.evidence <> records.evidence)").rowcount
+                f"OR excluded.jurisdiction <> records.jurisdiction OR excluded.evidence <> records.evidence "
+                f"OR excluded.meta <> records.meta)").rowcount
             n_url = db.execute(
                 "INSERT INTO main.urls SELECT * FROM d.urls WHERE true ON CONFLICT(url) DO UPDATE SET "
                 "source_id=excluded.source_id, status=excluded.status, content_type=excluded.content_type, "

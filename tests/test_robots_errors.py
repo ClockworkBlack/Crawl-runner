@@ -1,5 +1,5 @@
 """A robots.txt that cannot be read (5xx, dropped connection) denies the host only briefly, then is asked for
-again; 401/403 and a real disallow hold for the day."""
+again; a real disallow holds for the day."""
 from gacrawl.polite import RobotsCache
 
 
@@ -29,6 +29,8 @@ def test_transient_robots_error_is_retried_soon():
         polite.time.time = real
 
 
-def test_forbidden_robots_holds():
+def test_forbidden_robots_is_no_robots():
+    """RFC 9309 2.3.1.3: a 4xx answer (401 and 403 too) means the file is unavailable and the site is open. It was
+    read as "disallow everything" until Nov. 20, 2026 (tests/test_robots_rfc9309.py has the rest)."""
     rc = RobotsCache(lambda url: (403, ""), "GACivicCrawler/0.3", warn=lambda *_: None)
-    assert not rc.allowed("https://x.example/") and not rc.failures
+    assert rc.allowed("https://x.example/") and not rc.failures and rc.unavailable == {"https://x.example": 403}
