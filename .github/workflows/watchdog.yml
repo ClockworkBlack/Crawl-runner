@@ -5,12 +5,13 @@
 #   - the public site (electo-data) has been rebuilt recently (else it starts publish-site and news), and has not
 #     waited over an hour for Electo's newest commit (else it starts publish-site)
 #   - every other scheduled job (news, publish-site, results, sync-code, fec-reread, ga-money, model-work, meeting-summaries, candidate-news, legis-votes, the ai-* jobs,
-#     grand-cross, grand-cross-check, logview, history, news-research, copy-model and ordinances)
+#     grand-cross, grand-cross-check, logview, history, news-research, copy-model, ordinances and code-finder)
 #     has succeeded within twice its usual gap, from the outcomes sync-code records in runner-status.json (a crawl-data
-#     release asset) before it deletes each run (else it starts the job again; still failing, it is reported)
+#     release asset) before it deletes each run (else it starts the job again; still failing, it is reported). The
+#     runs' logs are in the private LogView repository (crawl-runner/<day>/): sync-code stores them there
 #   - each open-model job still passes its own checker as often as before (Electo tools/ai/health.py): a job that got
 #     worse after it was moved to another model goes back to the earlier one; any other fall is reported
-#   - the jobs of the private repositories (Crawl's records-send and code-finder; Electo's and
+#   - the jobs of the private repositories (Crawl's records-send; Electo's and
 #     electo-data's scheduled ones), which sync-code does not record: two runs in a row that did not succeed, or no
 #     success for about twice the job's usual gap, are reported (in the issue only: those runs are private)
 #   - the outputs a green run can leave unwritten (Electo's said_by.json, outlook.json, meeting videos, LegiScan's roll
@@ -54,6 +55,8 @@ jobs:
       MAX_STEP_H: ${{ vars.WATCH_STEP_HOURS || '4' }}    # longest any one step may run (candidate research on the runner is 200 min)
       # logview needs both secrets; without them it skips its work (logview.yml) and is not restarted here
       HAS_LOGVIEW: ${{ secrets.LOGVIEW_READ != '' && secrets.LOGVIEW_WRITE != '' }}
+      # sync-code stores every finished run's logs in LogView with it, and deletes no run here without it
+      HAS_LOGVIEW_WRITE: ${{ secrets.LOGVIEW_WRITE != '' }}
       # whether the keys the runner's jobs read are set here (true or false; their values never reach this job): without
       # them those sources are skipped and the runs still succeed (YouTube unread from Nov 7, LegiScan never read)
       HAS_YOUTUBE_KEY: ${{ secrets.YOUTUBE_API_KEY != '' }}
@@ -239,7 +242,7 @@ jobs:
                   why = "no run in the last 100 commits" if age is None else f"last data {age:.0f}h ago"
                   restart(wf, why)
                   if age is not None and age > max_h * 2:
-                      problems.append(f"**{wf}** hasn't delivered data in {age:.0f} hours, even after restarts. Its logs are in logs/runner/ in the private Crawl repository.")
+                      problems.append(f"**{wf}** hasn't delivered data in {age:.0f} hours, even after restarts. Its logs are in the private LogView repository (crawl-runner/, by day).")
               elif wf == "crawl.yml" and not busy(wf):
                   # the backfill chain hands off at the end of each run; a run that died (timeout, failure, cancelled)
                   # hands off to nothing, so start the next link ourselves
@@ -298,6 +301,7 @@ jobs:
                   "logview": ("logview.yml", 3), "history": ("history.yml", 20), "news-research": ("news-research.yml", 8),
                   "copy-model": ("copy-model.yml", 52), "ai-replay": ("ai-replay.yml", 24 * 64), "ai-compare-eval": ("ai-compare-eval.yml", 24 * 15),
                   "ordinances": ("ordinances.yml", 20),       # every 6 h; here since Nov 19, 2026 (the private repository before)
+                  "code-finder": ("code-finder.yml", 52),     # daily; here since Nov 20, 2026 (the private repository before)
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)
@@ -311,7 +315,10 @@ jobs:
               # runs every 20 minutes can fail three times to a passing outage of the site it reads)
               if fails >= 3 and (max_h is None or age is None or age > max_h):
                   problems.append(f"**{wf}** has failed {fails} times in a row (last: {last.get('conclusion')} at {last.get('at')}). "
-                                  f"Its logs are in logs/runner/ in the private Crawl repository.")
+                                  + ("While it fails, finished runs and their logs stay in the public repository's Actions "
+                                     "(it deletes a run only once LogView holds its logs); its own error line says why."
+                                     if name == "sync-code" else
+                                     "Its logs are in the private LogView repository (crawl-runner/, by day)."))
               if max_h is None:
                   continue
               if name == "logview" and os.environ.get("HAS_LOGVIEW") != "true":
@@ -349,8 +356,7 @@ jobs:
           # runs only when something asks for it; whether a cancelled run counts as not succeeding))
           watched = {
               data_repo: (("DATA_TOKEN", "LOGVIEW_READ"), {
-                  "records-send.yml": (24 * 4, True),         # weekdays: Friday's success, then Monday's
-                  "code-finder.yml": (52, True)}),            # daily
+                  "records-send.yml": (24 * 4, True)}),       # weekdays: Friday's success, then Monday's
               os.environ["ELECTO_REPO"]: (("ELECTO_TOKEN", "DATA_TOKEN", "LOGVIEW_READ"), {
                   "bill-details.yml": (52, True), "incidents.yml": (52, True), "copy-model-public.yml": (52, True)}),
               os.environ["SITE_DATA_REPO"]: (("SITE_TOKEN", "LOGVIEW_READ"), {
@@ -430,6 +436,11 @@ jobs:
           if not has_ls:
               problems.append(f"**LEGISCAN_API_KEY is not set** in {runner_repo}, where legis-votes runs: LegiScan is not read "
                               "(no backup source and no cross-check for roll calls). A free key: https://legiscan.com/legiscan")
+          if os.environ.get("HAS_LOGVIEW_WRITE") == "false":
+              problems.append(f"**LOGVIEW_WRITE is not set** in {runner_repo}: sync-code stores every finished run's logs in "
+                              "the private LogView repository with it, and deletes no run without it, so the finished runs "
+                              "and their logs stay in the public repository (GitHub drops them after 90 days). LogView's "
+                              "README.md says how to make the token.")
           if scheduled("ai-said-by.yml"):
               f = electo_file("ga/crawl/said_by.json")
               h = age_h((f or {}).get("at"))
@@ -448,7 +459,7 @@ jobs:
                              "(Electo tools/ai/said_by.py SYSTEM and SHOTS, tools/ai/models.json; the ai-said-by run's "
                              "\"Said by\" warning names the sentences it held)")
                   else:
-                      why = "a run of it that ended green wrote nothing (its logs are in logs/runner/)"
+                      why = "a run of it that ended green wrote nothing (its logs are in LogView, crawl-runner/)"
                   private.append(f"**ga/crawl/said_by.json** in Electo was last written {when} ({f.get('at')}){left}, although "
                                  f"ai-said-by runs twice a day: {why}.")
           if scheduled("ai-outlook.yml"):
@@ -467,7 +478,7 @@ jobs:
                   private.append(f"**ga/crawl/meeting_videos.json** in Electo: the newest meeting video is from {newest or 'nowhere'}"
                                  + ("" if h is None else f", {h / 24:.0f} days ago")
                                  + (" (YOUTUBE_API_KEY is not set, above)." if not has_yt
-                                    else ": see the crawl's YouTube channels step (its logs are in logs/runner/)."))
+                                    else ": see the crawl's YouTube channels step (its logs are in LogView, crawl-runner/)."))
           f = electo_file("data/crawl/vote_model.json")
           if f is not None and ((f.get("sources") or {}).get("legiscan_roll_calls") or 0) == 0:
               private.append("**data/crawl/vote_model.json** in Electo has no roll call from LegiScan "

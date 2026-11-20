@@ -1,22 +1,23 @@
 name: logview
 
-# Runs in the PUBLIC runner repository only, on its free minutes, every hour and each time sync-code has saved runs in
-# Crawl's archive (GitHub drops some of the hourly runs): the LogView collector (tools/collect.py in the private
-# ClockworkBlack/LogView) gathers the GitHub Actions logs of Electo, electo-data, Crawl and Crawl-runner into LogView,
-# one folder per project and day.
+# Runs in the PUBLIC runner repository only, on its free minutes, every hour: the LogView collector (tools/collect.py
+# in the private ClockworkBlack/LogView) gathers the GitHub Actions logs of the private repositories (Electo,
+# electo-data and Crawl) into LogView, one folder per project and day. This repository's own runs are stored there too
+# (crawl-runner/), by sync-code with the same collector: it deletes each run here once LogView holds it, so it is the
+# one that writes that folder.
 #
 # Nothing of them stays here: the collector and the logs are only on the runner while it works and are deleted at the
 # end, the step prints the collector's one-line count and no more (the logs name private runs and say what failed in
-# them), and sync-code deletes this run within about an hour of its end (it keeps a run's logs, in the private
-# repository only, when the run failed). Collecting further back: Run workflow with the days to look back (GitHub keeps 90).
+# them), and sync-code deletes this run within about an hour of its end (its log, the count, goes to LogView like every
+# run's here). Collecting further back: Run workflow with the days to look back (GitHub keeps 90).
 #
 # A project the collector could not read is only a warning the first time (a passing GitHub error); when the run
 # before could not read it either (LogView's collect-status.json keeps the count), the run fails after saving what it
 # did collect, so sync-code and the watchdog see it.
 #
 # Needs two secrets here (LogView's README says how to make them):
-#   LOGVIEW_READ   reads Actions on Crawl, Crawl-runner, Electo and electo-data, and the contents of Crawl
-#   LOGVIEW_WRITE  writes the contents of LogView only
+#   LOGVIEW_READ   reads Actions on Crawl, Electo and electo-data
+#   LOGVIEW_WRITE  writes the contents of LogView only (sync-code stores this repository's runs with it too)
 on:
   schedule:
     - cron: "37 * * * *"
@@ -56,7 +57,7 @@ jobs:
           git clone -q --depth 1 "https://x-access-token:${WRITE}@github.com/ClockworkBlack/LogView.git" "$W" || { echo "::error title=LogView::could not read LogView with LOGVIEW_WRITE"; exit 1; }
           cd "$W"
           # (rc=0 first: the step's shell stops at a failed command, so "cmd; rc=$?" never saw a failure)
-          rc=0; python3 -I tools/collect.py --days "$DAYS" > "$OUT" 2>&1 || rc=$?
+          rc=0; python3 -I tools/collect.py --days "$DAYS" --only electo,electo-data,crawl > "$OUT" 2>&1 || rc=$?
           tail -1 "$OUT"        # the count only
           # 3: a project could not be read in this run and the one before; what was collected is still saved below
           [ "$rc" = 0 ] || [ "$rc" = 3 ] || { echo "::error title=LogView::the collector stopped (exit $rc): could not read the projects; check LOGVIEW_READ"; exit "$rc"; }
@@ -70,7 +71,7 @@ jobs:
           }
           git config user.name "LogView collector"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for d in electo electo-data crawl crawl-runner; do if [ -d "$d" ]; then git add -A "$d"; fi; done
+          for d in electo electo-data crawl; do if [ -d "$d" ]; then git add -A "$d"; fi; done
           if [ -f collect-status.json ]; then git add collect-status.json; fi
           if git diff --cached --quiet; then echo "nothing new"; done_; fi
           git commit -q -m "Logs: $(tail -1 "$OUT")"

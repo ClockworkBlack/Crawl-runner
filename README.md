@@ -182,7 +182,8 @@ Every key is a repository secret: GitHub stores it encrypted and the workflow pa
 it; it is never written to a file, a log or the database. Keys go in by hand, never through a chat or a commit.
 
 **Which repository.** While `config/runner.json` is active (see **Public runner, private data**), the crawl, police,
-legis-votes, the money jobs, the AI jobs, ordinances and the watchdog run in the public
+legis-votes, the money jobs, the AI jobs, ordinances, code-finder, the hand-run checks (probe, dry-run, qbe-discover,
+election-reports-check) and the watchdog run in the public
 **ClockworkBlack/Crawl-runner**, and a job reads only the secrets of the repository it runs in: the API keys
 (`YOUTUBE_API_KEY`, `LEGISCAN_API_KEY`, `X_BEARER_TOKEN`, `FEC_API_KEY`, `DATA_GOV_API_KEY`, `OPENCORPORATES_API_KEY`,
 `VIMEO_TOKEN`, `HF_TOKEN`) and the tokens (`DATA_TOKEN`, `ELECTO_TOKEN`, `SITE_DATA_TOKEN`, `LOGVIEW_READ`,
@@ -444,9 +445,16 @@ the page needs a republish by hand. What runs by itself and what still needs a p
 
 `config/runner.json` and `scripts/ci_runner.sh`: the code is copied (hourly, by the `sync-code` workflow running in the public repository,
 main) to a public repository whose Actions minutes are free, and that repository runs the crawl and police
-schedules (and the ordinances build, which reads `imports/ordinances/` from here and sends only to Electo). Everything gathered stays here: each job reads `state/` from this repository and writes it back here,
+schedules (and the ordinances build, which reads `imports/ordinances/` from here and sends only to Electo). Since Nov 19, 2026
+code-finder and the hand-run checks (probe, dry-run, qbe-discover, election-reports-check) run there too, and only there: started
+in this repository they end skipped at once, so start them under Crawl-runner → Actions. They take only what they read
+(`scripts/private_data.py`: `state/`; for code-finder also `data/openrecords/found.json` and `imports/ordinances/`, the
+downloader's `GA/` by file name only), never the records tracker, received mail or `config/private/`; code-finder commits
+what it found (`found.json`, `online_codes.md`, new code files) back here and starts the ordinances workflow there, and the
+checks write nothing. A check's log is public until sync-code deletes the run: it shows what public pages answered, so
+never give `probe` an address that carries a key. The mailbox jobs (records-send, records-test, mail-send) stay here. Everything gathered stays here: each job reads `state/` from this repository and writes it back here,
 the database and the Electo bundle are this repository's release assets, records-request deadline issues open here,
 and what passes between jobs is encrypted with the `DATA_TOKEN` secret (anyone can download a public repository's
 run attachments). While `active` is true this repository's scheduled runs stand down; runs started by hand still
-work. The public run logs show counts and page addresses, never record contents. Set `active` to false to bring
+work. The public run logs show counts and page addresses, never record contents, and they do not stay public: about hourly `sync-code` stores every finished run's full logs in the private **LogView** repository (`crawl-runner/<day>/`: the logs zip, the run's jobs and GitHub's error notes, a daily digest; written by LogView's `tools/collect.py` with that job's own token, pushed with `LOGVIEW_WRITE`) and only then deletes the run from Crawl-runner. A run LogView does not hold is never deleted: with `LOGVIEW_WRITE` missing or expired sync-code fails and the runs wait there (the watchdog's issue says so). This repository keeps no run logs (`logs/runner/`, where some jobs' logs went until late November 2026, was moved into LogView by sync-code and removed; the git history still holds those files). This repository's own runs and Electo's are collected into LogView by the `logview` workflow, also on the runner. Set `active` to false to bring
 everything back here.

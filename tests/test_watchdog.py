@@ -131,7 +131,7 @@ def files(said_by_h=2, outlook_h=2, video_days=1, legiscan=5000, said_by=None):
 
 
 def healthy_runs():
-    return {(CRAWL, "records-send.yml"): [run_(1, "success", 20)], (CRAWL, "code-finder.yml"): [run_(2, "success", 5)],
+    return {(CRAWL, "records-send.yml"): [run_(1, "success", 20)],
             (CRAWL, "ordinances.yml"): [run_(3, "success", 30)],
             (ELECTO, "bill-details.yml"): [run_(4, "success", 3)], (ELECTO, "incidents.yml"): [run_(5, "success", 3)],
             (SITE, "pages.yml"): [run_(6, "success", 1)], (SITE, "apps.yml"): [run_(7, "success", 72)]}
@@ -233,7 +233,7 @@ def test_said_by_with_sentences_waiting_and_no_failed_exam(monkeypatch, tmp_path
     watch(monkeypatch, tmp_path, hub, keys=True)
     line = said_by_line(issue_body(hub))
     assert "last written 5 days ago" in line and "with 40 sentences waiting" in line
-    assert "a run of it that ended green wrote nothing (its logs are in logs/runner/)" in line
+    assert "a run of it that ended green wrote nothing (its logs are in LogView, crawl-runner/)" in line
     assert "said_by" not in capsys.readouterr().out                 # the issue only
 
 
@@ -252,6 +252,47 @@ def test_ordinances_is_watched_from_the_runners_record(monkeypatch, tmp_path):
                      wf_runs=healthy_runs(), files=files())
     watch(monkeypatch, tmp_path / "again", hub, keys=True, status=status)
     assert not any("ordinances.yml" in p for _, p, _ in hub.sent)
+
+
+def test_the_runs_logs_are_in_logview_and_a_missing_write_token_is_told(monkeypatch, tmp_path):
+    """sync-code stores every finished run's logs in the private LogView repository (until late November 2026: the
+    Crawl repository's logs/runner) and deletes no run it could not store: the issue points there, and says when the
+    token sync-code writes with is missing on the runner."""
+    def failing(n, last_ok_h):
+        return {"fails_in_row": n, "recent": [7], "last": {"id": 7, "at": iso(1), "conclusion": "failure"},
+                "last_success": {"id": 1, "at": iso(last_ok_h)}}
+    status = {"results": failing(3, 30), "sync-code": failing(4, 9)}
+    hub = FakeGitHub(actions={(CRAWL, "data"): True, (ELECTO, "electo"): True, (SITE, "site"): True},
+                     wf_runs=healthy_runs(), files=files())
+    monkeypatch.setenv("HAS_LOGVIEW_WRITE", "false")
+    watch(monkeypatch, tmp_path, hub, keys=True, status=status)
+    body = issue_body(hub)
+    assert ("**results.yml** has failed 3 times in a row" in body
+            and "Its logs are in the private LogView repository (crawl-runner/, by day)." in body)
+    assert "**sync-code.yml** has failed 4 times in a row" in body
+    assert "finished runs and their logs stay in the public repository's Actions" in body
+    assert f"**LOGVIEW_WRITE is not set** in {RUNNER}" in body and "deletes no run without it" in body
+    assert "logs/runner" not in body and "logs/runner" not in WF.read_text()
+    # the token set: no such line
+    hub = FakeGitHub(actions={(CRAWL, "data"): True, (ELECTO, "electo"): True, (SITE, "site"): True},
+                     wf_runs=healthy_runs(), files=files())
+    monkeypatch.setenv("HAS_LOGVIEW_WRITE", "true")
+    watch(monkeypatch, tmp_path / "again", hub, keys=True, status=status)
+    assert "LOGVIEW_WRITE is not set" not in issue_body(hub)
+    env = yaml.safe_load(WF.read_text())["jobs"]["watch"]["env"]
+    assert env["HAS_LOGVIEW_WRITE"] == "${{ secrets.LOGVIEW_WRITE != '' }}"
+
+
+def test_code_finder_is_watched_from_the_runners_record(monkeypatch, tmp_path):
+    # since Nov 20 it runs in the public runner, daily: sync-code records it, and the private list no longer reads it
+    status = {"code-finder": {"fails_in_row": 0, "recent": [7], "last": {"id": 7, "at": iso(120), "conclusion": "success"},
+                              "last_success": {"id": 7, "at": iso(120)}}}
+    hub = FakeGitHub(actions={(CRAWL, "data"): True, (ELECTO, "electo"): True, (SITE, "site"): True},
+                     wf_runs=healthy_runs(), files=files())
+    watch(monkeypatch, tmp_path, hub, keys=True, status=status)
+    assert ("POST", f"repos/{RUNNER}/actions/workflows/code-finder.yml/dispatches", {"ref": "main"}) in hub.sent
+    assert "**code-finder.yml** hasn't succeeded in 120 hours, even after restarts." in issue_body(hub)
+    assert not any(f"repos/{CRAWL}/actions/workflows/code-finder.yml" in p for p in hub.read)
 
 
 def test_the_pass_rate_watch_reads_said_by_and_outlook_but_not_the_people_file():

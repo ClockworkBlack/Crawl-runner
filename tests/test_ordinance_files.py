@@ -528,11 +528,12 @@ def test_ordinances_runs_on_the_public_runner_and_sync_code_carries_it():
             assert s["env"]["GH_TOKEN"] == "${{ github.token }}", s["name"]
             assert re.search(r"gh workflow run \S+ -R ", s["run"]), s["name"]
     assert "GH_TOKEN" not in (job.get("env") or {})
-    # sync-code copies the workflow to the runner (never the files), and keeps every run's log in the private repository
+    # sync-code copies the workflow to the runner (never the files), and stores every run's log (this job's with
+    # them: there is no list of jobs any more) in the private LogView repository before it deletes the run
     sync = next(s["run"] for s in _wf("sync-code.yml")["jobs"]["sync"]["steps"] if s["name"].startswith("Copy the code"))
     assert "ordinances.yml" not in sync and "--exclude imports/" in sync and "pub/imports" in sync
-    logs = next(s["run"] for s in _wf("sync-code.yml")["jobs"]["sync"]["steps"] if s["name"].startswith("Move finished"))
-    assert '[ "$name" = "ordinances" ]' in logs
+    logs = next(s["run"] for s in _wf("sync-code.yml")["jobs"]["sync"]["steps"] if s["name"].startswith("Store finished runs' logs in LogView"))
+    assert "tools/collect.py --only crawl-runner" in logs and '"$name" =' not in logs
 
 
 def test_ordinances_reads_the_private_files_into_its_own_runner_and_never_an_empty_copy(tmp_path):

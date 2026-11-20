@@ -7,10 +7,14 @@ name: sync-code
 #      (what the crawler gathered, contacts, the requester's signature, hand-downloaded ordinances) and the records-request
 #      mail workflows never leave the private repository (the ordinances workflow runs here: it reads the downloaded
 #      files from the private repository into its own runner and sends them only to Electo)
-#   2. moves every finished run's logs into the private repository (logs/runner/YYYY-MM/; a run that did not succeed
-#      also its jobs and GitHub's error notes, <run>.jobs.json) and then deletes the run here, so the public repository
-#      keeps no logs once they are saved; then starts logview, so LogView lists them without waiting for its own
-#      hourly run (which GitHub drops too). Needs DATA_TOKEN.
+#   2. stores every finished run's full logs in the private LogView repository (crawl-runner/<day>/: the logs zip, the
+#      run's jobs, steps and GitHub's error notes, the day's digest; LogView's tools/collect.py writes them, the same
+#      shape as the other projects there) and then deletes the run here, so the public repository keeps no logs once
+#      they are stored. A run is deleted only when LogView's pushed commit holds it; with LOGVIEW_WRITE missing or
+#      LogView out of reach nothing is deleted, the step fails, and the next run tries again. Nothing of the logs is
+#      kept in the private Crawl repository any more (logs/runner, until late November 2026: step 3 moves that archive
+#      into LogView, once).
+#   Needs DATA_TOKEN (the code, the run status, the old archive) and LOGVIEW_WRITE (LogView's README says how to make it).
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -18,7 +22,7 @@ on:
 
 permissions:
   contents: read
-  actions: write        # delete finished runs here once their logs are saved in the private repository
+  actions: write        # read finished runs and their logs here, and delete them once LogView holds them
   checks: read          # the error notes GitHub attaches to a failed job (kept with its logs)
 
 concurrency:
@@ -29,7 +33,7 @@ jobs:
   sync:
     if: github.repository == 'ClockworkBlack/Crawl-runner'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20       # every run's logs are read and pushed to LogView here; the first time, a month's archive too
     env:
       DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
     steps:
@@ -42,13 +46,12 @@ jobs:
           rsync -a --delete \
             --exclude .git --exclude state/ --exclude data/ --exclude imports/ --exclude config/private/ --exclude logs/ \
             --exclude .github/workflows/records-send.yml --exclude .github/workflows/records-test.yml \
-            --exclude .github/workflows/probe.yml --exclude .github/workflows/code-finder.yml \
-            --exclude outbox/ --exclude .github/workflows/mail-send.yml --exclude .github/workflows/qbe-discover.yml --exclude .github/workflows/election-reports-check.yml --exclude .github/workflows/dry-run.yml \
+            --exclude outbox/ --exclude .github/workflows/mail-send.yml \
             src/ pub/
           # excluded paths are also never kept here (rsync --delete leaves excluded paths alone, so remove them)
           rm -rf pub/state pub/data pub/imports pub/config/private pub/logs \
-                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml pub/.github/workflows/probe.yml pub/.github/workflows/code-finder.yml \
-                 pub/outbox pub/.github/workflows/mail-send.yml pub/.github/workflows/qbe-discover.yml pub/.github/workflows/election-reports-check.yml pub/.github/workflows/dry-run.yml
+                 pub/.github/workflows/records-send.yml pub/.github/workflows/records-test.yml \
+                 pub/outbox pub/.github/workflows/mail-send.yml
           if grep -rIlE "Humble Servant|ORR_PASSWORD=|@gmail\.com" pub --exclude-dir=.git --exclude=sync-code.yml >/dev/null 2>&1; then
             echo "::error::private text found in the copy; nothing pushed"; grep -rIlE "Humble Servant|@gmail\.com" pub --exclude-dir=.git; exit 1
           fi
@@ -66,119 +69,146 @@ jobs:
           git commit -qm "Code from the private repository ($SHA)"
           git push -q origin HEAD:main
           echo "synced $SHA"
-      - name: Move finished runs' logs to the private repository, then delete them here
+      - name: Store finished runs' logs in LogView, then delete the runs here
+        # Every finished run of this repository: LogView's own collector (tools/collect.py --only crawl-runner, with
+        # this job's token) writes its logs zip, its jobs with GitHub's error notes and the day's digest into LogView's
+        # crawl-runner/<day>/, this step pushes that with LOGVIEW_WRITE, and only then deletes each run whose row (and
+        # zip) the pushed commit holds. Until late November 2026 the logs went to the private Crawl repository
+        # (logs/runner), some jobs' only, and LogView held digests of them.
+        # This log is public: of the collector's output only its one-line count is shown, and of the runs their ids.
         env:
           GH_TOKEN: ${{ github.token }}
+          LOGVIEW_WRITE: ${{ secrets.LOGVIEW_WRITE }}
         run: |
           set -uo pipefail
-          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" logs-repo
-          git -C logs-repo sparse-checkout set --no-cone /logs/runner/
-          # a run that did not succeed also keeps its jobs (each step's times) and the error notes GitHub attached to each
-          # failed job, next to its logs (<run>.jobs.json): a runner GitHub lost leaves no log of its own, and its note
-          # ("lost communication with the server", "received a shutdown signal") would go with the run (Nov 11: ai-predict
-          # bench (qwen35, 0) failed 1h53m in with neither, so nothing said why)
-          JOBS="$RUNNER_TEMP/jobs.py"
-          cat > "$JOBS" <<'PY'
-          import json, os, sys, urllib.request
-          rid, out = sys.argv[1], sys.argv[2]
-          concl = sys.argv[3] if len(sys.argv) > 3 else None
-          api, repo = os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"]
-          def get(path):
-              q = urllib.request.Request(f"{api}/{path}", headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
-                                                                   "Accept": "application/vnd.github+json"})
-              with urllib.request.urlopen(q, timeout=60) as r:
-                  return json.load(r)
-          jobs = []
-          for j in get(f"repos/{repo}/actions/runs/{rid}/jobs?per_page=100").get("jobs") or []:
-              k = {x: j.get(x) for x in ("name", "conclusion", "started_at", "completed_at", "runner_name")}
-              k["steps"] = [{x: s.get(x) for x in ("name", "conclusion", "started_at", "completed_at")} for s in j.get("steps") or []]
-              if j.get("conclusion") not in ("success", "skipped", None):
-                  try:
-                      k["notes"] = [{"level": a.get("annotation_level"), "message": a.get("message")}
-                                    for a in get(f"repos/{repo}/check-runs/{j['id']}/annotations?per_page=50")]
-                  except Exception as e:  # noqa: BLE001  the jobs are still worth keeping
-                      k["notes"] = [{"level": "unread", "message": f"{type(e).__name__}: {e}"}]
-              jobs.append(k)
-          kept = {"run": int(rid), "conclusion": concl, "jobs": jobs}
-          if concl == "startup_failure" and not jobs:
-              # GitHub could not start the run (a workflow it refused, or one it lost before any job): no job, no logs
-              kept["note"] = "the run never started (startup_failure): GitHub keeps no logs or jobs for it"
-          json.dump(kept, open(out, "w", encoding="utf-8"), indent=1)
-          bad = [f"{k['name']} ({k['conclusion']})" for k in jobs if "notes" in k]
-          print(f"run {rid}: {len(jobs)} jobs kept" + (f"; error notes of {', '.join(bad)}" if bad else ""))
-          PY
-          n=0; done_ids=""; rows=$(mktemp)
-          # one run a line, its fields tab-separated: a run's name may hold spaces (GitHub's own "pages build and
-          # deployment"), and the unquoted for-loop used until Nov 19 split such a row into words, so the run was deleted
-          # with no line and its other words were sent to DELETE as run ids. Read on its own descriptor, so that nothing
-          # in the loop reads the list.
-          while IFS=$'\t' read -r -u 3 id name created concl updated; do
-            [[ "$id" =~ ^[0-9]+$ ]] || continue
-            # every crawl, police and ai-predict run's logs (ai-predict: Nov 11 a whole run succeeded with no answers and
-            # left nothing to say why), every ordinances run's (its report of files with no place or unreadable is in
-            # its log), each News loop's (a run of over ten minutes: its passes' times and outlets; the
-            # hourly check that finds a loop running is not kept), and any other job's when it failed or was cancelled
-            long=0; [ "$name" = "news" ] && [ $(( $(date -d "$updated" +%s) - $(date -d "$created" +%s) )) -gt 600 ] && long=1
-            if [ "$name" = "crawl" ] || [ "$name" = "police" ] || [ "$name" = "ai-predict" ] || [ "$name" = "ai-replay" ] || [ "$name" = "ai-said-by" ] || [ "$name" = "site-search" ] || [ "$name" = "ai-law-questions" ] || [ "$name" = "ordinances" ] || [ "$long" = 1 ] || [ "$concl" = "failure" ] || [ "$concl" = "timed_out" ] || [ "$concl" = "startup_failure" ] || [ "$concl" = "cancelled" ]; then
-              d="logs-repo/logs/runner/${created:0:7}"; mkdir -p "$d"
-              f="$d/${created:0:10}_${name//[^A-Za-z0-9._-]/-}_${id}.zip"      # a file name without spaces (the status step below names it the same way)
-              if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/logs" > "$f" 2>/dev/null; then
-                n=$((n+1))
+          HERE="$PWD"; LV="$RUNNER_TEMP/logview"; OUT="$RUNNER_TEMP/collect.out"; rows=$(mktemp); del=$(mktemp)
+          trap 'rm -rf "$LV" "$OUT"' EXIT
+          # the finished runs, one a line, tab-separated (a run's name may hold spaces, GitHub's own "pages build and
+          # deployment": the unquoted for-loop used until Nov 19 split such a row into words, so the run was deleted
+          # with no record and its other words were sent to DELETE as run ids). Listed before the collector runs, so
+          # that every run of the list is one the collector saw.
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" \
+            --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | [.id, (.name // "run"), .created_at, (.conclusion // "unknown"), .updated_at, (.run_attempt // 1)] | @tsv' > "$rows" \
+            || { echo "::error title=Run logs::could not list the finished runs: nothing stored or deleted"; exit 1; }
+          # the collector looks back by the day a run started: as far as the oldest run still here (a run waits here
+          # when LogView could not be reached; GitHub itself drops logs after 90 days)
+          oldest=$(cut -f3 "$rows" | sort | head -1)
+          DAYS=1; [ -n "$oldest" ] && DAYS=$(( ( $(date -u -d "$(date -u +%F)" +%s) - $(date -u -d "${oldest:0:10}" +%s) ) / 86400 + 1 ))
+          [ "$DAYS" -gt 90 ] && DAYS=90
+          stored=no
+          if [ -z "${LOGVIEW_WRITE:-}" ]; then
+            echo "::error title=Run logs::the LOGVIEW_WRITE secret is not set here, so the runs' logs cannot be stored in LogView: no run is deleted until it is (LogView's README.md says how to make the token)"
+          elif ! git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${LOGVIEW_WRITE}@github.com/ClockworkBlack/LogView.git" "$LV" 2>/dev/null; then
+            echo "::error title=Run logs::could not read LogView with LOGVIEW_WRITE (expired, or no longer given LogView?): no run is deleted"
+          else
+            # the collector, the digests and each day's index; not the logs already stored (the folder grows every day)
+            git -C "$LV" sparse-checkout set --no-cone /tools/ /crawl-runner/README.md '/crawl-runner/*/index.json' '/crawl-runner/*/README.md'
+            cd "$LV"
+            # (rc=0 first: the step's shell stops at a failed command, so "cmd; rc=$?" never saw a failure; the
+            # collector is given the token that reads this repository's runs and no other)
+            rc=0; env -u DATA_TOKEN -u LOGVIEW_WRITE python3 -I tools/collect.py --only crawl-runner --days "$DAYS" > "$OUT" 2>&1 || rc=$?
+            count=$(grep '^collected ' "$OUT" | tail -1 || true)
+            echo "${count:-the collector printed no count}"
+            if [ "$rc" != 0 ]; then
+              echo "::error title=Run logs::LogView's collector could not read this repository's runs (exit $rc): no run is deleted"
+            else
+              git config user.name "LogView collector"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              if [ -d crawl-runner ]; then git add --sparse -A crawl-runner; fi
+              if git diff --cached --quiet; then
+                stored=yes                       # nothing new: what LogView holds is what was cloned
               else
-                rm -f "$f"
-                # a run GitHub never started (startup_failure) has no logs and never will, and a day after a run ended
-                # its logs are not coming either: such a run is recorded and deleted without them. Until Nov 19 it was
-                # tried again at every sync and never recorded (crawl run 43097447450, a startup_failure of Nov 11).
-                if [ "$concl" != "startup_failure" ] && [ $(( $(date +%s) - $(date -d "$updated" +%s) )) -lt 86400 ]; then
-                  echo "logs for $id not ready yet"; continue
-                fi
-                echo "run $id ($name, $concl) has no logs: recorded without them"
+                git commit -q -m "Logs: Crawl-runner, $count"
+                # logview and OpenResearch also push to LogView (other folders): on a race, take their commit and try again
+                for i in 1 2 3 4 5; do
+                  git pull -q --rebase origin main 2>/dev/null && git push -q origin HEAD:main 2>/dev/null && { stored=yes; break; }
+                  git rebase --abort 2>/dev/null || true
+                  sleep $((i * 5))
+                done
+                if [ "$stored" = yes ]; then echo "pushed to LogView"; else echo "::error title=Run logs::could not push to LogView: no run is deleted"; fi
               fi
-              [ "$concl" = "success" ] || python3 "$JOBS" "$id" "${f%.zip}.jobs.json" "$concl" || { rm -f "${f%.zip}.jobs.json"; echo "jobs of $id not kept"; }
             fi
-            done_ids="$done_ids $id"
-            printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$created" "$concl" "$updated" >> "$rows"
-          done 3< <(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&per_page=100" \
-                      --jq '.workflow_runs[] | select(.id != '"${GITHUB_RUN_ID}"') | [.id, (.name // "run"), .created_at, (.conclusion // "unknown"), .updated_at] | @tsv')
+            cd "$HERE"
+          fi
           # each job's last outcome and last success (runner-status.json, an asset of the private crawl-data release, so it
           # adds no commits): the watchdog reads it to find a job that keeps failing or has stopped running, which the
-          # deleted runs would otherwise hide
+          # deleted runs would otherwise hide. Every finished run is recorded the first time it is seen here, stored
+          # or not, so that the watchdog still sees the jobs while LogView cannot be reached.
           mkdir -p status && GH_TOKEN="$DATA_TOKEN" gh release download crawl-data -R ClockworkBlack/Crawl -p runner-status.json -D status --clobber 2>/dev/null || true
-          python3 - "$rows" status/runner-status.json logs-repo/logs/runner <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
-          import json, os, re, sys
-          rows, path, logs = sys.argv[1], sys.argv[2], sys.argv[3]
-          def base(created, name, rid):
-              return f"{created[:10]}_{re.sub(r'[^A-Za-z0-9._-]', '-', name)}_{rid}"     # as the loop above names the files
-          def timed_out(created, name, rid):
+          python3 - "$rows" status/runner-status.json "$stored" "$LV" "$del" <<'PY' && [ -s status/runner-status.json ] && { GH_TOKEN="$DATA_TOKEN" gh release upload crawl-data status/runner-status.json -R ClockworkBlack/Crawl --clobber >/dev/null && echo "run status recorded" || echo "::warning::run status not uploaded"; } || true
+          import json, os, subprocess, sys
+          rows, path, stored, lv, delf = sys.argv[1:6]
+          pushed = stored == "yes"
+          def kept(p):
+              """A file of LogView's crawl-runner folder: as the pushed commit holds it, or (nothing pushed) as the
+              collector left it here."""
+              if pushed:
+                  r = subprocess.run(["git", "-C", lv, "show", f"HEAD:crawl-runner/{p}"], capture_output=True)
+                  return r.stdout if r.returncode == 0 else None
+              try:
+                  return open(os.path.join(lv, "crawl-runner", p), "rb").read()
+              except OSError:
+                  return None
+          days = {}
+          def row(created, rid):
+              day = created[:10]
+              if day not in days:
+                  try:
+                      days[day] = json.loads(kept(f"{day}/index.json") or b"{}").get("runs") or {}
+                  except (ValueError, AttributeError):
+                      days[day] = {}
+              r = days[day].get(str(rid))
+              return r if isinstance(r, dict) else None
+          def state(created, rid, concl, attempt):
+              """stored: LogView's pushed commit holds the run as it ended (its row in the day's index.json, and its logs
+              zip when it has logs), so it can be deleted here. waiting: the collector could not read its logs or jobs
+              yet and asks again next time (for a day after the run ended). missing: not there."""
+              r = row(created, rid)
+              if not pushed or r is None or (r.get("conclusion") or "unknown") != concl or str(r.get("attempt")) != attempt:
+                  return "missing"
+              if r.get("pending"):
+                  return "waiting"
+              if r.get("logs") and subprocess.run(["git", "-C", lv, "cat-file", "-e", f"HEAD:crawl-runner/{created[:10]}/{r['logs']}"],
+                                                  capture_output=True).returncode != 0:
+                  return "missing"
+              return "stored"         # with its logs; or a run GitHub skipped, or one in which no job ran: no logs exist
+          def timed_out(created, rid):
               """A cancelled run counts as a failure when a job of it hit its time limit: GitHub ends that job
               "cancelled", not "timed_out" (fec-reread's ten kills at 345 minutes, Nov 13-17, left fails_in_row at 0).
-              Its error notes are in the <run>.jobs.json kept beside its logs above."""
+              GitHub's notes on its jobs are in the run's details, which the collector wrote beside its logs."""
+              r = row(created, rid) or {}
               try:
-                  d = json.load(open(os.path.join(logs, created[:7], base(created, name, rid) + ".jobs.json")))
-              except (OSError, ValueError):
+                  d = json.loads(kept(f"{created[:10]}/{r['details']}"))
+              except (KeyError, TypeError, ValueError):
                   return False
-              return any("maximum execution time" in (n.get("message") or "")
-                         for j in d.get("jobs") or [] for n in j.get("notes") or [])
+              return any("maximum execution time" in (n.get("message") or "") for n in d.get("notes") or [])
           try:
               st = json.load(open(path))
           except (OSError, ValueError):
               st = {}
-          seen = []
-          for line in open(rows):
-              p = line.rstrip("\n").split("\t")
-              if len(p) >= 5 and p[0].isdigit():
+          seen, count = [], {"stored": 0, "waiting": 0, "missing": 0}
+          with open(delf, "w") as out:
+              for line in open(rows):
+                  p = line.rstrip("\n").split("\t")
+                  if len(p) < 6 or not p[0].isdigit():
+                      continue
                   seen.append((p[2], int(p[0]), p[1], p[3], p[4]))
+                  s = state(p[2], p[0], p[3], p[5])
+                  count[s] += 1
+                  if s == "stored":
+                      out.write(p[0] + "\n")
           # in the order the runs ended: a job's last outcome is the one that ended last
           for created, rid, name, concl, updated in sorted(seen, key=lambda x: (x[4], x[1])):
               w = st.setdefault(name, {"fails_in_row": 0, "recent": []})
               if rid in w.get("recent", []):
-                  continue                      # recorded before (its deletion failed)
-              w["recent"] = (w.get("recent", []) + [rid])[-20:]
-              bad = concl in ("failure", "timed_out", "startup_failure") or (concl == "cancelled" and timed_out(created, name, rid))
+                  continue                      # recorded before (it waits here for its logs, for LogView, or its deletion failed)
+              # more than the 100 runs of the list, so a run that stays here is not recorded twice
+              w["recent"] = (w.get("recent", []) + [rid])[-200:]
+              bad = concl in ("failure", "timed_out", "startup_failure") or (concl == "cancelled" and timed_out(created, rid))
               if updated < (w.get("last") or {}).get("at", ""):
-                  # a run that ended before the last one recorded, recorded late (its logs came late or were given up,
-                  # as for a startup_failure of days ago): not the last outcome, but a failure since the last success
-                  # still adds to the failures in a row, and a success to when the job last succeeded
+                  # a run that ended before the last one recorded, recorded late (a startup_failure of days ago, a run
+                  # that fell out of the list while LogView could not be reached): not the last outcome, but a failure
+                  # since the last success still adds to the failures in a row, and a success to when the job last succeeded
                   if bad and updated > (w.get("last_success") or {}).get("at", ""):
                       w["fails_in_row"] = w.get("fails_in_row", 0) + 1
                   elif concl == "success" and updated > (w.get("last_success") or {}).get("at", ""):
@@ -195,53 +225,74 @@ jobs:
           if seen:
               os.makedirs(os.path.dirname(path), exist_ok=True)
               json.dump(st, open(path, "w"), indent=1, sort_keys=True)
-          # every run, a line each, in logs/runner/<YYYY-MM>/runs-<YYYY-MM-DD>.jsonl: the runs whose logs are not kept
-          # (a success of publish-site, results, fec-reread, ga-money, the AI jobs...) are deleted here all the same,
-          # and LogView builds its crawl-runner folder from this archive, so without these lines it never saw them
-          import datetime as dt
-          def secs(a, b):
-              try:
-                  return int((dt.datetime.fromisoformat(b.replace("Z", "+00:00")) - dt.datetime.fromisoformat(a.replace("Z", "+00:00"))).total_seconds())
-              except (AttributeError, ValueError):
-                  return None
-          for created, rid, name, concl, updated in sorted(seen):
-              d = os.path.join(logs, created[:7])
-              os.makedirs(d, exist_ok=True)
-              f = os.path.join(d, f"runs-{created[:10]}.jsonl")
-              have = open(f).read() if os.path.exists(f) else ""
-              if f'"id": {rid},' in have:
-                  continue
-              zipf = base(created, name, rid) + ".zip"
-              row = {"id": rid, "workflow": name, "created": created, "ended": updated, "conclusion": concl,
-                     "took": secs(created, updated), "logs": zipf if os.path.exists(os.path.join(d, zipf)) else None}
-              open(f, "a").write(json.dumps(row) + "\n")
+          if pushed:
+              print(f"{len(seen)} finished run(s) here: {count['stored']} stored in LogView, {count['waiting']} waiting for their logs, "
+                    f"{count['missing']} not stored")
+              if count["missing"]:
+                  open(delf + ".missing", "w").write(str(count["missing"]))
+          else:
+              print(f"{len(seen)} finished run(s) here: none deleted (LogView was not written)")
           PY
-          # keep 30 days of runner logs in the private repository (by the date in the file name)
-          CUT=$(date -u -d '30 days ago' +%Y-%m-%d)
-          for f in logs-repo/logs/runner/*/*.zip logs-repo/logs/runner/*/*.jobs.json; do [ -e "$f" ] || continue; b=$(basename "$f"); [ "${b:0:10}" \< "$CUT" ] && rm -f "$f"; done
-          for f in logs-repo/logs/runner/*/runs-*.jsonl; do [ -e "$f" ] || continue; b=$(basename "$f" .jsonl); [ "${b#runs-}" \< "$CUT" ] && rm -f "$f"; done
-          cd logs-repo
-          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
-          git add -A logs/runner 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -qm "runner logs: $n run(s)"
-            ok=false; for i in 1 2 3 4 5; do git pull --rebase --autostash -q && git push -q && { ok=true; break; }; sleep $((i*5)); done
-            [ "$ok" = true ] || { echo "::error::could not save the logs; nothing deleted"; exit 1; }
-            echo "saved $n run log(s) in the private repository"
-            # LogView builds its crawl-runner folder from this archive: it collects now rather than at its own hourly
-            # run, which GitHub drops at times (Nov 18: none in four of the hours, so LogView was 1 to 3 hours late). A
-            # logview run already waiting to start reads these too, so none is added then.
-            waiting=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/logview.yml/runs?per_page=20" \
-                        --jq '[.workflow_runs[] | select(.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")] | length' 2>/dev/null || echo "?")
-            if [ "$waiting" = 0 ]; then
-              gh workflow run logview.yml -R "$GITHUB_REPOSITORY" --ref main >/dev/null 2>&1 && echo "started logview, so LogView lists these" || echo "logview not started (its hourly run lists these)"
-            else
-              echo "logview not started: one is waiting ($waiting), or its runs could not be listed"
-            fi
+          # only now that LogView's pushed commit holds them: delete those runs (logs and attachments) from this public repository
+          for id in $(cat "$del"); do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$id" >/dev/null && echo "removed run $id"; done
+          [ "$stored" = yes ] || exit 1          # said above; the runs stay here and are tried again at the next sync
+          if [ -e "$del.missing" ]; then
+            echo "::error title=Run logs::$(cat "$del.missing") finished run(s) are not in LogView after its collector ran, and stay here (is LogView's tools/collect.py the one that reads Crawl-runner's own runs?)"
+            exit 1
           fi
-          cd ..
-          # only now that they are saved: delete those runs (logs and attachments) from this public repository
-          for id in $done_ids; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/$id" >/dev/null && echo "removed run $id"; done
+      - name: Move the old log archive (the private repository's logs/runner) into LogView, once
+        # Until late November 2026 the step above kept the logs in the private Crawl repository (logs/runner/<YYYY-MM>/:
+        # 457 files, 28 MB on Nov 19). LogView's tools/move_runner_archive.py puts each of them where the collector
+        # puts a run (crawl-runner/<day>/) and writes the digests again; once that is pushed and checked (every log
+        # of the archive in LogView's last commit, byte for byte), logs/runner is removed from Crawl (its history
+        # still holds the files). With no logs/runner left this step does nothing: it can be deleted from this file then.
+        timeout-minutes: 8
+        env:
+          LOGVIEW_WRITE: ${{ secrets.LOGVIEW_WRITE }}
+        run: |
+          set -uo pipefail
+          if ! GH_TOKEN="$DATA_TOKEN" gh api "repos/ClockworkBlack/Crawl/contents/logs/runner" --jq 'length' >/dev/null 2>&1; then
+            echo "no logs/runner in the private repository (moved before, or not readable just now): nothing to move"; exit 0
+          fi
+          OLD="$RUNNER_TEMP/old-logs"; LV="$RUNNER_TEMP/logview-move"; OUT="$RUNNER_TEMP/move.out"
+          trap 'rm -rf "$OLD" "$LV" "$OUT"' EXIT
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${DATA_TOKEN}@github.com/ClockworkBlack/Crawl.git" "$OLD" 2>/dev/null \
+            && git -C "$OLD" sparse-checkout set --no-cone /logs/runner/ \
+            || { echo "::error title=Old archive::could not read the private repository's logs/runner: nothing moved"; exit 1; }
+          [ -d "$OLD/logs/runner" ] || { echo "no logs/runner in the private repository: nothing to move"; exit 0; }
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${LOGVIEW_WRITE}@github.com/ClockworkBlack/LogView.git" "$LV" 2>/dev/null \
+            || { echo "::error title=Old archive::could not read LogView with LOGVIEW_WRITE: nothing moved"; exit 1; }
+          git -C "$LV" sparse-checkout set --no-cone /tools/ /crawl-runner/README.md '/crawl-runner/*/index.json' '/crawl-runner/*/README.md'
+          [ -f "$LV/tools/move_runner_archive.py" ] || { echo "LogView has no tools/move_runner_archive.py yet: nothing moved"; exit 0; }
+          cd "$LV"
+          env -u DATA_TOKEN -u LOGVIEW_WRITE -u GH_TOKEN python3 -I tools/move_runner_archive.py --archive "$OLD/logs/runner" > "$OUT" 2>&1 \
+            || { echo "::error title=Old archive::the archive was not moved (the mover stopped): nothing removed from the private repository"; exit 1; }
+          moved=$(grep '^moved ' "$OUT" | tail -1 || true); echo "${moved:-the mover printed no count}"
+          git config user.name "LogView collector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --sparse -A crawl-runner
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Logs: Crawl-runner's archive from Crawl's logs/runner, ${moved%% (*}"
+            ok=no
+            for i in 1 2 3 4 5; do
+              git pull -q --rebase origin main 2>/dev/null && git push -q origin HEAD:main 2>/dev/null && { ok=yes; break; }
+              git rebase --abort 2>/dev/null || true
+              sleep $((i * 5))
+            done
+            [ "$ok" = yes ] || { echo "::error title=Old archive::could not push the archive to LogView: nothing removed from the private repository"; exit 1; }
+            echo "pushed to LogView"
+          fi
+          # the proof, against the commit LogView now has: every log of the archive is there, the same bytes
+          rc=0; env -u DATA_TOKEN -u LOGVIEW_WRITE -u GH_TOKEN python3 -I tools/move_runner_archive.py --archive "$OLD/logs/runner" --check > "$OUT" 2>&1 || rc=$?
+          grep '^checked ' "$OUT" | tail -1 || true
+          [ "$rc" = 0 ] || { echo "::error title=Old archive::LogView does not hold the whole archive: nothing removed from the private repository"; exit 1; }
+          cd "$OLD"
+          git config user.name "gacrawl-bot"; git config user.email "gacrawl-bot@users.noreply.github.com"
+          git rm -rq logs/runner && git commit -qm "runner logs: moved to LogView (crawl-runner/); logs/runner removed here" \
+            || { echo "::error title=Old archive::could not remove logs/runner in the copy of the private repository"; exit 1; }
+          ok=no; for i in 1 2 3 4 5; do git pull --rebase --autostash -q 2>/dev/null && git push -q 2>/dev/null && { ok=yes; break; }; sleep $((i * 5)); done
+          [ "$ok" = yes ] || { echo "::error title=Old archive::the archive is in LogView, but logs/runner could not be removed from the private repository (tried again at the next sync)"; exit 1; }
+          echo "logs/runner removed from the private repository: its logs are in LogView's crawl-runner/"
       - name: Keep the crawl going (the next link of the chain when none is running or queued)
         # The runner's crawl runs back to back (config/backfill.json runner.continuous): each run queues the next as it
         # ends. When that hand-off is lost (a failed dispatch, a cancelled or replaced run), nothing ran until the next

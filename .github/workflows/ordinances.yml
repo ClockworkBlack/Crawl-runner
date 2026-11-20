@@ -13,9 +13,13 @@ name: ordinances
 # below, for a backlog of about 685 files, would have spent about 75 minutes a link there.
 #
 # Started: by a change to the reader or to this file (sync-code's copy of them), every 6 hours on the schedule, by the
-# chain below, and by hand (Crawl-runner, Actions, ordinances). Nothing in the private repository can start a run here:
-# an upload there, and code-finder's and records-send's starts after a download, start this workflow there, where it
-# ends skipped at once (no minutes); the next scheduled run here reads the new files.
+# chain below, by code-finder (which runs here too, since Nov 19, 2026) after it stored new code files, by hand
+# (Crawl-runner, Actions, ordinances), and by a repository_dispatch of type "ordinances" sent to this repository: the
+# way a job of the private repository starts a run here (records-send, after a clerk sent a code), with a token that
+# may write this repository's contents (DATA_TOKEN); nobody without that can send one, and nothing of the event is
+# read: a run started that way does exactly what a scheduled one does. An upload to the private repository, or a
+# `gh workflow run ordinances.yml` there, starts this workflow there, where it ends skipped at once (no minutes); the
+# next scheduled run here reads the new files.
 #
 # Files read before are not read again (Electo's copy is the cache), so a run with nothing new takes a few minutes.
 # Reading has a time limit (--max-minutes): scans take minutes each to OCR, and a run killed at the job's limit sends
@@ -31,6 +35,8 @@ on:
   schedule:
     - cron: "34 3,9,15,21 * * *"     # 09:34 UTC (4:34 AM Eastern) follows code-finder; the other three pick up records-send's and hand uploads
   workflow_dispatch:
+  repository_dispatch:
+    types: [ordinances]     # from the private repository (records-send); the event carries nothing this workflow reads
 
 permissions:
   contents: read
