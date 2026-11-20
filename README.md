@@ -339,6 +339,15 @@ test or no-reply addresses are dropped; a portal is used when there is no clerk 
 or a link that is really an image or PDF). Places with only a person's own address or a general inbox are listed in
 `data/openrecords/review.md`; approve an address (or skip a place) in `config/private/openrecords.yaml` (private repository only).
 
+**Clerks looked up by hand** (`data/openrecords/clerks.json`): for the places with no code on file and no address the
+crawler could find, who keeps the code (the city or town clerk, a county's clerk to the commission), city hall's
+phone, hours and mailing address, the addresses printed on an official page (each rated high, medium or low, with the
+page it was read on), and whether the code turned out to be online. Nothing in it is guessed, and nobody is asked
+because of it: a request still goes only to an address under `approved:`. The export adds these to
+`records_contacts.json` (`clerk`, `phone`, `hours`, `mail`, and the addresses rated high or medium), so Electo's
+records-request drafter and its Open records row have someone to name where there was nobody. The calls and the
+addresses waiting for an OK are in `config/private/records-worklist.md`.
+
 **Test first:** Actions → records-test → Run workflow (optionally `test_to`). It sends one sample
 letter marked TEST to the project mailbox, logs in over IMAP and looks for it, then prints who would be asked
 from the live database and the review list. No clerk is contacted. Locally: `gacrawl records test [--to ADDR]`.

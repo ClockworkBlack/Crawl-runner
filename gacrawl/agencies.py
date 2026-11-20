@@ -207,12 +207,16 @@ HEADS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 
 def clean_soup(html: str):
     """The page without what is not its own content: scripts, navigation, the header and footer, and a site-wide
-    notice banner (georgia.gov's `.alert`: GSFIC shows its next Commission meeting on every page, the GHEFA's too)."""
+    notice banner (georgia.gov's `.alert`: GSFIC shows its next Commission meeting on every page, the GHEFA's too).
+    A header inside an article is the article's own (its title and link) and stays: the Macon-Bibb County Transit
+    Authority's notices, read from the Internet Archive's copies, Nov. 20, 2026, lost every post's title with it."""
     from bs4 import BeautifulSoup
 
     html += "".join(f'<section data-shipped="1">{x}</section>' for x in _data_html(html))
     soup = BeautifulSoup(html, "html.parser")
     for t in soup(["script", "style", "nav", "footer", "header", "noscript", "template"]):
+        if t.name == "header" and t.find_parent("article"):
+            continue                       # an article's own header holds its title (a post's heading and link), not the site's
         t.decompose()
     for t in soup.select(".alert, [role=alert], .site-alert, .usa-alert"):
         t.decompose()
@@ -1049,11 +1053,20 @@ def notice_posts(html: str, url: str, ag: dict, page: dict) -> list[dict]:
     A post is a meeting when its title names a board or committee meeting, session or agenda and a day is written."""
     book = Book()
     posts: list[dict] = []
-    for ln in page_lines(feed_as_html(html), url):
+    lines = page_lines(feed_as_html(html), url)
+    for ln in lines:
         if ln["h"] and 1 <= ln["h"] <= 4 and ln["links"] and len(ln["t"]) < 220:
             posts.append({"title": ln["t"], "u": ln["links"][0][1], "lines": []})
         elif posts:
             posts[-1]["lines"].append(ln["t"])
+    if not posts and (page or {}).get("post"):
+        # a post's own page, set down so in the config (`post: true`): the post is the page, under its first heading
+        # (the Macon-Bibb County Transit Authority's notices of Sept. and Oct. 2025, kept by the Internet Archive one
+        # by one). A list of posts that shows none is never read so.
+        for i, ln in enumerate(lines):
+            if ln["h"] and 1 <= ln["h"] <= 2 and not ln["links"] and 4 < len(ln["t"]) < 220:
+                posts.append({"title": ln["t"], "u": url, "lines": [x["t"] for x in lines[i + 1:i + 60]]})
+                break
     seen = set()
     for p in posts:
         if p["u"] in seen:
@@ -1066,7 +1079,13 @@ def notice_posts(html: str, url: str, ag: dict, page: dict) -> list[dict]:
                 re.search(r"public speakers|ordinance|welcomes|appoint", title, re.I):
             continue
         d, pos = "", -1
-        for mm in list(DATE_LONG.finditer(text)):
+        # a post that opens with its day ("Tuesday, October 28, 2025, at 5:30 p.m. ..."): that day is the meeting's,
+        # whatever later dates the agenda names ("... Annual Conference in Augusta on November 19-21, 2025")
+        lead = re.match(rf"\s*{WEEKDAY},?\s*", text, re.I)
+        first = DATE_LONG.match(text, lead.end()) if lead else None
+        if first and _ok(int(first.group(3)), _mon(first.group(1)), int(first.group(2))):
+            d, pos = _ok(int(first.group(3)), _mon(first.group(1)), int(first.group(2))), first.end()
+        for mm in ([] if d else list(DATE_LONG.finditer(text))):
             day = _ok(int(mm.group(3)), _mon(mm.group(1)), int(mm.group(2)))
             before = text[max(0, mm.start() - 60):mm.start()]
             before = re.sub(rf"{WEEKDAY},?\s*$", "", before, flags=re.I)
@@ -1102,7 +1121,7 @@ def notice_posts(html: str, url: str, ag: dict, page: dict) -> list[dict]:
             nxt = squash(TIME_RX.sub("", text[pos:pos + 90].split(" I. ")[0].split(" 1. ")[0])).strip(" ,;:-–")
             if 4 < len(nxt) < 70 and re.search(r"center|hall|room|rotunda|building|floor|station|office", nxt, re.I):
                 where = nxt
-        m["where"] = m["where"] or where[:200]
+        m["where"] = m["where"] or re.sub(r"^at\s+", "", where)[:200]
         if re.search(r"\bagenda\b", text + " " + title, re.I):
             m["agenda"] = m["agenda"] or p["u"]
         pub = re.search(r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{1,2}) ([A-Z][a-z]{2}) (20\d\d)\b", text[:80]) if p["lines"] else None

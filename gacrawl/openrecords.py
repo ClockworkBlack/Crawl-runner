@@ -217,6 +217,60 @@ def load_contacts(root: Path) -> dict:
             "skip": list(d.get("skip") or []), "ask_anyway": list(d.get("ask_anyway") or [])}
 
 
+CLERKS_FILE = "data/openrecords/clerks.json"
+# an address is offered to Electo's drafter when it was printed on an official page (the place's own site, or the GMA,
+# ACCG, county or regional commission directory); one only a third-party page prints stays in the worklist
+CLERK_EMAIL_OK = ("high", "medium")
+
+
+def load_clerks(root: Path) -> dict:
+    """{jurisdiction id: what was found} from data/openrecords/clerks.json: the clerk (or whoever keeps the code) of
+    each place with no code on file, looked up by hand on the place's own site and the official directories. Every
+    fact carries the page it was read on. Nobody is asked because of this file: a request goes out only to an address
+    under `approved:` in config/private/openrecords.yaml."""
+    import json as _json
+
+    try:
+        return (_json.loads((root / CLERKS_FILE).read_text()) or {}).get("clerks") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def clerk_contact(c: dict) -> dict | None:
+    """One clerks.json entry as the export's records contact: the addresses rated high or medium (best first), the
+    clerk's name and title, city hall's phone, hours and mailing address, each with its page. None when the entry
+    has nothing to reach anyone by."""
+    rank = {"high": 0, "medium": 1}
+    rows = sorted((e for e in c.get("emails") or [] if e.get("confidence") in CLERK_EMAIL_OK and _clean(e.get("address"))),
+                  key=lambda e: rank[e["confidence"]])
+    emails = list(dict.fromkeys(_clean(e["address"]) for e in rows))
+    clerk, phone = c.get("clerk") or {}, c.get("phone") or {}
+    hours, mail = c.get("hours") or {}, c.get("mailing_address") or c.get("street_address") or {}
+    form = (c.get("records_request") or {}).get("url")
+    if not (emails or phone.get("number") or form):
+        return None
+    out = {"emails": emails}
+    if clerk.get("name"):
+        out["clerk"] = {k: clerk[k] for k in ("name", "title", "src") if clerk.get(k)}
+    if phone.get("number"):
+        out["phone"] = {k: phone[k] for k in ("number", "label", "src") if phone.get(k)}
+    if hours.get("text"):
+        out["hours"] = hours["text"]
+    if mail.get("text"):
+        out["mail"] = mail["text"]
+    if form and str(form).startswith("http") and not NOT_PORTAL.search(str(form)):
+        out["portal"] = form
+    src = (rows[0].get("src") if rows else None) or clerk.get("src") or phone.get("src")
+    if src:
+        out["page"] = src
+    if rows:
+        out["email_from"] = [{"address": _clean(e["address"]), "whose": e.get("whose"), "confidence": e["confidence"],
+                              "src": e.get("src")} for e in rows]
+    if c.get("checked"):
+        out["checked"] = c["checked"]
+    return out
+
+
 def write_review(root: Path, reviews: list[dict]) -> Path:
     p = root / "data" / "openrecords" / "review.md"
     p.parent.mkdir(parents=True, exist_ok=True)

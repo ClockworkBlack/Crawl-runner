@@ -1100,9 +1100,25 @@ def export_policing(root: Path, out_dir: Path, jurisdictions: list[dict]) -> dic
             continue
         contacts[jid] = {"name": j.get("name", jid), "kind": j.get("kind"), "emails": emails,
                          "portal": rc.get("portal"), "page": rc.get("page"), "website": d.get("website")}
+    # the clerks looked up by hand for the places with no code on file (data/openrecords/clerks.json): who keeps the
+    # code, city hall's phone, hours and mailing address, and the addresses printed on an official page
+    from .openrecords import clerk_contact, load_clerks
+
+    for jid, c in load_clerks(root).items():
+        j = by_id.get(jid)
+        extra = clerk_contact(c) if j else None
+        if not extra:
+            continue
+        cur = contacts.get(jid) or {"name": j.get("name", jid), "kind": j.get("kind"), "emails": [], "portal": None,
+                                    "page": None, "website": (disc.get(jid) or {}).get("website")}
+        emails = clean_emails(list(cur.get("emails") or []) + extra.pop("emails"))
+        contacts[jid] = {**cur, **extra, "emails": emails, "portal": cur.get("portal") or extra.get("portal"),
+                         "page": cur.get("page") or extra.get("page")}
     (out_dir / "records_contacts.json").write_text(json.dumps({
         "note": "Open-records contacts found on each government's own site (a clerk or records address on its domain, "
-                "or its request portal), for Electo's records-request drafter. Never guessed.",
+                "or its request portal), for Electo's records-request drafter. Never guessed. Where a clerk was "
+                "looked up by hand (`clerk`, `phone`, `hours`, `mail`, `checked`), every field was read on the page "
+                "named beside it (`src`).",
         "contacts": contacts}, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"departments": len(depts), "from_pages": counts["from_pages"], "listed_only": counts["listed_only"],
             "others": counts["others"], "outlets": len(outlets), "records_contacts": len(contacts)}

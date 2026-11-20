@@ -203,7 +203,7 @@ scikit-learn are installed where the export runs.
 | departments[].phones / emails / address / precincts | each with `src` (the page it was read on); emails only on the government's own domain; precincts `{{name, address, phone, src}}` |
 | departments[].complaints / records | the internal-affairs or complaints page and the records page, with the emails and phones printed there |
 | outlets[] | news outlets (config/outlets.yaml): `domain`, `name`, `page`, `tips[] {{address, label, src}}` from the outlet's own contact page |
-| contacts{{}} | open-records contacts by jurisdiction id: `emails` (an approved address first), `portal`, `page`, `website` |
+| contacts{{}} | open-records contacts by jurisdiction id: `emails` (an approved address first), `portal`, `page`, `website`; where the clerk was looked up by hand also `clerk` {{name, title, src}}, `phone` {{number, label, src}}, `hours`, `mail` (mailing address), `email_from[]` {{address, whose, confidence, src}} and `checked` |
 
 ## Jurisdiction (jurisdictions.json)
 id, name, kind (county|city|town|consolidated), fips, counties, county_seat, population, website, website_source,

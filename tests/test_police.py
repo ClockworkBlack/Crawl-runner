@@ -334,3 +334,38 @@ def test_a_failed_read_keeps_the_department_read_before(tmp_path: Path):
     n = police.discover_police(Down(), [{"id": "x", "name": "X", "kind": "city", "website": "https://www.x.gov/"}], tmp_path)
     d = json.loads((tmp_path / "police.json").read_text())["x"]
     assert n == 1 and d["found"] and d["url"] == "https://www.x.gov/police" and "down" in d["last_error"]
+
+
+def test_export_adds_the_clerks_looked_up_by_hand(tmp_path: Path):
+    """data/openrecords/clerks.json: a place with no address on file gets the clerk, phone, hours and the addresses
+    printed on an official page (a third-party page's address stays out); a place the seed already has is only added to."""
+    for d in ("state", "config", "data/openrecords", "out"):
+        (tmp_path / d).mkdir(parents=True)
+    (tmp_path / "state" / "discovered.json").write_text(json.dumps({
+        "marietta": {"website": "https://www.mariettaga.gov/", "records": {"emails": ["clerk@mariettaga.gov"], "portal": None, "page": "https://www.mariettaga.gov/clerk"}},
+        "cobbtown": {"website": None, "records": {}}}))
+    (tmp_path / "config" / "outlets.yaml").write_text("outlets: []\n")
+    (tmp_path / "data" / "openrecords" / "clerks.json").write_text(json.dumps({"clerks": {
+        "cobbtown": {"clerk": {"name": "Jane Doe", "title": "City Clerk", "src": "https://gma/cobbtown"},
+                     "emails": [{"address": "someone@chamber.org", "confidence": "low", "src": "https://chamber"},
+                                {"address": "CityHall@cobbtown.gov", "whose": "City Hall", "confidence": "medium", "src": "https://cobbtown.gov/contact"}],
+                     "phone": {"number": "(912) 684-3448", "label": "City Hall", "src": "https://gma/cobbtown"},
+                     "hours": {"text": "Mon-Fri: 8:00 AM-5:00 PM", "src": "https://gma/cobbtown"},
+                     "mailing_address": {"text": "PO Box 59, Cobbtown, GA 30420", "src": "https://gma/cobbtown"}, "checked": "2026-11-20"},
+        "marietta": {"clerk": {"name": "Al Roe", "title": "City Clerk", "src": "u"}, "emails": [{"address": "aroe@mariettaga.gov", "confidence": "high", "src": "u"}],
+                     "phone": {"number": "770-794-5530", "src": "u"}},
+        "nowhere": {"clerk": {"name": "X Y", "title": "Clerk"}, "phone": {"number": "1"}},
+        "empty": {"clerk": {"name": "No Way", "title": "Clerk"}, "emails": []}}}))
+    jur = [{"id": "marietta", "name": "Marietta", "kind": "city", "counties": ["Cobb"]}, {"id": "cobbtown", "name": "Cobbtown", "kind": "city"},
+           {"id": "empty", "name": "Empty", "kind": "town"}]
+    n = police.export_policing(tmp_path, tmp_path / "out", jur)
+    C = json.loads((tmp_path / "out" / "records_contacts.json").read_text())["contacts"]
+    assert n["records_contacts"] == 2 and set(C) == {"marietta", "cobbtown"}       # not in the registry / nothing to reach
+    c = C["cobbtown"]
+    assert c["emails"] == ["cityhall@cobbtown.gov"] and c["clerk"] == {"name": "Jane Doe", "title": "City Clerk", "src": "https://gma/cobbtown"}
+    assert c["phone"]["number"] == "(912) 684-3448" and c["hours"].startswith("Mon-Fri") and c["mail"].startswith("PO Box 59")
+    assert c["page"] == "https://cobbtown.gov/contact" and c["name"] == "Cobbtown" and c["checked"] == "2026-11-20"
+    assert [e["address"] for e in c["email_from"]] == ["cityhall@cobbtown.gov"]
+    m = C["marietta"]
+    assert m["emails"] == ["clerk@mariettaga.gov", "aroe@mariettaga.gov"] and m["page"] == "https://www.mariettaga.gov/clerk"
+    assert m["clerk"]["name"] == "Al Roe"

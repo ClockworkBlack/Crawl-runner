@@ -42,3 +42,56 @@ jurisdictions:
   sd-city-decatur:
     website: https://www.csdecatur.net/
     notes: board agendas on Simbli (simbli.eboardsolutions.com, s=4052)
+  # Nov 20, 2026 clerk lookup (data/openrecords/clerks.json): the site on file was not the government's, had moved,
+  # or had been taken over; each replacement was opened and is the government's own site
+  co-candler:
+    website: https://candlerco-ga.gov/
+    notes: "metter-candler.com on file is the City of Metter's site (checked Nov 20, 2026)"
+  co-fannin:
+    website: https://fannincountyga.com/
+    notes: "fannincountyga.org on file is a Coming Soon placeholder (checked Nov 20, 2026)"
+  co-irwin:
+    website: https://irwincounty-ga.gov/
+    notes: "ocillachamber.net on file is the chamber of commerce (checked Nov 20, 2026)"
+  co-miller:
+    website: https://www.millercountyga.gov/
+    notes: "colquitt-georgia.com on file is not the county's (checked Nov 20, 2026)"
+  co-pike:
+    website: https://www.pikecoga.gov/
+    notes: "pikecoga.com now leads here (checked Nov 20, 2026)"
+  co-randolph:
+    website: https://www.randolphcountyga.com/
+    notes: "randolph.southwest-ga.com on file is not the county's own site (checked Nov 20, 2026)"
+  co-terrell:
+    website: https://terrellcountyga.gov/
+    notes: "terrellcounty-ga.com on file is not the county's own site (checked Nov 20, 2026)"
+  braselton:
+    website: https://www.braselton.gov/
+    notes: "census.gov was on file; GMA prints braselton.gov (robots.txt refuses crawlers: Archive copies only) (checked Nov 20, 2026)"
+  culloden:
+    website: https://cityofculloden.com/
+    notes: "no site was on file (checked Nov 20, 2026)"
+  abbeville:
+    website: https://cityofabbevillega.gov/
+    notes: "abbevillega.org redirects here (checked Nov 20, 2026)"
+  dasher:
+    website: https://www.dasherga.gov/
+    notes: "dasherga.com is parked for sale (checked Nov 20, 2026)"
+  plains:
+    website: https://plainsgeorgia.gov/
+    notes: "plainsgeorgia.org redirects here (checked Nov 20, 2026)"
+  claxton:
+    website: https://www.cityofclaxton.org/
+    notes: "cityofclaxton.net redirects here (checked Nov 20, 2026)"
+  climax:
+    website: ''
+    notes: "cityofclimaxga.com now redirects to a gambling site (checked Nov 20, 2026)"
+  hiltonia:
+    website: ''
+    notes: "townofhiltonia.com now serves a betting page (checked Nov 20, 2026)"
+  bartow:
+    website: ''
+    notes: "townofbartow.com now redirects to a gambling site (checked Nov 20, 2026)"
+  pinehurst:
+    website: ''
+    notes: "cityofpinehurstga.com now serves gambling spam (checked Nov 20, 2026)"

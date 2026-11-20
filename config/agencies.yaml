@@ -340,8 +340,20 @@ agencies:
     kind: transit
     name: Macon-Bibb County Transit Authority
     agency: Regional transit authority (Macon-Bibb County)
+    # mbcta.net answers automated readers with a challenge (403, since Nov. 20, 2026). Its notices of 2025 stood under
+    # another address, /category/governance-and-management/board-meetings/, of which the Internet Archive keeps copies
+    # (four pages): read from those copies (archive: true), they give each meeting's day, hour and place, and the
+    # minutes page's files, named by month alone ("MTA Board June 2025 Minutes"), are filed under those days. The
+    # current notices page has no copy yet; it is read from the site when the site answers.
     pages:
       - {u: "https://mbcta.net/category/board-meetings/", reader: notice_posts}
+      - {u: "https://mbcta.net/category/governance-and-management/board-meetings/", reader: notice_posts, archive: true}
+      - {u: "https://mbcta.net/category/governance-and-management/board-meetings/page/2/", reader: notice_posts, archive: true}
+      - {u: "https://mbcta.net/category/governance-and-management/board-meetings/page/3/", reader: notice_posts, archive: true}
+      - {u: "https://mbcta.net/category/governance-and-management/board-meetings/page/4/", reader: notice_posts, archive: true}
+      # the notices of Sept. and Oct. 2025, of which the Archive keeps only the posts' own pages
+      - {u: "https://mbcta.net/september-2025-board-meeting/", reader: notice_posts, archive: true, post: true}
+      - {u: "https://mbcta.net/october-2025-board-meeting/", reader: notice_posts, archive: true, post: true}
       - {u: "https://mbcta.net/board-meeting-minutes/", reader: month_named}
 
 # Transit systems NOT listed, because a city or county department runs them (no board of their own that meets): Augusta

@@ -167,6 +167,32 @@ def test_the_entry_filed_for_the_archive_on_nov_19_is_not_honoured(tmp_path):
 
 # Macon-Bibb County Transit Authority's two pages, as saved in tests/fixtures/agencies: the body of Nov. 20, 2026
 MB = {"https://mbcta.net/category/board-meetings/": "mbcta_posts.html", "https://mbcta.net/board-meeting-minutes/": "mbcta_minutes.html"}
+
+
+def _mb_root() -> Path:
+    """The config with the authority as it was set down on Nov. 20, 2026 (its two pages): these tests are of the rule
+    that reads a refusing body from the Archive, not of the authority's pages today (tests/test_macon_transit.py)."""
+    import re
+    import tempfile
+
+    root = Path(tempfile.mkdtemp(prefix="mb-root-"))
+    (root / "config").mkdir()
+    cfg = (ROOT / "config" / "agencies.yaml").read_text()
+    two = """  - id: macon-transit
+    kind: transit
+    name: Macon-Bibb County Transit Authority
+    agency: Regional transit authority (Macon-Bibb County)
+    pages:
+      - {u: "https://mbcta.net/category/board-meetings/", reader: notice_posts}
+      - {u: "https://mbcta.net/board-meeting-minutes/", reader: month_named}
+"""
+    cfg, n = re.subn(r"  - id: macon-transit\n.*?(?=\n  - id: |\n\S)", two.rstrip("\n"), cfg, count=1, flags=re.S)
+    assert n == 1
+    (root / "config" / "agencies.yaml").write_text(cfg)
+    return root
+
+
+MB_ROOT = _mb_root()
 CHALLENGED = "HTTP 403 bot-protection challenge"
 
 
@@ -188,12 +214,12 @@ class BodyFetcher:
 
 def export(store, tmp_path, name, today="2026-11-20"):
     out = tmp_path / name
-    A.export_state_meetings(store, ROOT, out, today=today, log=lambda *a: None)
+    A.export_state_meetings(store, MB_ROOT, out, today=today, log=lambda *a: None)
     return next(b for b in json.loads(out.read_text())["bodies"] if b["id"] == "macon-transit")
 
 
 def read(fetcher, store):
-    return A.run(fetcher, store, ROOT, only=["macon-transit"], log=lambda *a: None, minutes_cap=0)
+    return A.run(fetcher, store, MB_ROOT, only=["macon-transit"], log=lambda *a: None, minutes_cap=0)
 
 
 @pytest.fixture()
@@ -369,7 +395,7 @@ def test_one_refusal_from_the_archive_stops_every_body_of_the_run_asking(tmp_pat
         def get(self, url, **k):
             raise Blocked("x", CHALLENGED)
 
-    res = A.run(Refusing(), store, ROOT, only=["gwcca", "macon-transit"], log=lambda *a: None, minutes_cap=0)
+    res = A.run(Refusing(), store, MB_ROOT, only=["gwcca", "macon-transit"], log=lambda *a: None, minutes_cap=0)
     assert len(made) == 1 and len(asked) == 1
     assert sum("no readable Internet Archive copy (HTTP 429 from web.archive.org)" in e for e in res["errors"]) == 3   # gwcca's page, Macon-Bibb's two
     store.close()
