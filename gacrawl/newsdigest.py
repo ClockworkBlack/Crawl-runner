@@ -299,6 +299,9 @@ def level_of(title: str, text: str) -> str | None:
     return "federal" if federal(title, text) else None
 
 
+_ISO_DAY = re.compile(r"\d{4}-\d\d-\d\d")
+
+
 def fed_tags_of(title: str, text: str) -> list[str]:
     hay = f"{title} {text[:1500]}".lower()
     return [t for t, rx in FED_TAGS if re.search(rx, hay)][:3]
@@ -359,7 +362,14 @@ class Digest:
         self.stats["kept"] += 1
         fed = lv == "federal"
         self.stats["federal"] += fed
-        rec = Record(SOURCE, "news_item", url, title=title, text=_excerpt(text), published=(date or "")[:10] or None,
+        # A day that has not come is not the day a story was published (Nov. 20, 2026: an outlet's feed dated a story
+        # of that week Nov. 25, and it stood on the News tab under that day). The outlet's date is set aside
+        # (meta.date_set_aside) and the story has none of its own: the digest dates it by the day it was first read
+        # (export_news). One day ahead is the outlet's own day being ahead of this clock.
+        day, aside = (date or "")[:10], ""
+        if _ISO_DAY.fullmatch(day) and day > (dt.date.today() + dt.timedelta(days=1)).isoformat():
+            day, aside = "", day
+        rec = Record(SOURCE, "news_item", url, title=title, text=_excerpt(text), published=day or None,
                      channel=via, jurisdiction="us" if fed else "ga", evidence="reported", key=f"{SOURCE}|{url}",
                      meta={"outlet": outlet, "outlet_name": self.names.get(outlet, outlet),
                            "tags": fed_tags_of(title, text) if fed else tags_of(title, text), "level": lv,
@@ -367,7 +377,7 @@ class Digest:
                            "statewide": (not fed) and bool(STATEWIDE.search(f"{title} {text}")),
                            # the outlet's own text, for the model that writes the summary (never published: the page
                            # shows the headline, the outlet's excerpt or the checked summary, and links to the story)
-                           "body": (body or text)[:3000]})
+                           "body": (body or text)[:3000], **({"date_set_aside": aside, "date_from": "seen"} if aside else {})})
         self.stats["new"] += self.store.add(rec)
 
     def from_wp(self, dom: str, api: str) -> list[tuple]:
@@ -516,14 +526,21 @@ def export_news(store, out_path: Path, text_path: Path | None = None, read: list
     items, seen, texts = [], set(), {}
     for r in store.iter_query("kind='news_item'"):
         d = (r.get("published") or "")[:10]
-        if not d or d < floor:
-            continue
         m0 = r.get("meta") or {}
         if isinstance(m0, str):
             try:
                 m0 = json.loads(m0)
             except ValueError:
                 m0 = {}
+        # a story its outlet dated after the day it was first read here (its date set aside for that by Digest.add, or
+        # stored before that rule with the outlet's day): the day it was first read. It was published by then, and
+        # that day does not move from one run to the next. A story with no date at all is left out, as before.
+        first = str(r.get("first_seen") or "")[:10]
+        if _ISO_DAY.fullmatch(first) and ((not d and m0.get("date_set_aside")) or
+                                          (_ISO_DAY.fullmatch(d) and d > (dt.date.fromisoformat(first) + dt.timedelta(days=1)).isoformat())):
+            d = first
+        if not d or d < floor:
+            continue
         lv = level_of(r.get("title") or "", r.get("text") or "")
         if m0.get("level") == "federal" and lv:      # read from a federal section: federal however the excerpt reads
             lv = "federal"

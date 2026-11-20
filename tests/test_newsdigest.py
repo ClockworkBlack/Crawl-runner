@@ -210,3 +210,49 @@ def test_news_loop_passes_read_only_what_changed(tmp_path):
     d = _json.loads(out.read_text())
     assert d["read"] == ["The C", "a.example", "b.example"]
     assert [x["u"] for x in d["items"]] == sorted([x["u"] for x in d["items"]], reverse=True)
+
+
+def test_a_story_its_outlet_dates_in_the_future_is_dated_by_the_day_it_was_first_read(tmp_path):
+    """Nov. 20, 2026: an outlet's feed dated a story of that week Nov. 25. It stood on the News tab under that day and
+    the site's audit failed on it. A day that has not come is not when a story was published."""
+    import datetime as dt
+
+    from gacrawl.store import Record
+
+    day = lambda n: (dt.date.today() + dt.timedelta(days=n)).isoformat()  # noqa: E731
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "outlets.yaml").write_text("outlets: []\n")
+    s = Store(tmp_path / "t.db")
+    g = nd.Digest(None, s, tmp_path, tmp_path, log=lambda *a: None)
+    g.add("https://ex.com/ahead", "Gwinnett commission approves budget", "The county commission voted 4-1.", day(5) + "T09:00:00", "ex.com", "feed")
+    g.add("https://ex.com/tomorrow", "Cobb commission approves budget", "The county commission voted 3-2.", day(1), "ex.com", "feed")
+    g.add("https://ex.com/today", "Fulton commission approves budget", "The county commission voted 5-2.", day(0), "ex.com", "feed")
+    g.add("https://ex.com/nodate", "DeKalb commission approves budget", "The county commission voted 6-1.", "", "ex.com", "feed")
+    # a story stored before the rule, with the outlet's day
+    s.add(Record(nd.SOURCE, "news_item", "https://ex.com/stored", title="Hall County commission approves budget", text="The commission voted.", published=day(4),
+                 meta={"outlet_name": "Ex News", "level": "ga"}))
+    s.flush()
+    rows = {r["url"]: r for r in s.iter_query("kind='news_item'")}
+    assert not rows["https://ex.com/ahead"]["published"] and rows["https://ex.com/ahead"]["meta"]["date_set_aside"] == day(5)
+    assert rows["https://ex.com/ahead"]["meta"]["date_from"] == "seen"
+    assert rows["https://ex.com/tomorrow"]["published"] == day(1) and "date_set_aside" not in rows["https://ex.com/tomorrow"]["meta"]
+    assert rows["https://ex.com/today"]["published"] == day(0) and not rows["https://ex.com/nodate"]["published"]
+    out = tmp_path / "news.json"
+    nd.export_news(s, out)
+    got = {x["u"]: x["d"] for x in json.loads(out.read_text())["items"]}
+    first_read = str(rows["https://ex.com/ahead"]["first_seen"])[:10]
+    assert got == {"https://ex.com/ahead": first_read, "https://ex.com/stored": first_read, "https://ex.com/tomorrow": day(1), "https://ex.com/today": day(0)}
+    assert all(d <= day(1) for d in got.values()) and "https://ex.com/nodate" not in got
+    # read again on a later pass with the same day from its outlet: the story's day does not move, and nothing is rewritten
+    v = {r["url"]: r["version"] for r in s.iter_query("kind='news_item'")}
+    g.add("https://ex.com/ahead", "Gwinnett commission approves budget", "The county commission voted 4-1.", day(5) + "T09:00:00", "ex.com", "feed")
+    s.flush()
+    assert {r["url"]: r["version"] for r in s.iter_query("kind='news_item'")} == v
+    # the outlet puts its date right: the story takes it
+    g.add("https://ex.com/ahead", "Gwinnett commission approves budget", "The county commission voted 4-1.", day(-1), "ex.com", "feed")
+    s.flush()
+    row = next(r for r in s.iter_query("kind='news_item'") if r["url"] == "https://ex.com/ahead")
+    assert row["published"] == day(-1) and "date_set_aside" not in row["meta"]
+    nd.export_news(s, out)
+    assert {x["u"]: x["d"] for x in json.loads(out.read_text())["items"]}["https://ex.com/ahead"] == day(-1)
+    s.close()
