@@ -73,3 +73,10 @@
 - Rumors read as about a namesake are rated "off" and listed last, not hidden: hide them?
 - Small towns' roll calls stay with the council even when few members can be identified: keep?
 - MARTA and other regional transit authorities move to "Regional Transit" (decided Nov 19).
+
+### LegiScan (Nov 20, 2026)
+- `LEGISCAN_API_KEY` is set on Crawl-runner and reaches the job, but LegiScan answers GitHub's runners with a
+  bot-protection challenge (api.legiscan.com and legiscan.com/robots.txt alike, probe run 44683847721). The crawler
+  does not solve challenges or change how it names itself, so: ask LegiScan's API support to allow API calls from
+  GitHub-hosted runners for this key (User-Agent `GACivicCrawler/0.3 (+https://github.com/ClockworkBlack/Crawl-runner)`).
+  Until then roll calls come from legis.ga.gov only, with no LegiScan cross-check.
