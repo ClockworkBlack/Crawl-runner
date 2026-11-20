@@ -1,0 +1,101 @@
+name: electo-bill-details
+# What each Georgia bill does, for the bill pop-up. Electo's civics/bill_details.py reads the legislature's own record
+# (legis.ga.gov: official summary or "first reader", action history, floor votes, committees, current text) of every
+# bill in Electo's ga/pipeline_civics/acts.json that is not on file yet, plus pending current-session bills whose status
+# has moved; this job commits civics/legis/bill_detail.json to Electo and starts publish-site (Electo's qa/mksite.sh
+# turns the file into pipeline/bsum/NN.json).
+#
+# Runs in the PUBLIC runner repository only (free minutes), every morning and by hand. Until Nov 19, 2026 Electo's own
+# bill-details workflow did this on the private repository's paid minutes; that workflow now starts only by hand.
+# Only four files of Electo are checked out (the reader, its client, the list of bills, the records on file). The log
+# shows the reader's counts of public records and nothing else of Electo.
+# The legislature's site sometimes refuses GitHub's servers: the reader then stops and keeps what it read, and the next
+# run carries on where it stopped. What was read is committed also after a read that failed or ran out of time.
+on:
+  schedule:
+    - cron: "23 11 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Most bills to read this run"
+        default: "1500"
+
+permissions:
+  contents: read
+  actions: write        # start publish-site once Electo has the records
+
+concurrency:
+  group: electo-bill-details
+  cancel-in-progress: false
+
+jobs:
+  read:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      LIMIT: ${{ inputs.limit || '1500' }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Electo's bill reader, its list of bills and the records on file
+        run: |
+          set -eu
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          E="$RUNNER_TEMP/electo-bills"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E"
+          cd "$E"
+          git sparse-checkout set --no-cone /civics/bill_details.py /civics/fetch_legis.py /civics/legis/bill_detail.json /ga/pipeline_civics/acts.json
+          [ -f civics/bill_details.py ] || { echo "::error::no civics/bill_details.py in this Electo"; exit 1; }
+      - name: Read new and changed bills from legis.ga.gov
+        run: |
+          cd "$RUNNER_TEMP/electo-bills"
+          case "$LIMIT" in ''|*[!0-9]*) LIMIT=1500 ;; esac
+          # the reader's own exit status, not tee's (a crash read as success)
+          set +e
+          timeout -k 1m 80m python3 -I civics/bill_details.py --limit "$LIMIT" --workers 4 | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
+          set -e
+          case "$rc" in
+            0) ;;
+            124|137) echo "::notice::the read stopped at its 80 minutes; what it read is kept and the next run carries on" ;;
+            *) echo "::error title=Bill records::civics/bill_details.py ended with exit $rc; what it read before that is still committed (next step)"; exit 1 ;;
+          esac
+      - name: Commit the records to Electo
+        id: commit
+        # also after a failed or timed-out read: the reader saves every 200 bills, and what it read is kept
+        if: ${{ !cancelled() }}
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/electo-bills" 2>/dev/null || { echo "no copy of Electo; nothing to commit"; exit 0; }
+          F=civics/legis/bill_detail.json
+          [ -f "$F" ] || { echo "no records file; nothing to commit"; exit 0; }
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add "$F"
+          git diff --cached --quiet && { echo "No new bill records" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          cp "$F" "$RUNNER_TEMP/bill_detail.json"
+          MSG="Bill records: official summaries, history and votes ($(date -u +%Y-%m-%d))"
+          git commit -qm "$MSG"
+          for i in 1 2 3 4 5; do
+            if git push -q origin HEAD:main; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              echo "Bill records on Electo ($(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            echo "the push was refused (try $i): committing again on Electo's newest main"
+            sleep $((i * 5))
+            # Electo's main moves often (the news, money and AI jobs); only this job writes this file, so the records
+            # read here are put on the newest commit as they are (no rebase that could stop halfway)
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || continue
+            cp "$RUNNER_TEMP/bill_detail.json" "$F"
+            git add "$F"
+            git diff --cached --quiet && { echo "Electo already has these records"; exit 0; }
+            git commit -qm "$MSG"
+          done
+          echo "::error title=Bill records::Electo refused the records five times; nothing of this run reached it"; exit 1
+      - name: Publish the site now
+        # publish-site's own schedule fires about once an hour in this repository
+        if: ${{ !cancelled() && steps.commit.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

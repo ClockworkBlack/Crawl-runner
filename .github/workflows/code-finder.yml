@@ -1,0 +1,89 @@
+name: code-finder
+
+# For the places with no downloaded code (imports/ordinances/): read each one's own website a little deeper
+# (gacrawl/codefinder.py), largest first, each at most once a month:
+#   - a code of ordinances, charter or zoning / development code posted as a PDF or Word file is downloaded into
+#     imports/ordinances/<id>/ (with sources.csv), and the ordinances workflow is started so it reaches Electo;
+#   - the clerk / open-records address or portal the site publishes goes to data/openrecords/found.json, which
+#     records-send uses for places the seed found no address for;
+#   - a link to the code on a code library (Municode, ...) is listed in data/openrecords/online_codes.md.
+# A place with no website gets the one GMA's city directory lists.
+#
+# Runs in the PUBLIC runner repository only (config/runner.json runner_repo), on its free minutes, like the crawl,
+# police and ordinances. Until Nov 19, 2026 it ran in the private repository on paid minutes (about 11 a day); a start
+# there now ends skipped at once. Everything it reads and finds stays in the private repository (data_repo), through
+# scripts/private_data.py and the DATA_TOKEN secret the runner's jobs already use:
+#   - before a site is read, this run's runner gets state/ (the registry's websites), found.json and
+#     imports/ordinances/ (for GA/, the downloader's gigabytes, the files' names only), and the clone that holds the
+#     token is removed. Never the records tracker, received mail or config/private/;
+#   - afterwards found.json, online_codes.md and the new code files are committed to the private repository (only what
+#     this run changed; never to this public one), and the ordinances workflow is started here for new code files.
+# The log names places, the files saved and the pages they came from (public documents on public sites, as the
+# crawl's log names the pages it reads) and counts. The addresses found are written to found.json and never printed.
+# The mailbox's address is not in this job's User-Agent here (the ORR_* secrets stay in the private repository).
+
+on:
+  schedule:
+    - cron: "17 6 * * *"     # 1:17 AM Eastern (2:17 in summer), after the crawl's busy hours
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Only these place ids, comma-separated (looked at again even if checked recently)"
+        required: false
+
+permissions:
+  contents: read
+  actions: write     # start the ordinances workflow for new downloads
+
+concurrency:
+  group: code-finder
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+
+jobs:
+  find:
+    # the public runner only: in the private repository every start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90      # the copy (up to 15), the sites (40, stopped at 50), what was found (up to 20)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job reads pages from the web: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: What the finder reads (from the private repository)
+        id: pull
+        timeout-minutes: 15
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py finder-pull
+      - name: Read the sites
+        timeout-minutes: 50
+        env:
+          ONLY: ${{ github.event.inputs.only }}
+        run: |
+          set -o pipefail      # a finder that stopped on an error fails the step; what it found is still kept below
+          if [ -n "$ONLY" ]; then
+            gacrawl records find --max-minutes 40 --only "$ONLY" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gacrawl records find --max-minutes 40 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Keep what was found (in the private repository)
+        id: keep
+        if: always() && steps.pull.outcome == 'success'
+        timeout-minutes: 20
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py finder-push
+      - name: Start the ordinances workflow for the new code files
+        # here, in this repository, where ordinances runs (it reads imports/ordinances/ from the private repository);
+        # when the start fails, the next scheduled ordinances run reads them
+        if: always() && steps.keep.outputs.new_codes != '' && steps.keep.outputs.new_codes != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ordinances.yml -R "$GITHUB_REPOSITORY" --ref main || echo "::warning title=Ordinances::not started; its next scheduled run reads the new files"

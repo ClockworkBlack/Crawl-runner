@@ -1,0 +1,69 @@
+name: dry-run
+# A reader run without storing anything, its findings printed to the log: for checking a new or changed reader
+# against the live sites before the nightly crawl uses it.
+#
+# Runs in the PUBLIC runner repository only (Crawl-runner, Actions, dry-run, Run workflow), on its free minutes; until
+# Nov 19, 2026 it ran in the private repository on paid minutes. The readers here read the state's public meeting
+# pages, and the log (and the state-file option's attached file, kept a day at most) shows what those pages say: the
+# same meetings the site publishes. From the private repository it takes only state/ (scripts/private_data.py state),
+# prints none of it and writes nothing back; the database is this run's own, empty.
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "which reader"
+        type: choice
+        options: [agencies, legis-meetings, state-file]
+        required: true
+      only:
+        description: "agencies: only these ids, comma-separated (empty: all)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+jobs:
+  run:
+    # the public runner only (config/runner.json runner_repo), on its free minutes: in the private repository a
+    # start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job reads pages from the web: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The crawler's state (from the private repository, read only)
+        # the registry's websites, the hosts that refused the crawler (not asked again inside their week) and the
+        # search cache; the clone that holds the token is removed before a site is read, and nothing is written back
+        timeout-minutes: 5
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py state
+      - env:
+          WHAT: ${{ inputs.what }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ "$WHAT" = agencies ]; then
+            gacrawl agencies --dry-run --max-minutes 15 --only "$ONLY"
+          elif [ "$WHAT" = state-file ]; then
+            # both readers for real into this run's own empty database, then the bundle's file from it (an artifact
+            # for a day): the site's first copy of the state meetings before the nightly crawl has run them
+            gacrawl agencies --max-minutes 10 > /tmp/ag.json
+            echo "agencies: $(wc -c < /tmp/ag.json) bytes"
+            gacrawl legis meetings --max-minutes 8 > /tmp/lm.json
+            echo "legislature schedule: $(wc -c < /tmp/lm.json) bytes"; head -c 1500 /tmp/lm.json; echo
+            gacrawl agencies --file state_meetings.json
+            # the file itself in the log (packed), for a session that can read logs but not artifacts
+            echo "-----BEGIN STATE MEETINGS-----"; gzip -9c state_meetings.json | base64 -w 160; echo "-----END STATE MEETINGS-----"
+          else
+            gacrawl legis meetings --dry-run --max-minutes 10
+          fi
+      - if: ${{ inputs.what == 'state-file' }}
+        uses: actions/upload-artifact@v4
+        with: {name: state-meetings, path: state_meetings.json, retention-days: 1}

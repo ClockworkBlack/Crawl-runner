@@ -1,0 +1,91 @@
+name: electo-incidents
+# The shared incident log: issues labelled "incident" in Electo (filed from the Policing tab's "Submit to the shared
+# log") become Electo's ga/incidents.json, which every copy of the site and the app reads. Closing an issue withdraws a
+# report; editing it corrects it. Electo's own tools/incidents_import.py does the work; this job commits the file to
+# Electo when it changed and starts publish-site.
+#
+# Runs in the PUBLIC runner repository only (free minutes). Until Nov 19, 2026 Electo's own incidents workflow did this
+# on the private repository's paid minutes, started by every issue event there and once a day (about four minutes a
+# run, nearly all of it the checkout). Nothing in a private repository can start a run here without spending minutes
+# there, so this job asks instead: the schedule names three times an hour, of which GitHub starts one or two in this
+# repository. A new, corrected or withdrawn report reaches Electo within about 20 to 60 minutes and the public site a
+# few minutes later (publish-site is started at once). Before, the import took a minute but the site followed only at
+# publish-site's own schedule, up to 75 minutes later. By hand, at once: Actions, electo-incidents, Run workflow.
+#
+# This repository's logs are public until sync-code moves them away: nothing of an issue is printed here. The
+# importer's output is not shown, only its count of open reports, and of a failure only the kind of error.
+# Reading issues needs Issues: Read-only on Electo. ELECTO_TOKEN is tried first, then DATA_TOKEN; when neither may read
+# them the run fails and says so, and ga/incidents.json stays as it was.
+on:
+  schedule:
+    - cron: "16,36,56 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write        # start publish-site once Electo has the log
+
+concurrency:
+  group: electo-incidents
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+    steps:
+      - name: Electo's issues labelled "incident" -> ga/incidents.json, committed to Electo when it changed
+        id: import
+        run: |
+          set -u
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          # the first token here that may read Electo's issues (the answer itself is thrown away)
+          T=""
+          for t in "$ELECTO_TOKEN" "$DATA_TOKEN"; do
+            [ -n "$t" ] || continue
+            if GH_TOKEN="$t" gh api "repos/${ELECTO_REPO}/issues?labels=incident&state=all&per_page=1" --silent >/dev/null 2>&1; then T="$t"; break; fi
+          done
+          [ -n "$T" ] || { echo "::error title=Incidents::no token here may read Electo's issues: give ELECTO_TOKEN (or DATA_TOKEN) Issues: Read-only on $ELECTO_REPO. ga/incidents.json is kept as it was"; exit 1; }
+          E="$RUNNER_TEMP/electo-incidents"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E" || { echo "::error::Electo could not be cloned"; exit 1; }
+          cd "$E"
+          git sparse-checkout set --no-cone /tools/incidents_import.py /ga/incidents.json
+          [ -f tools/incidents_import.py ] || { echo "::error::no tools/incidents_import.py in this Electo"; exit 1; }
+          # Electo's own importer (gh issue list -> ga/incidents.json). Nothing it prints reaches this public log but
+          # its count; of an error, only the kind (the last line's first word), never its text
+          rc=0; GH_TOKEN="$T" python3 -I tools/incidents_import.py --repo "$ELECTO_REPO" > "$RUNNER_TEMP/incidents.out" 2> "$RUNNER_TEMP/incidents.err" || rc=$?
+          if [ "$rc" != 0 ]; then
+            KIND=$(tail -n 1 "$RUNNER_TEMP/incidents.err" | cut -d: -f1 | tr -cd 'A-Za-z0-9._' | cut -c1-60)
+            rm -f "$RUNNER_TEMP/incidents.out" "$RUNNER_TEMP/incidents.err"
+            echo "::error title=Incidents::tools/incidents_import.py ended with exit $rc (${KIND:-no error line}); ga/incidents.json is kept as it was"; exit 1
+          fi
+          grep -m 1 -o -E '^incidents: (unchanged \([0-9]+ open reports\)|[0-9]+ open reports written)' "$RUNNER_TEMP/incidents.out" || echo "incidents: imported"
+          rm -f "$RUNNER_TEMP/incidents.out" "$RUNNER_TEMP/incidents.err"
+          F=ga/incidents.json
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add "$F"
+          git diff --cached --quiet && { echo "the shared log is unchanged"; exit 0; }
+          cp "$F" "$RUNNER_TEMP/incidents.json"
+          git commit -qm "Shared incident log from issues"
+          for i in 1 2 3 4 5; do
+            if git push -q origin HEAD:main; then echo "pushed=true" >> "$GITHUB_OUTPUT"; echo "the shared log is on Electo ($(git rev-parse --short HEAD))"; exit 0; fi
+            echo "the push was refused (try $i): committing again on Electo's newest main"
+            sleep $((i * 5))
+            # Electo's main moves often (the crawl's import, the news, money and AI jobs); only this job writes the file
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || continue
+            cp "$RUNNER_TEMP/incidents.json" "$F"
+            git add "$F"
+            git diff --cached --quiet && { echo "Electo already has this log"; exit 0; }
+            git commit -qm "Shared incident log from issues"
+          done
+          echo "::error title=Incidents::Electo refused the log five times; nothing of this run reached it"; exit 1
+      - name: Publish the site now
+        if: ${{ !cancelled() && steps.import.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

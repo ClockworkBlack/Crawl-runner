@@ -302,6 +302,11 @@ jobs:
                   "copy-model": ("copy-model.yml", 52), "ai-replay": ("ai-replay.yml", 24 * 64), "ai-compare-eval": ("ai-compare-eval.yml", 24 * 15),
                   "ordinances": ("ordinances.yml", 20),       # every 6 h; here since Nov 19, 2026 (the private repository before)
                   "code-finder": ("code-finder.yml", 52),     # daily; here since Nov 20, 2026 (the private repository before)
+                  # Electo's builds, here since Nov 20, 2026 (Electo's own workflows before): daily, 20-minute polling,
+                  # twice a day, daily, every 6 h, daily
+                  "electo-bill-details": ("electo-bill-details.yml", 52), "electo-incidents": ("electo-incidents.yml", 3),
+                  "electo-crawl-policing": ("electo-crawl-policing.yml", 28), "electo-geo": ("electo-geo.yml", 52),
+                  "electo-ordinances": ("electo-ordinances.yml", 20), "electo-lawsearch-zip": ("electo-lawsearch-zip.yml", 52),
                   "crawl": ("crawl.yml", None), "police": ("police.yml", None)}     # crawl, police: checked above by their data
           for name, (wf, max_h) in jobs.items():
               w = status.get(name)
@@ -357,8 +362,10 @@ jobs:
           watched = {
               data_repo: (("DATA_TOKEN", "LOGVIEW_READ"), {
                   "records-send.yml": (24 * 4, True)}),       # weekdays: Friday's success, then Monday's
+              # Electo's own workflows start only by hand since Nov 20, 2026 (their work runs here as electo-*.yml):
+              # no age rule, but a hand-started run that keeps failing is still told
               os.environ["ELECTO_REPO"]: (("ELECTO_TOKEN", "DATA_TOKEN", "LOGVIEW_READ"), {
-                  "bill-details.yml": (52, True), "incidents.yml": (52, True), "copy-model-public.yml": (52, True)}),
+                  "bill-details.yml": (None, True), "incidents.yml": (None, True), "copy-model-public.yml": (None, True)}),
               os.environ["SITE_DATA_REPO"]: (("SITE_TOKEN", "LOGVIEW_READ"), {
                   "pages.yml": (4, False),                    # hourly and on each build; a newer build cancels a deploy
                   "apps.yml": (24 * 15, True),                # Mondays (a run is also marked failed when no Mac was free)

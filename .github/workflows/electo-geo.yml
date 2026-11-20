@@ -1,0 +1,123 @@
+name: electo-geo
+# The Legislature tab's location lookup in Electo, built from Census Bureau files with Electo's own scripts:
+# ga/geolookup.py writes ga/lookup.json and ga/lookup_shapes.json (ZIP code, place and district overlaps) and
+# ga/geoaddr.py writes ga/addr/ (street-address ranges -> districts). About 30 minutes. The files are committed to
+# Electo when they changed, and then publish-site is started.
+#
+# Runs in the PUBLIC runner repository only (free minutes). Until Nov 19, 2026 Electo's own geo-lookup workflow built
+# them on the private repository's paid minutes whenever one of the two scripts was pushed; that workflow now starts
+# only by hand. A push to Electo cannot start a run here, so once a day this job looks at the two scripts on Electo's
+# main and builds when they are not the ones it last built from (their git ids, kept as a marker in this
+# repository's Actions cache): a changed script is built within a day. Its first check here builds nothing: the
+# lookup files on main are taken as built from the scripts beside them, as Electo's workflow left them.
+# By hand (Actions, electo-geo, Run workflow) it always builds; do that after a change that should not wait a day.
+# The log shows the Census file names and the scripts' counts.
+on:
+  schedule:
+    - cron: "11 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write        # start publish-site once Electo has the lookup files
+
+concurrency:
+  group: electo-geo
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      BY_HAND: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+    steps:
+      - name: The scripts the lookup files were last built from
+        id: seen
+        continue-on-error: true     # no answer from the cache: treated as a first check (nothing built; by hand builds)
+        uses: actions/cache/restore@v4
+        with:
+          path: .electo-geo-built
+          # never an exact match: the newest marker is taken (each build leaves one, named by its run)
+          key: electo-geo-${{ github.run_id }}
+          restore-keys: electo-geo-
+      - name: Electo's main, the two build scripts on it, and whether to build
+        id: look
+        run: |
+          set -eu
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          E="$RUNNER_TEMP/electo-geo"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E"
+          for f in ga/geolookup.py ga/geoaddr.py; do
+            git -C "$E" rev-parse -q --verify "HEAD:$f" >/dev/null || { echo "::error::no $f in this Electo"; exit 1; }
+          done
+          # each script's git id on main: a change to either gives another key
+          KEY=$(for f in ga/geolookup.py ga/geoaddr.py; do echo "$f $(git -C "$E" rev-parse "HEAD:$f")"; done | sha256sum | cut -c1-20)
+          WAS=$(cat .electo-geo-built 2>/dev/null || true)
+          echo "Electo main $(git -C "$E" rev-parse --short HEAD); the two build scripts: $KEY; built last from: ${WAS:-nothing remembered}"
+          if [ "$BY_HAND" = "true" ]; then echo "started by hand: building"; GO=true
+          elif [ "$WAS" = "$KEY" ]; then echo "the lookup files were built from these scripts: nothing to do"; GO=false
+          elif [ -n "$WAS" ]; then echo "a build script changed since the last build here: building"; GO=true
+          else
+            # nothing remembered: the first check in this repository (or the markers were dropped). The files on main
+            # are taken as built from these scripts, which Electo's own workflow saw to until this job took over
+            echo "::notice::first check here: the lookup files on Electo's main are taken as built from the scripts beside them (run this workflow by hand to build them again)"
+            GO=false; echo "first=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "go=$GO" >> "$GITHUB_OUTPUT"
+          [ "$WAS" = "$KEY" ] || echo "remember=true" >> "$GITHUB_OUTPUT"
+          echo "$KEY" > .electo-geo-built
+      - uses: actions/setup-python@v5
+        if: steps.look.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: Build the lookup files (Census Bureau files) and commit them to Electo when they changed
+        id: build
+        if: steps.look.outputs.go == 'true'
+        run: |
+          set -eu
+          pip install -q pyshp==2.3.1 shapely==2.0.6
+          cd "$RUNNER_TEMP/electo-geo"
+          # what the two scripts read and write: themselves, the page map's outline, and the lookup files
+          git sparse-checkout set --no-cone /ga/geolookup.py /ga/geoaddr.py /ga/ga-topo.json /ga/lookup.json /ga/lookup_shapes.json /ga/addr/
+          python3 ga/geolookup.py
+          python3 ga/geoaddr.py
+          [ -s ga/lookup.json ] && [ -s ga/lookup_shapes.json ] && [ -n "$(ls ga/addr 2>/dev/null)" ] || { echo "::error title=Geo lookup::a lookup file is missing or empty after the build; nothing committed"; exit 1; }
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          git add -A ga/lookup.json ga/lookup_shapes.json ga/addr
+          if git diff --cached --quiet; then echo "the lookup files did not change" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          OUT="$RUNNER_TEMP/geo-out"; rm -rf "$OUT"; mkdir -p "$OUT"
+          cp -r ga/lookup.json ga/lookup_shapes.json ga/addr "$OUT/"
+          MSG="Geo lookup: ZIP code and place district shares from Census files"
+          git commit -qm "$MSG"
+          for i in 1 2 3 4 5; do
+            if git push -q origin HEAD:main; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              echo "Lookup files on Electo ($(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            echo "the push was refused (try $i): committing again on Electo's newest main"
+            sleep $((i * 5))
+            # only this job writes these files: the build (half an hour) is put on the newest commit as it is
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || continue
+            rm -rf ga/addr && cp -r "$OUT/addr" ga/addr && cp "$OUT/lookup.json" "$OUT/lookup_shapes.json" ga/
+            git add -A ga/lookup.json ga/lookup_shapes.json ga/addr
+            if git diff --cached --quiet; then echo "Electo already has these lookup files"; exit 0; fi
+            git commit -qm "$MSG"
+          done
+          echo "::error title=Geo lookup::Electo refused the lookup files five times; nothing of this build reached it"; exit 1
+      - name: Remember the scripts these lookup files were built from
+        # after a build that went through (pushed, or nothing changed) and after the first check; not after a failed
+        # build, which the next check then tries again
+        if: ${{ !cancelled() && steps.look.outputs.remember == 'true' && (steps.build.outcome == 'success' || steps.look.outputs.first == 'true') }}
+        continue-on-error: true     # not kept: the next check finds the earlier marker, or none (and then builds nothing)
+        uses: actions/cache/save@v4
+        with:
+          path: .electo-geo-built
+          key: electo-geo-${{ github.run_id }}
+      - name: Publish the site now
+        if: ${{ !cancelled() && steps.build.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

@@ -1,0 +1,49 @@
+name: election-reports-check
+# A dry run of the county election-report finder (gacrawl elections reports --dry-run): what it would find for these
+# counties, printed to the log. Nothing is stored; the nightly crawl does the real run.
+#
+# Runs in the PUBLIC runner repository only (Crawl-runner, Actions, election-reports-check, Run workflow), on its free
+# minutes; until Nov 19, 2026 it ran in the private repository on paid minutes. The log shows the searches made and
+# the counties' public report addresses. From the private repository it takes only state/ (scripts/private_data.py
+# state: each county's website and the search cache), prints none of it and writes nothing back; the database is this
+# run's own, empty.
+on:
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: "county ids, comma-separated (co-dekalb,co-fulton,...)"
+        required: true
+      cap:
+        description: "web searches"
+        required: false
+        default: "40"
+permissions:
+  contents: read
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+jobs:
+  check:
+    # the public runner only (config/runner.json runner_repo), on its free minutes: in the private repository a
+    # start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job reads pages from the web: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The crawler's state (from the private repository, read only)
+        # the registry's websites, the hosts that refused the crawler (not asked again inside their week) and the
+        # search cache; the clone that holds the token is removed before a site is read, and nothing is written back
+        timeout-minutes: 5
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py state
+      - env:
+          COUNTIES: ${{ inputs.counties }}
+          CAP: ${{ inputs.cap }}
+        run: gacrawl elections reports --dry-run --counties "$COUNTIES" --cap "$CAP" --max-minutes 22

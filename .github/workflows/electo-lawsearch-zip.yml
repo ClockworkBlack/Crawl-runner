@@ -1,0 +1,87 @@
+name: electo-lawsearch-zip
+# The file the law-search Colab notebook (Electo tools/train/electo_lawsearch_colab.ipynb) asks for: every Georgia Code
+# section, the county and city ordinance sections that have no everyday questions yet, and the question writer, packed
+# by Electo's own tools/train/make_lawsearch_zip.sh. The zip is put on ELECTO's "lawsearch" release (Releases ->
+# lawsearch in the private repository; replaced on every build), where the owner downloads it for Colab, as before.
+#
+# Runs in the PUBLIC runner repository only (free minutes). Until Nov 19, 2026 Electo's own lawsearch-zip workflow built
+# it after every push of the ordinances' index or the question files, on the private repository's paid minutes; that
+# workflow now starts only by hand.
+# Started: when this repository's ordinances or ai-law-questions workflow finishes (they make those pushes), once a day
+# for a push made by a person, and by hand. Each start first looks at Electo's main: the release's notes name the
+# files the zip on it was built from (data/ordinances/index.json and data/ord_lay*.json.gz, by their git ids), and a
+# zip built from these very files is left alone. By hand it always builds.
+# The zip holds Electo's question writer and notebook: it goes to Electo's private release only, never to an
+# attachment of a run here (anyone can download a public repository's attachments). The log shows the exporters'
+# counts and the zip's size.
+on:
+  workflow_run:
+    workflows: [ordinances, ai-law-questions]
+    types: [completed]
+  schedule:
+    - cron: "27 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electo-lawsearch-zip
+  cancel-in-progress: false
+
+jobs:
+  zip:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      BY_HAND: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+    steps:
+      - name: Electo's main, and the files the zip on the release was built from
+        id: look
+        run: |
+          set -eu
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          E="$RUNNER_TEMP/electo-lawsearch"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E"
+          # the git ids on main of the ordinances' index and of each question file: a change to one gives another key
+          KEY=$({ echo "data/ordinances/index.json $(git -C "$E" rev-parse -q --verify "HEAD:data/ordinances/index.json" || echo none)"
+                  git -C "$E" ls-tree HEAD data/ | awk '$4 ~ /^data\/ord_lay[^\/]*\.json\.gz$/ {print $4, $3}'
+                } | sha256sum | cut -c1-20)
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          # the release's notes are read, never printed
+          NOTES=$(GH_TOKEN="$ELECTO_TOKEN" gh release view lawsearch -R "$ELECTO_REPO" --json body --jq .body 2>/dev/null || true)
+          echo "Electo main $(git -C "$E" rev-parse --short HEAD); the law-search files: $KEY"
+          case "$NOTES" in *"(files $KEY)"*) SAME=true ;; *) SAME=false ;; esac
+          if [ "$BY_HAND" = "true" ]; then echo "started by hand: building"; GO=true
+          elif [ "$SAME" = "true" ]; then echo "the zip on the release was built from these very files: nothing to do"; GO=false
+          else echo "the zip on the release is from other files (or there is none): building"; GO=true; fi
+          echo "go=$GO" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        if: steps.look.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: Build the zip and put it on Electo's "lawsearch" release
+        if: steps.look.outputs.go == 'true'
+        env:
+          KEY: ${{ steps.look.outputs.key }}
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/electo-lawsearch"
+          git sparse-checkout set --no-cone /data/ordinances/ '/data/ord_lay*.json.gz' /ga/ordinances_build.py /ga/pipeline_civics/ /tools/train/ /research/train/law_bench.jsonl
+          [ -f tools/train/make_lawsearch_zip.sh ] || { echo "::error::no tools/train/make_lawsearch_zip.sh in this Electo"; exit 1; }
+          # the build's own exit status, not tee's
+          set +e
+          bash tools/train/make_lawsearch_zip.sh data/electo_lawsearch.zip | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
+          set -e
+          [ "$rc" = 0 ] && [ -s data/electo_lawsearch.zip ] || { echo "::error title=Law-search zip::tools/train/make_lawsearch_zip.sh ended with exit $rc; the release keeps its zip"; exit 1; }
+          export GH_TOKEN="$ELECTO_TOKEN"
+          notes="electo_lawsearch.zip for the law-search Colab notebook (tools/train/electo_lawsearch_colab.ipynb): every Georgia Code section, the ordinance sections with no everyday questions yet, and the question writer. Rebuilt by Crawl-runner's electo-lawsearch-zip workflow after each ordinance update, from $(git rev-parse --short HEAD) (files $KEY)."
+          gh release view lawsearch -R "$ELECTO_REPO" >/dev/null 2>&1 \
+            || gh release create lawsearch -R "$ELECTO_REPO" --title "Law-search training files" --prerelease --latest=false --notes "electo_lawsearch.zip for the law-search Colab notebook: being uploaded."
+          gh release upload lawsearch data/electo_lawsearch.zip -R "$ELECTO_REPO" --clobber
+          # the notes last: they name the files the zip now on the release was built from (a failed upload leaves the
+          # old notes, and the next start builds again)
+          gh release edit lawsearch -R "$ELECTO_REPO" --notes "$notes" >/dev/null
+          echo "On Electo's lawsearch release: $(du -h data/electo_lawsearch.zip | cut -f1)" | tee -a "$GITHUB_STEP_SUMMARY"

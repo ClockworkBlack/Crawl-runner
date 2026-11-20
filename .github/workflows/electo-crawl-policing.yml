@@ -1,0 +1,114 @@
+name: electo-crawl-policing
+# The Policing tab's files in Electo (ga/crawl/police.json, media.json, records.json, sites.json, police_news.json, and
+# bill_reasons.json: why bills passed or died) made again from the bundle files in Electo's data/crawl/ with Electo's
+# own importer (ga/crawl_import.py --policing-only), committed to Electo when they changed, and then publish-site.
+#
+# Runs in the PUBLIC runner repository only (free minutes). Electo's own crawl-policing workflow did this on every push
+# of those bundle files, on the private repository's paid minutes (it has been switched off there since Nov 7, 2026 and
+# now starts only by hand). The jobs here that push the bundle files already run the same importer themselves: police
+# in the same commit, the crawl's merge in its import step. So this job is the backstop for what they leave: a push of
+# those files by a person, or a crawl whose packets reached Electo and whose import then stopped (Nov 19, 2026, 22:50:
+# data/crawl/bill_reasons.json was newer than ga/crawl/bill_reasons.json). Twice a day it looks at the five bundle
+# files on Electo's main and imports when they are not the ones it imported last (their git ids, kept as a marker in
+# this repository's Actions cache). After a police or crawl push that is one import of a minute or two that usually
+# changes nothing. By hand (Actions, electo-crawl-policing, Run workflow) it always imports.
+# The log shows the importer's last lines (counts of public records).
+on:
+  schedule:
+    - cron: "43 5,17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write        # start publish-site once Electo has the files
+
+concurrency:
+  group: electo-crawl-policing
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      ELECTO_PATH: ${{ vars.ELECTO_PATH || 'data/crawl' }}
+    steps:
+      - name: The bundle files this job imported last
+        id: seen
+        if: github.event_name != 'workflow_dispatch'
+        continue-on-error: true     # no answer from the cache: they are imported again (an import that changes nothing)
+        uses: actions/cache/restore@v4
+        with:
+          path: .electo-policing-done
+          # never an exact match: the newest marker is taken (each import leaves one, named by its run)
+          key: electo-crawl-policing-${{ github.run_id }}
+          restore-keys: electo-crawl-policing-
+      - name: Electo's main, and the bundle files the Policing tab is made from
+        id: look
+        run: |
+          set -eu
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          E="$RUNNER_TEMP/electo-policing"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E"
+          # each file's git id on main: any change to one of them gives another key
+          KEY=$(for f in police media records_contacts police_incidents bill_reasons; do
+                  echo "$f $(git -C "$E" rev-parse -q --verify "HEAD:${ELECTO_PATH}/$f.json" || echo none)"
+                done | sha256sum | cut -c1-20)
+          WAS=$(cat .electo-policing-done 2>/dev/null || true)
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Electo main $(git -C "$E" rev-parse --short HEAD); the Policing bundle files: $KEY; imported last: ${WAS:-nothing remembered}"
+          if [ "$WAS" = "$KEY" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; echo "these very files were imported by an earlier run: nothing to do"
+          else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.look.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: data/crawl -> ga/crawl (the Policing tab's files), committed to Electo when they changed
+        id: import
+        if: steps.look.outputs.go == 'true'
+        env:
+          KEY: ${{ steps.look.outputs.key }}
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/electo-policing"
+          # what the importer reads (ga/, research/, tools/, the bundle's top files and federal bills; not
+          # data/crawl/profiles or packets, 3.5 GB), as police.yml checks it out
+          git sparse-checkout set --no-cone '/*' '!/*/' /ga/ /research/ /tools/ \
+            "/${ELECTO_PATH}/*.json" "/${ELECTO_PATH}/federal_bills/" "/${ELECTO_PATH}/profiles/index.json"
+          git config user.name "gacrawl-bot" && git config user.email "gacrawl-bot@users.noreply.github.com"
+          ok=""
+          for i in 1 2 3; do
+            # a later try starts from Electo's newest main: the crawl's import, the money pushes and the AI jobs push
+            # to Electo too, and the importer is run again there (no rebase over their files)
+            if [ "$i" != 1 ]; then git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || { sleep $((i * 10)); continue; }; fi
+            # the importer's own exit status (piped into tail, a crash would commit whatever it had written)
+            CRAWL_BUNDLE="${ELECTO_PATH}" python3 -I ga/crawl_import.py --policing-only 2>&1 | tail -n 5 | cut -c1-300
+            rc=${PIPESTATUS[0]}
+            [ "$rc" = 0 ] || { echo "::error title=Policing import::ga/crawl_import.py --policing-only ended with exit $rc; nothing committed to Electo"; exit 1; }
+            # the Policing tab's files; not donors.json, which the money jobs push newer than this bundle holds
+            for f in police media records sites police_news bill_reasons; do [ -e "ga/crawl/$f.json" ] && git add "ga/crawl/$f.json"; done
+            if git diff --cached --quiet; then echo "the Policing tab's files are current" | tee -a "$GITHUB_STEP_SUMMARY"; ok=1; break; fi
+            git commit -qm "Policing data from Crawl: $(date -u +%Y-%m-%dT%H:%MZ)"
+            if git push -q origin HEAD:main; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              echo "Policing files on Electo ($(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"; ok=1; break
+            fi
+            echo "the push was refused (try $i): importing again on Electo's newest main"
+            sleep $((i * 10))
+          done
+          [ -n "$ok" ] || { echo "::error title=Policing import::Electo did not take the Policing files after 3 tries"; exit 1; }
+          echo "$KEY" > "$GITHUB_WORKSPACE/.electo-policing-done"
+      - name: Remember these files as imported
+        if: steps.import.outcome == 'success'
+        continue-on-error: true     # not kept: the next run imports them again and changes nothing
+        uses: actions/cache/save@v4
+        with:
+          path: .electo-policing-done
+          key: electo-crawl-policing-${{ github.run_id }}
+      - name: Publish the site now
+        if: ${{ !cancelled() && steps.import.outputs.pushed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-site.yml -R "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "publish-site will pick it up on its schedule"

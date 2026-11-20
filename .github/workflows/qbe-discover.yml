@@ -1,0 +1,38 @@
+name: qbe-discover
+# What GaDOE's QBE report API answers (gacrawl schools qbe-discover): the reports, their parameters and choices, and
+# one generate attempt each, printed to the log. For building or fixing the QBE reader (gacrawl/qbe.py); it stores
+# nothing.
+#
+# Runs in the PUBLIC runner repository only (Crawl-runner, Actions, qbe-discover, Run workflow), on its free minutes;
+# until Nov 19, 2026 it ran in the private repository on paid minutes. The log shows GaDOE's public answers. From the
+# private repository it takes only state/ (scripts/private_data.py state: a host that refused the crawler is not
+# asked again), prints none of it and writes nothing back.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+jobs:
+  discover:
+    # the public runner only (config/runner.json runner_repo), on its free minutes: in the private repository a
+    # start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job reads pages from the web: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The crawler's state (from the private repository, read only)
+        # the registry's websites, the hosts that refused the crawler (not asked again inside their week) and the
+        # search cache; the clone that holds the token is removed before a site is read, and nothing is written back
+        timeout-minutes: 5
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py state
+      - run: gacrawl schools qbe-discover --max-minutes 10 > qbe.json; python3 -c "import json;t=open('qbe.json').read();i=t.find(chr(10)+'{');t=t if t.startswith('{') else t[i+1:];print(t[:120000] if i<0 and not t.startswith('{') else json.dumps(json.loads(t),indent=1)[:120000])"

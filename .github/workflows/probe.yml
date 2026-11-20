@@ -1,0 +1,111 @@
+# Look at sites the way the crawler does, to build or fix a reader (gacrawl probe). Separate from crawl.yml so it
+# never waits behind, or displaces, a crawl run. Refused and bot-protected sites are reported, never worked around.
+#
+# Runs in the PUBLIC runner repository only (Crawl-runner, Actions, probe, Run workflow), on its free minutes; until
+# Nov 19, 2026 it ran in the private repository on paid minutes. It reads the addresses typed into the form and prints
+# what those public pages answer: the log and the attached files are public until sync-code deletes the run (within
+# about an hour), so never type an address that carries a key or a login. From the private repository it takes only
+# state/ (scripts/private_data.py state: a host that refused the crawler is reported, not asked again), prints none
+# of it and writes nothing back.
+name: probe
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "space-separated URLs"
+        required: true
+      browser:
+        description: "also visit in headless Chrome and record the requests the page makes"
+        type: boolean
+        default: true
+      accept:
+        description: "ask for this content type (json, xml, html; blank = as a browser would)"
+        required: false
+      timeout:
+        description: "read timeout in seconds (blank = the crawler's own)"
+        required: false
+      grep:
+        description: "text files: print up to 25 lines matching this regular expression"
+        required: false
+      dump:
+        description: "also print each fetched file, gzipped and base64-encoded, in the job log (for when artifacts cannot be stored)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  PYTHONUNBUFFERED: "1"
+  GACRAWL_USER_AGENT: "GACivicCrawler/0.3 (+https://github.com/${{ github.repository }})"
+  GACRAWL_BROWSER_CHANNEL: chrome
+jobs:
+  probe:
+    # the public runner only (config/runner.json runner_repo), on its free minutes: in the private repository a
+    # start of this workflow ends here, skipped (no minutes)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false     # this job reads pages from the web: no credential in its checkout
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -q -e .
+      - name: The crawler's state (from the private repository, read only)
+        # the registry's websites, the hosts that refused the crawler (not asked again inside their week) and the
+        # search cache; the clone that holds the token is removed before a site is read, and nothing is written back
+        timeout-minutes: 5
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python3 scripts/private_data.py state
+      - name: Probe
+        env:
+          URLS: ${{ inputs.urls }}      # through the environment, so a URL's $, & and ? reach the crawler as typed
+          BROWSER: ${{ inputs.browser && '--browser' || '' }}
+          ACCEPT: ${{ inputs.accept && format('--accept {0}', inputs.accept) || '' }}
+          TIMEOUT: ${{ inputs.timeout && format('--timeout {0}', inputs.timeout) || '' }}
+          GREP: ${{ inputs.grep }}
+        run: |
+          set -f                          # no globbing: '?' and '*' are URL characters here
+          if [ -n "$GREP" ]; then
+            gacrawl probe $URLS $BROWSER $ACCEPT $TIMEOUT --grep "$GREP" --out probe
+          else
+            gacrawl probe $URLS $BROWSER $ACCEPT $TIMEOUT --out probe
+          fi
+      - name: Print what was found (readable from the job log)
+        run: |
+          python - <<'PY'
+          import json, pathlib, re
+          for d in sorted(pathlib.Path("probe").iterdir()):
+              if not d.is_dir(): continue
+              print("=" * 30, d.name)
+              for name in ("fetch.json", "links.json", "network.json"):
+                  p = d / name
+                  if p.exists():
+                      print("---", name); print(p.read_text()[:60000])
+              for name in ("fetch.html", "rendered.html"):
+                  p = d / name
+                  if p.exists():
+                      t = p.read_text(errors="ignore")
+                      print("---", name, len(t), "chars")
+                      # rows, links and script data a reader would use
+                      for m in re.finditer(r"<(?:tr|a|form|input)\b[^>]{0,400}>", t[:400000], re.I):
+                          print(m.group(0)[:400])
+          PY
+      - name: Print the fetched files (dump)
+        if: ${{ inputs.dump }}
+        run: |
+          python - <<'PY'
+          import base64, gzip, pathlib
+          for d in sorted(pathlib.Path("probe").iterdir()):
+              p = d / "fetch.html"
+              if d.is_dir() and p.exists():
+                  b = base64.b64encode(gzip.compress(p.read_bytes(), 9)).decode()
+                  print(f"DUMP-BEGIN {d.name} {len(b)}")
+                  for i in range(0, len(b), 4000):
+                      print("DUMP " + b[i:i + 4000])
+                  print(f"DUMP-END {d.name}")
+          PY
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true            # a full artifact store must not hide what the log already shows
+        with: {name: probe, path: probe/, retention-days: 3}

@@ -1,0 +1,109 @@
+name: electo-ordinances
+# Codes of ordinances for the page: Electo's data/ordinances/ (sent there by this repository's ordinances workflow) and
+# the everyday questions (data/ord_lay*.json.gz; ai-law-questions writes the runner's) are turned into the small files
+# the page reads (Electo ga/ordinances_build.py) and published to the public data repository's "ordinances" branch
+# (ClockworkBlack/electo-data), which the page loads from raw.githubusercontent.com. Electo's own
+# tools/ordinances_publish.sh does both; only changed files are uploaded.
+#
+# Runs in the PUBLIC runner repository only (free minutes). Until Nov 19, 2026 Electo's own ordinances workflow ran on
+# every push of those files, on the private repository's paid minutes, and only built: it had no token for electo-data,
+# so the publishing was already done here, at the end of every site publish (Electo tools/site_data.sh). That still
+# happens; this job publishes the codes alone, in a few minutes, and whether or not the page's own build goes through.
+# Started: when this repository's ordinances or ai-law-questions workflow finishes (they make those pushes), every six
+# hours for a push made by a person, and by hand. Each start first looks at the files on Electo's main (the folder,
+# the question files, the builder and the publisher, by their git ids) and builds only when they are not the ones it
+# published last (a marker in this repository's Actions cache); by hand it always builds.
+# Two publishers of one branch: when the site publish pushed first, the push here is refused and tried again, and the
+# second try finds the branch current.
+# The log shows the builder's counts and whether anything was published (public documents).
+on:
+  workflow_run:
+    workflows: [ordinances, ai-law-questions]
+    types: [completed]
+  schedule:
+    - cron: "8 0,6,12,18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electo-ordinances
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ELECTO_TOKEN: ${{ secrets.ELECTO_TOKEN || secrets.DATA_TOKEN }}
+      ELECTO_REPO: ${{ vars.ELECTO_REPO || 'ClockworkBlack/Electo' }}
+      SITE_TOKEN: ${{ secrets.SITE_DATA_TOKEN || secrets.ELECTO_TOKEN }}
+      SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO || 'ClockworkBlack/electo-data' }}
+    steps:
+      - name: The files this job published last
+        id: seen
+        if: github.event_name != 'workflow_dispatch'
+        continue-on-error: true     # no answer from the cache: they are built again (and nothing new is uploaded)
+        uses: actions/cache/restore@v4
+        with:
+          path: .electo-ordinances-done
+          # never an exact match: the newest marker is taken (each publish leaves one, named by its run)
+          key: electo-ordinances-${{ github.run_id }}
+          restore-keys: electo-ordinances-
+      - name: Electo's main, and the ordinance files on it
+        id: look
+        run: |
+          set -eu
+          [ -n "$ELECTO_TOKEN" ] || { echo "::error::no token for Electo (ELECTO_TOKEN or DATA_TOKEN)"; exit 1; }
+          [ -n "$SITE_TOKEN" ] || { echo "::error::no SITE_DATA_TOKEN or ELECTO_TOKEN secret: $SITE_DATA_REPO can't be written"; exit 1; }
+          E="$RUNNER_TEMP/electo-ordinances"; rm -rf "$E"
+          git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${ELECTO_TOKEN}@github.com/${ELECTO_REPO}.git" "$E"
+          # the git ids on main of the folder, each question file, the builder and the publisher: any change to one
+          # of them gives another key
+          KEY=$({ for p in data/ordinances ga/ordinances_build.py tools/ordinances_publish.sh; do
+                    echo "$p $(git -C "$E" rev-parse -q --verify "HEAD:$p" || echo none)"
+                  done
+                  git -C "$E" ls-tree HEAD data/ | awk '$4 ~ /^data\/ord_lay[^\/]*\.json\.gz$/ {print $4, $3}'
+                } | sha256sum | cut -c1-20)
+          WAS=$(cat .electo-ordinances-done 2>/dev/null || true)
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Electo main $(git -C "$E" rev-parse --short HEAD); the ordinance files: $KEY; published last: ${WAS:-nothing remembered}"
+          if [ "$WAS" = "$KEY" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; echo "these very files were published by an earlier run: nothing to do"
+          else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.look.outputs.go == 'true'
+        with: {python-version: "3.12"}
+      - name: Build and publish to electo-data (branch ordinances)
+        id: publish
+        if: steps.look.outputs.go == 'true'
+        env:
+          KEY: ${{ steps.look.outputs.key }}
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/electo-ordinances"
+          git sparse-checkout set --no-cone /data/ordinances/ '/data/ord_lay*.json.gz' /ga/ordinances_build.py /tools/ordinances_publish.sh
+          [ -f tools/ordinances_publish.sh ] || { echo "::error::no tools/ordinances_publish.sh in this Electo"; exit 1; }
+          [ -f data/ordinances/index.json ] || { echo "no data/ordinances in this Electo yet: nothing to publish"; exit 0; }
+          rc=1
+          for i in 1 2 3; do
+            # the publisher's own exit status, not tee's
+            set +e
+            TOKEN="$SITE_TOKEN" bash tools/ordinances_publish.sh | tee -a "$GITHUB_STEP_SUMMARY"; rc=${PIPESTATUS[0]}
+            set -e
+            [ "$rc" = 0 ] && break
+            # the site publish (Electo tools/site_data.sh) writes the same branch: when it pushed first, the push
+            # here is refused, and the next try finds the branch as it is now
+            echo "not published (exit $rc; try $i)"
+            sleep $((i * 20))
+          done
+          [ "$rc" = 0 ] || { echo "::error title=Ordinances::tools/ordinances_publish.sh failed three times (exit $rc); the codes on $SITE_DATA_REPO are as they were"; exit 1; }
+          echo "$KEY" > "$GITHUB_WORKSPACE/.electo-ordinances-done"
+      - name: Remember these files as published
+        if: steps.publish.outcome == 'success' && hashFiles('.electo-ordinances-done') != ''
+        continue-on-error: true     # not kept: the next run builds them again and uploads nothing new
+        uses: actions/cache/save@v4
+        with:
+          path: .electo-ordinances-done
+          key: electo-ordinances-${{ github.run_id }}
