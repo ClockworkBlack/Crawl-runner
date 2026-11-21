@@ -1617,34 +1617,13 @@
        },
        "yr": {
         "type": "object",
-        "description": "seen 36 of 36",
-        "properties": {
-         "2021": {
-          "type": "number",
-          "description": "seen 3 of 36"
-         },
-         "2022": {
-          "type": "number",
-          "description": "seen 11 of 36"
-         },
-         "2023": {
-          "type": "number",
-          "description": "seen 2 of 36"
-         },
-         "2024": {
-          "type": "number",
-          "description": "seen 5 of 36"
-         },
-         "2025": {
-          "type": "number",
-          "description": "seen 10 of 36"
-         },
-         "2026": {
-          "type": "number",
-          "description": "seen 11 of 36"
-         }
+        "description": "keyed by a year (6 keys when measured)",
+        "propertyNames": {
+         "pattern": "^(19|20)[0-9]{2}$"
         },
-        "additionalProperties": false
+        "additionalProperties": {
+         "type": "number"
+        }
        }
       },
       "required": [
@@ -2903,6 +2882,7 @@
  ],
  "additionalProperties": false,
  "x-widened": [
-  "$.gifts[11432]: keys ['redated'] found in real data, not in the draft (donors.json)"
+  "$.gifts[11432]: keys ['redated'] found in real data, not in the draft (donors.json)",
+  "Nov 21, 2026: recipients.moved.yr is a map keyed by a year, not the keys the first draft saw (a new key is not a fault; the audit had flagged hist/audit.json when a label went)."
  ]
 }

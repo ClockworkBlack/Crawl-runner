@@ -75,67 +75,13 @@
     },
     "names": {
      "type": "object",
-     "description": "seen 1 of 1",
-     "properties": {
-      "1027": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1029": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1030": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1031": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1032": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1033": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "1034": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "24": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "25": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "26": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      },
-      "27": {
-       "type": "string",
-       "description": "seen 1 of 1"
-      }
+     "description": "keyed by the legislature site's session id (24-27 before 2021, 1027 on) -> the session's name",
+     "propertyNames": {
+      "pattern": "^[0-9]{2,4}$"
      },
-     "required": [
-      "1027",
-      "1029",
-      "1030",
-      "1031",
-      "1032",
-      "1033",
-      "1034",
-      "24",
-      "25",
-      "26",
-      "27"
-     ],
-     "additionalProperties": false
+     "additionalProperties": {
+      "type": "string"
+     }
     },
     "years": {
      "type": "object",
@@ -281,5 +227,8 @@
   "video",
   "votes"
  ],
- "additionalProperties": false
+ "additionalProperties": false,
+ "x-widened": [
+  "Nov 21, 2026: sessions.names is a map keyed by the General Assembly's session id, not the keys the first draft saw (a new key is not a fault; the audit had flagged hist/audit.json when a label went)."
+ ]
 }

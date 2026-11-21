@@ -125,7 +125,7 @@
    "pinned": false,
    "strict": "open",
    "issues": 1,
-   "widened": 1
+   "widened": 2
   },
   {
    "schema": "bundle/elections.schema.json",
@@ -699,7 +699,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 0,
-   "widened": 0
+   "widened": 1
   },
   {
    "schema": "config/organizations.schema.json",
