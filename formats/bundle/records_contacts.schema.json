@@ -58,8 +58,97 @@
       "description": "seen 126 of 126"
      },
      "website": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "the jurisdiction's own site; null for a town with none (87 of the clerks looked up by hand, Nov 21, 2026)"
+     },
+     "clerk": {
+      "type": "object",
+      "description": "the clerk looked up by hand (data/openrecords/clerks.json): name, title, the page that says so",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "title": {
+        "type": "string"
+       },
+       "src": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     },
+     "phone": {
+      "type": "object",
+      "description": "city or county hall's phone, what the number is, the page that gives it",
+      "properties": {
+       "number": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "src": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "number"
+      ],
+      "additionalProperties": false
+     },
+     "hours": {
       "type": "string",
-      "description": "seen 126 of 126"
+      "description": "office hours as the page gives them"
+     },
+     "mail": {
+      "type": "string",
+      "description": "mailing address (or street address where no mailing address is given)"
+     },
+     "email_from": {
+      "type": "array",
+      "description": "the addresses rated high or medium, best first, each with whose it is and its page",
+      "items": {
+       "type": "object",
+       "properties": {
+        "address": {
+         "type": "string"
+        },
+        "whose": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "confidence": {
+         "enum": [
+          "high",
+          "medium"
+         ]
+        },
+        "src": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "required": [
+        "address",
+        "confidence"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "checked": {
+      "type": "string",
+      "format": "date",
+      "description": "the day the clerk's entry was looked up"
      }
     },
     "required": [
@@ -82,5 +171,8 @@
   "contacts",
   "note"
  ],
- "additionalProperties": false
+ "additionalProperties": false,
+ "x-widened": [
+  "Nov 21, 2026: the clerks looked up by hand (Crawl a1b9c85d, gacrawl/openrecords.py records_contact) add clerk, phone, hours, mail, email_from and checked to a contact; the first draft was measured before they joined the export."
+ ]
 }

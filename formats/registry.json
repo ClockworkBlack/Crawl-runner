@@ -223,7 +223,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 1,
-   "widened": 0
+   "widened": 1
   },
   {
    "schema": "bundle/media.schema.json",
@@ -391,7 +391,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 1,
-   "widened": 0
+   "widened": 1
   },
   {
    "schema": "bundle/rumor_mill.schema.json",
@@ -1903,7 +1903,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 0,
-   "widened": 0
+   "widened": 1
   },
   {
    "schema": "state/http_cache__.schema.json",

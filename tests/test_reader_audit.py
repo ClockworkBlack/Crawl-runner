@@ -456,3 +456,14 @@ def test_the_hall_and_south_fulton_reports_as_their_pdfs_print_them():
         assert got["Union City Mayor"] == ["Tom Anderson, III", "Keith A. Skippings", "Vince R. Williams"]
         assert got["South Fulton City Council D6"] == ["Tashima Freeman", "Natasha Williams"]
         assert "Carmalitha L. Gumbs" in got["South Fulton Mayor"] and "Aaron Johnson" in got["South Fulton City Council D2"]
+
+
+def test_an_agenda_heading_run_into_a_movers_name_is_not_part_of_it():
+    """Pierce County's Jan 7, 2025 summary: "Agenda-Randy Dixon motioned to approve the agenda" made a member named
+    "Agenda-Randy Dixon", whom the site knew of no one, and its audit failed grand-cross (Nov 21, 2026)."""
+    from gacrawl.minutes import parse_motions
+
+    m = parse_motions("Agenda-Randy Dixon motioned to approve the agenda, Troy Mattox seconded the motion. Motion carried.")
+    assert [(x["mover"], x["seconder"]) for x in m] == [("Randy Dixon", "Troy Mattox")]
+    m = parse_motions("Commissioner Smith-Jones moved to approve the budget, seconded by Troy Mattox. Motion carried.")
+    assert m[0]["mover"] == "Smith-Jones"                  # a hyphenated surname keeps its hyphen

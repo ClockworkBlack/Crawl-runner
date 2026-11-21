@@ -230,47 +230,27 @@
   },
   "open_records": {
    "type": "object",
-   "description": "seen 1 of 1",
-   "properties": {
-    "acknowledged": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "cost_estimate": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "followed_up": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "fulfilled": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "partial": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "portal_only": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    },
-    "withdrawn": {
-     "type": "integer",
-     "description": "seen 1 of 1"
-    }
+   "description": "open-records requests by status: the count of each status present (export.py export_open_records); the statuses are gacrawl/openrecords.py STATUSES",
+   "propertyNames": {
+    "enum": [
+     "planned",
+     "sent",
+     "acknowledged",
+     "cost_estimate",
+     "fulfilled",
+     "partial",
+     "denied",
+     "bounced",
+     "followed_up",
+     "portal_only",
+     "error",
+     "withdrawn"
+    ]
    },
-   "required": [
-    "acknowledged",
-    "cost_estimate",
-    "followed_up",
-    "fulfilled",
-    "partial",
-    "portal_only",
-    "withdrawn"
-   ],
-   "additionalProperties": false
+   "additionalProperties": {
+    "type": "integer",
+    "minimum": 0
+   }
   },
   "policing": {
    "type": "object",
@@ -716,5 +696,8 @@
   "verified_posts",
   "vote_model"
  ],
- "additionalProperties": false
+ "additionalProperties": false,
+ "x-widened": [
+  "Nov 21, 2026: open_records counts the statuses present that day, so its keys change (sent appeared); now keyed by openrecords.STATUSES, pinned by the tests."
+ ]
 }

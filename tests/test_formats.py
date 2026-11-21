@@ -117,3 +117,15 @@ def test_a_file_that_does_not_fit_says_where_and_why(tmp_path):
     assert C.check_file({"type": "array", "items": s}, p) == []
     with pytest.raises(C.SchemaError):
         C.errors({}, {"type": "object", "maxProperties": 3})       # a keyword the checker does not read is never ignored
+
+
+def test_the_open_records_counts_are_keyed_by_the_codes_statuses():
+    """The manifest counts the statuses present that day, so its keys change from day to day ("sent" appeared on
+    Nov 21, 2026 and the first draft, measured a day before, lacked it): the format is the code's list."""
+    from gacrawl.openrecords import STATUSES
+
+    s = C.load_schema(FM / "bundle" / "manifest.schema.json")
+    assert s["properties"]["open_records"]["propertyNames"]["enum"] == list(STATUSES)
+    e = C.load_schema(ROOT.parent / "Electo" / "formats" / "site" / "data__crawl__manifest.schema.json") \
+        if (ROOT.parent / "Electo" / "formats").is_dir() else None
+    assert e is None or e["properties"]["open_records"] == s["properties"]["open_records"]

@@ -148,8 +148,15 @@ def meeting_date(text: str, title: str = "") -> str | None:
     return None
 
 
+# an agenda heading run into the name that follows it ("Agenda-Randy Dixon motioned to approve the agenda": Pierce
+# County's Jan 7, 2025 summary). The heading's word, not the name, is dropped; a hyphenated surname ("Smith-Jones")
+# has no heading word before its hyphen and is kept. The site's audit failed on the one person it made (Nov 21, 2026).
+HEADING_LEAD = re.compile(r"^" + NOISE.pattern + r"\s*[-\u2013\u2014:]\s*(?=[A-Z])", re.I)
+
+
 def _person(s: str) -> str:
-    s = TITLE_RX.sub("", s.strip(" ,.;:\n"))
+    s = HEADING_LEAD.sub("", s.strip(" ,.;:\n"))
+    s = TITLE_RX.sub("", s)
     s = re.sub(r"\s+", " ", s).strip(" ,.;:")
     s = re.sub(r"^(?:the\s+)", "", s, flags=re.I)
     return s[:60]
@@ -352,4 +359,5 @@ def _prefix(src: dict) -> str:
 # version 3 (Nov 19, 2026): motions keyed by their words, not their paragraph's index, and a document's earlier motions
 # that a re-read does not find again removed (prune): the pass also removes every index-keyed copy stored before;
 # a motion's words are not cut at an abbreviation's period; agenda headings are not members
-register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive, version="3", prune=_prefix))
+# version 4 (Nov 21, 2026): an agenda heading run into a mover's name is not part of the name (HEADING_LEAD)
+register(Deriver("minutes", "kind='document' AND source_id NOT LIKE 'cand:%'", _derive, version="4", prune=_prefix))
