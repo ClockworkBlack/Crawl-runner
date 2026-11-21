@@ -5,6 +5,7 @@ unusable e-mail addresses, and dates read from a page's words decades before it 
 import datetime as dt
 import json
 import re
+from pathlib import Path
 
 from gacrawl import derive, extract, minutes
 from gacrawl.elections import parse_results, parse_summary_report
@@ -467,3 +468,18 @@ def test_an_agenda_heading_run_into_a_movers_name_is_not_part_of_it():
     assert [(x["mover"], x["seconder"]) for x in m] == [("Randy Dixon", "Troy Mattox")]
     m = parse_motions("Commissioner Smith-Jones moved to approve the budget, seconded by Troy Mattox. Motion carried.")
     assert m[0]["mover"] == "Smith-Jones"                  # a hyphenated surname keeps its hyphen
+
+
+def test_the_history_reads_githubs_api_with_the_runs_token_and_no_other_host(monkeypatch):
+    """openelections answered HTTP 403 on Nov 21, 2026: GitHub's API allows 60 reads an hour without a token. The
+    run's own token goes to api.github.com alone, never to a file host or another source."""
+    from gacrawl.history.run import github_auth
+
+    monkeypatch.delenv("GITHUB_API_TOKEN", raising=False)
+    assert github_auth("https://api.github.com/repos/openelections/openelections-data-ga") is None
+    monkeypatch.setenv("GITHUB_API_TOKEN", "t0k")
+    assert github_auth("https://api.github.com/repos/openelections/openelections-data-ga")["Authorization"] == "Bearer t0k"
+    for u in ("https://raw.githubusercontent.com/openelections/x.csv", "https://dataverse.harvard.edu/api/x",
+              "https://api.github.com.example.org/x", "https://web.archive.org/cdx/search/cdx"):
+        assert github_auth(u) is None
+    assert "GITHUB_API_TOKEN: ${{ github.token }}" in (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "history.yml").read_text()

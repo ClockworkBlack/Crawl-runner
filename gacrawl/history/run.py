@@ -37,6 +37,18 @@ ARCHIVE_HOSTS = ("sos.ga.gov", "history.house.gov", "clerk.house.gov")
 CDX = "https://web.archive.org/cdx/search/cdx"
 
 
+
+def github_auth(url: str) -> dict | None:
+    """The run's own GitHub token for GitHub's API, for public reads only: without one GitHub allows 60 requests an
+    hour per address, and a shared runner's address had used them (openelections answered HTTP 403 on Nov 21, 2026).
+    Sent to api.github.com alone; a redirect to another host is asked without it (fetch.py drops the headers)."""
+    from urllib.parse import urlsplit
+
+    tok = os.environ.get("GITHUB_API_TOKEN", "").strip()
+    if not tok or urlsplit(url).netloc.lower() != "api.github.com":
+        return None
+    return {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+
 class Net:
     def __init__(self, cfg: dict):
         self.f = config.make_fetcher(cfg)
@@ -49,7 +61,7 @@ class Net:
 
     def _direct(self, url: str, params: dict | None = None) -> bytes:
         self.requests += 1
-        r = self.f.get(url, params=params, use_cache=False)
+        r = self.f.get(url, params=params, headers=github_auth(url), use_cache=False)
         if r.status != 200:
             raise IOError(f"HTTP {r.status} from {url}")
         return r.content

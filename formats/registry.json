@@ -1833,7 +1833,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 1,
-   "widened": 0
+   "widened": 1
   },
   {
    "schema": "state/electo_codes.schema.json",

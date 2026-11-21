@@ -79,6 +79,9 @@ jobs:
           fi
       - name: Read, in rounds; after each, save the work and the progress
         id: read
+        env:
+          # GitHub's API for public reads (openelections): the run's own read-only token, not a secret of the owner's
+          GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           save() {
             [ -d data/history ] || return 0
