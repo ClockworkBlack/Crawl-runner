@@ -56,6 +56,11 @@ FMT = 2                         # meta.fmt of a record written by these readers
 #   gwcca_about 2 (Nov. 20, 2026): one name per committee (config `committees`), one sitting per committee and day;
 #     the labels "09-16 & 17-21 ...", "12-10-24-GWCCA ...", "... MEETING - 04-30-26", a deck kept at Adobe
 READER_REV = {"gwcca_about": 2}
+# readers that file what a page lists only against meetings other pages gave this run (ag["_known"]): such a page is
+# read again whenever those pages gave meetings, whatever its copy's days. Macon-Bibb Transit's minutes, named by
+# month alone, were read on Nov 20, 2026, not again on Nov 21 (within 7 days) when its notices were first read, and
+# no meeting got its minutes.
+JOINS_KNOWN = {"month_named"}
 _COPY = re.compile(r"^https?://web\.archive\.org/web/(\d{4,14})(?:[a-z]{2}_)?/(.+)$", re.I)
 
 
@@ -1630,8 +1635,9 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
             every = int(e.get("recheck_days") or ag.get("recheck_days") or 7)
             rev = READER_REV.get(e.get("reader") or ag.get("reader") or "general", 1)
             # a copy read by an earlier reader than today's (READER_REV) is read again now, whatever its days
-            if (stamp.get("at") and int(stamp.get("rev") or 1) >= rev and (e.get("once") or (today - dt.date.fromisoformat(stamp["at"])).days < every)) \
-                    or stamp.get("tried") == today.isoformat():
+            joins = (e.get("reader") or ag.get("reader") or "general") in JOINS_KNOWN and bool(found)
+            if not joins and ((stamp.get("at") and int(stamp.get("rev") or 1) >= rev and (e.get("once") or (today - dt.date.fromisoformat(stamp["at"])).days < every))
+                              or stamp.get("tried") == today.isoformat()):
                 # (tried: asked for earlier today and not taken, see not_taken below: once a day, not on every run)
                 info["captured"] = max(info["captured"], stamp.get("as_of") or "")
                 info["archived"] += 1

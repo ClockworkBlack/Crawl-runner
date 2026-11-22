@@ -61,7 +61,8 @@ class Net:
 
     def _direct(self, url: str, params: dict | None = None) -> bytes:
         self.requests += 1
-        r = self.f.get(url, params=params, headers=github_auth(url), use_cache=False)
+        auth = github_auth(url)                    # passed only when there is one: a fetcher stand-in takes no headers
+        r = self.f.get(url, params=params, use_cache=False, **({"headers": auth} if auth else {}))
         if r.status != 200:
             raise IOError(f"HTTP {r.status} from {url}")
         return r.content

@@ -4,6 +4,8 @@ automated readers, its current notices page has no copy, and the minutes page na
 /category/governance-and-management/board-meetings/, of which the Archive keeps copies; they give each meeting's day,
 and the minutes are filed under those days. The test pages are cut from the copies the runner's probe fetched."""
 import json
+
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -42,7 +44,12 @@ def test_a_posts_own_page_is_read_only_when_set_down_so():
     assert (m["date"], m["time"], m["page"]) == ("2025-10-28", "17:30", OCT)
 
 
-def test_the_minutes_named_by_month_are_filed_under_the_notices_days(tmp_path, monkeypatch):
+@pytest.mark.parametrize("read_before", [False, True])
+def test_the_minutes_named_by_month_are_filed_under_the_notices_days(tmp_path, monkeypatch, read_before):
+    """read_before: the minutes page's copy was read the day before (its stamp within its days), as on the runner on
+    Nov 21, 2026, when no meeting got its minutes: it is read again with the notices all the same (JOINS_KNOWN)."""
+    import datetime as dt
+
     import gacrawl.wayback as W
 
     copies = {G: ("mbcta_governance_page1_wayback.html", "20251024201514"), G + "page/3/": ("mbcta_governance_page3_wayback.html", "20251202144452"),
@@ -55,6 +62,9 @@ def test_the_minutes_named_by_month_are_filed_under_the_notices_days(tmp_path, m
             raise Blocked("https://mbcta.net", "HTTP 403 bot-protection challenge")
 
     store = Store(tmp_path / "data")
+    if read_before:
+        yday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        store.kv_set(f"agency_archive:macon-transit:{MIN}", json.dumps({"at": yday, "as_of": "2026-02-12"}))
     try:
         res = A.run(Refusing(), store, ROOT, only=["macon-transit"], log=lambda *a: None, minutes_cap=0)
         out = tmp_path / "sm.json"
