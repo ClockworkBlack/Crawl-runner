@@ -1763,7 +1763,7 @@
    "pinned": false,
    "strict": "closed",
    "issues": 0,
-   "widened": 200
+   "widened": 201
   },
   {
    "schema": "state/channel_ai.schema.json",

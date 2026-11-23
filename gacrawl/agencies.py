@@ -55,7 +55,9 @@ FMT = 2                         # meta.fmt of a record written by these readers
 # nothing the page holds stops being shown, only the earlier reader's way of filing it.
 #   gwcca_about 2 (Nov. 20, 2026): one name per committee (config `committees`), one sitting per committee and day;
 #     the labels "09-16 & 17-21 ...", "12-10-24-GWCCA ...", "... MEETING - 04-30-26", a deck kept at Adobe
-READER_REV = {"gwcca_about": 2}
+#   month_named 2 (Nov. 23, 2026): files named by month alone are filed against the meetings on file as well as this
+#     run's (Macon-Bibb Transit's minutes page and its notices fall due on different days, and neither run filed them)
+READER_REV = {"gwcca_about": 2, "month_named": 2}
 # readers that file what a page lists only against meetings other pages gave this run (ag["_known"]): such a page is
 # read again whenever those pages gave meetings, whatever its copy's days. Macon-Bibb Transit's minutes, named by
 # month alone, were read on Nov 20, 2026, not again on Nov 21 (within 7 days) when its notices were first read, and
@@ -1585,6 +1587,10 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
         if mt.get("fmt") == FMT:
             sm = from_meta(mt)
             stored[(sm["date"], slug(sm["body"]), sm["mk"])] = (sm, mt)
+    # the meetings on file, for a reader that files by month alone (JOINS_KNOWN): the pages that give their days may
+    # not be read in the same run as the page of files
+    known_on_file = [(sm["date"], sm["body"], sm["mk"]) for sm, mt in stored.values() if not mt.get("withdrawn")]
+    ag["_known"] = list(known_on_file)
     queue = page_entries(ag)
     follow = [f.lower() for f in ag.get("follow") or []]
     depth = {e["u"]: 0 for e in queue}
@@ -1765,7 +1771,7 @@ def read_body(fetcher, store, ag: dict, deadline: float | None, errors: list, wb
         sched: dict[tuple, set] = {}
         for (d, b, mk) in found:
             sched.setdefault((b, mk), set()).add(d)
-        ag["_schedule"], ag["_known"] = sched, [(m["date"], m["body"], m["mk"]) for m in found.values()]
+        ag["_schedule"], ag["_known"] = sched, list(dict.fromkeys([(m["date"], m["body"], m["mk"]) for m in found.values()] + known_on_file))
         # each meeting's own event page (georgia.gov): its place, hour, agenda and files. A page read before for a
         # meeting more than two weeks past is not read again; what it gave is kept.
         if ag.get("event_pages") and not e.get("_event"):

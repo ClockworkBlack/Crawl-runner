@@ -129,3 +129,11 @@ def test_the_open_records_counts_are_keyed_by_the_codes_statuses():
     e = C.load_schema(ROOT.parent / "Electo" / "formats" / "site" / "data__crawl__manifest.schema.json") \
         if (ROOT.parent / "Electo" / "formats").is_dir() else None
     assert e is None or e["properties"]["open_records"] == s["properties"]["open_records"]
+
+
+def test_a_candidates_counts_are_keyed_by_the_record_kinds():
+    """state/candidate_progress.json counts a candidate's records by kind: any kind of formats/records/ ("post" was a
+    fault on Nov 23, 2026, when the first draft knew eight)."""
+    kinds = {e["title"] for e in REG if e["area"] == "records" and " " not in e["title"] and "(" not in e["title"]}
+    c = C.load_schema(FM / "state" / "candidate_progress.schema.json")["additionalProperties"]["properties"]["counts"]
+    assert kinds <= set(c["propertyNames"]["enum"]) and set(c["propertyNames"]["enum"]) - kinds <= {"steps_skipped", "rumor_mill"}

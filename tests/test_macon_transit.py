@@ -92,3 +92,40 @@ def test_the_config_reads_the_notices_before_the_minutes():
     arch = [e for e in ag["pages"] if isinstance(e, dict) and e.get("archive")]
     assert len(arch) == 6 and all(e["reader"] == "notice_posts" for e in arch)
     assert {e["u"] for e in arch if e.get("post")} == {"https://mbcta.net/september-2025-board-meeting/", OCT}
+
+
+def test_minutes_read_on_a_later_run_than_the_notices_are_filed_under_the_meetings_on_file(tmp_path, monkeypatch):
+    """On the runner (Nov 21-23, 2026) the notices were read on one run and the minutes page was due on another; each
+    run read one of them, and no meeting got its minutes. The minutes page now files against the meetings on file, and
+    a meeting so filed keeps its hour, place and agenda."""
+    import gacrawl.wayback as W
+
+    copies = {G: ("mbcta_governance_page1_wayback.html", "20251024201514"), G + "page/3/": ("mbcta_governance_page3_wayback.html", "20251202144452"),
+              OCT: ("mbcta_october_2025_post_wayback.html", "20251207032615"), MIN: ("mbcta_minutes_wayback.html", "20260212100639")}
+    have = {u for u in copies if u != MIN}                      # the first run: the minutes page has no copy
+    monkeypatch.setattr(W, "Wayback", lambda *a, **k: SimpleNamespace(off=""))
+    monkeypatch.setattr(A, "read_archived", lambda wb, u, copies_=4: (page(copies[u][0]), copies[u][1]) if u in have else (None, ""))
+
+    class Refusing:
+        def get(self, url, **k):
+            raise Blocked("https://mbcta.net", "HTTP 403 bot-protection challenge")
+
+    store = Store(tmp_path / "data")
+    try:
+        def body():
+            out = tmp_path / "sm.json"
+            A.export_state_meetings(store, ROOT, out, today="2026-11-23", log=lambda *a: None)
+            return {r["d"]: r for r in next(x for x in json.loads(out.read_text())["bodies"] if x["id"] == "macon-transit")["meetings"]}
+
+        A.run(Refusing(), store, ROOT, only=["macon-transit"], log=lambda *a: None, minutes_cap=0)
+        first = body()
+        assert first and not any(r.get("m") for r in first.values())
+        have = {MIN}                                            # the second run: only the minutes page is read (the rest is within its days)
+        A.run(Refusing(), store, ROOT, only=["macon-transit"], log=lambda *a: None, minutes_cap=0)
+        got = body()
+        assert got["2025-10-28"].get("m", "").endswith("MTA-Board-October-2025-Minutes.pdf"), got["2025-10-28"]
+        assert got["2025-08-26"]["t"] == "17:30" and got["2025-08-26"]["w"].startswith("Terminal Station")
+        assert all(got[d].get(k) == first[d].get(k) for d in first for k in ("t", "w", "a"))   # nothing the notices gave is lost
+        assert sum(1 for r in got.values() if r.get("m")) >= 7
+    finally:
+        store.close()
