@@ -42,6 +42,11 @@ for X in "$@"; do
   if [ -s "$X" ]; then gacrawl finance apply --delta "$X" | tail -1; fi
 done
 rm -rf "$W/h"
+# the candidates as Electo knows them (state/electo_people.json): without them a leadership committee linked to its
+# candidate in config/committee_links.yaml gets no Electo key (pac_of_key), and Grand Cross drops its tie. ga-money had
+# none: its push of Nov 24, 2026, 01:46Z took the keys off Kemp's, Burt Jones's, Abrams's and Rick Jackson's committees;
+# fec-reread fetches them itself, and the script stops at once when the file is already here
+bash "$(dirname "$0")/electo_people.sh" | tail -2
 gacrawl finance link | tail -c 300; echo
 gacrawl finance export-money --out "$W/money" | tail -2
 echo "money push: built in $(( $(date +%s) - T0 )) s"
